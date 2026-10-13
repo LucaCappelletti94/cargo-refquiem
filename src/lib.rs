@@ -11,6 +11,7 @@ mod intern;
 mod manifest;
 mod parse;
 mod scan;
+mod stdlib;
 mod text;
 
 pub use error::Error;
@@ -119,26 +120,62 @@ impl ItemKind {
     }
 }
 
-/// Where a mention sits.
+/// The text a mention sits in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Context {
-    /// A `//` or `/* */` comment.
+pub enum Source {
+    /// A `//` or `/* */` comment, read as plain text.
     Comment,
-    /// A doc comment.
+    /// A doc comment, read as Markdown.
     DocComment,
     /// A Markdown file.
     Markdown,
+    /// A string literal in Rust code.
+    StringLiteral,
+}
+
+/// The Markdown structure a mention sits in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// Running text.
+    Text,
+    /// An inline code span.
+    CodeSpan,
+    /// A code block, compiled when rustdoc runs it as a doctest.
+    CodeBlock {
+        /// Whether rustdoc compiles the block.
+        compiled: bool,
+    },
+    /// A link destination, an intra-doc link or a rustdoc page.
+    Link,
+}
+
+/// Where a mention sits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Context {
+    /// The text holding the mention.
+    pub source: Source,
+    /// Its structure within that text.
+    pub kind: Kind,
 }
 
 impl Context {
     /// The context in words.
     #[must_use]
-    pub fn describe(self) -> &'static str {
-        match self {
-            Self::Comment => "comment",
-            Self::DocComment => "doc comment",
-            Self::Markdown => "Markdown",
-        }
+    pub fn describe(self) -> String {
+        let source = match self.source {
+            Source::Comment => "comment",
+            Source::DocComment => "doc comment",
+            Source::Markdown => "Markdown",
+            Source::StringLiteral => "string literal",
+        };
+        let kind = match self.kind {
+            Kind::Text => "",
+            Kind::CodeSpan => " code span",
+            Kind::CodeBlock { compiled: true } => " code block",
+            Kind::CodeBlock { compiled: false } => " uncompiled code block",
+            Kind::Link => " link",
+        };
+        format!("{source}{kind}")
     }
 }
 

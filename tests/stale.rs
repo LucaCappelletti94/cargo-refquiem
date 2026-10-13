@@ -5,7 +5,7 @@ mod common;
 use std::path::PathBuf;
 
 use common::Repo;
-use refquiem::{Context, ItemKind, Range, RemovedIn};
+use refquiem::{Context, ItemKind, Kind, Range, RemovedIn, Source};
 
 /// Scanning a fixture repository.
 trait Scan {
@@ -84,7 +84,13 @@ fn removed_method_mentioned_in_a_doc_comment_is_reported() {
     assert_eq!(mention.file, "src/lib.rs");
     assert_eq!((mention.line, mention.column), (4, 19));
     assert_eq!(mention.text, "Parser::parse_expr");
-    assert_eq!(mention.context, Context::DocComment);
+    assert_eq!(
+        mention.context,
+        Context {
+            source: Source::DocComment,
+            kind: Kind::CodeSpan
+        }
+    );
 }
 
 #[test]
@@ -292,7 +298,7 @@ fn crate_self_and_super_resolve_against_the_commenting_file() {
             .groups
             .iter()
             .flat_map(|g| &g.mentions)
-            .all(|m| m.context == Context::Comment)
+            .all(|m| m.context.source == Source::Comment)
     );
 }
 
