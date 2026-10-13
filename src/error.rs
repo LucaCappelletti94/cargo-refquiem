@@ -97,4 +97,19 @@ pub enum Error {
         /// The parser's message.
         message: String,
     },
+    /// `cargo metadata` failed on a manifest refquiem wrote to locate dependency sources.
+    #[error("running cargo metadata on {path}")]
+    Metadata {
+        /// The manifest.
+        path: PathBuf,
+        /// The cause.
+        #[source]
+        source: Box<cargo_metadata::Error>,
+    },
+    /// The fetched sources of a removed dependency hold no library.
+    #[error("dependency `{name}` has no library target in its fetched sources")]
+    NoLibrary {
+        /// The dependency key.
+        name: String,
+    },
 }

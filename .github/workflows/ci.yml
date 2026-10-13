@@ -42,4 +42,7 @@ jobs:
           toolchain: ${{ steps.pin.outputs.toolchain }}
           components: rust-docs-json
       - run: cargo xtask vocab
-      - run: git diff --exit-code -- data/std
+      - run: |
+          git status --porcelain -- data
+          git diff --exit-code -- data
+          test -z "$(git status --porcelain -- data)"

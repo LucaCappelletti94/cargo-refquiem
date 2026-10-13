@@ -1,6 +1,8 @@
 //! Removed dependencies, features, binaries, examples and packages, and where they are still named.
 
 mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
 
 use common::Repo;
 use refquiem::{ItemKind, RemovedIn};
@@ -51,6 +53,8 @@ fn mention(
 #[test]
 fn a_removed_dependency_is_found_in_paths_links_badges_and_toml_keys() {
     let repo = Repo::new();
+    repo.vendor("structopt", "0.3.0", "");
+    repo.vendor("clap", "4.0.0", "");
     repo.write("src/lib.rs", "");
     repo.write(
         "Cargo.toml",
@@ -133,6 +137,7 @@ clap = \"4\"
 #[test]
 fn a_renamed_dependency_is_stale_under_its_key_and_its_package_name() {
     let repo = Repo::new();
+    repo.vendor("clap", "4.0.0", "");
     repo.write("src/lib.rs", "");
     repo.write(
         "Cargo.toml",
@@ -162,6 +167,7 @@ fn a_renamed_dependency_is_stale_under_its_key_and_its_package_name() {
 #[test]
 fn a_dependency_moved_to_another_kind_is_not_removed() {
     let repo = Repo::new();
+    repo.vendor("serde", "1.0.0", "");
     repo.write("src/lib.rs", "");
     repo.write(
         "Cargo.toml",
@@ -184,6 +190,7 @@ fn a_dependency_moved_to_another_kind_is_not_removed() {
 #[test]
 fn removed_and_hidden_features_are_found_in_flags_and_cfg() {
     let repo = Repo::new();
+    repo.vendor("rayon", "1.0.0", "");
     repo.write("src/lib.rs", "");
     repo.write(
         "Cargo.toml",
@@ -259,6 +266,7 @@ fn features_are_scoped_to_the_member_whose_files_mention_them() {
 #[test]
 fn a_package_moved_from_the_root_into_a_member_keeps_its_entries() {
     let repo = Repo::new();
+    repo.vendor("serde", "1.0.0", "");
     repo.write(
         "Cargo.toml",
         &format!("{PACKAGE}\n[features]\nfast = []\n\n[dependencies]\nserde = \"1\"\n"),

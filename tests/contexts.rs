@@ -2,6 +2,8 @@
 //! standard library paths that keep a spelling alive.
 
 mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
 
 use common::Repo;
 use refquiem::{Context, Kind, Source};
@@ -227,6 +229,11 @@ fn compile_fail_and_commented_fences_are_compiled_code_blocks() {
 #[test]
 fn uncompiled_code_blocks_only_count_paths_naming_a_workspace_crate() {
     let repo = Repo::new();
+    repo.vendor(
+        "redis",
+        "0.25.0",
+        "pub struct Client;\nimpl Client {\n    pub fn open() {}\n}\n",
+    );
     repo.write(
         "Cargo.toml",
         "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nredis = \"0.25\"\n",

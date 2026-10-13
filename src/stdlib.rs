@@ -1,17 +1,22 @@
-//! Public paths of the standard library crates, built by `cargo xtask vocab`.
+//! The standard library paths, English words and jargon that `cargo xtask vocab` builds.
 
-/// The suffixes, of two or more segments, of every public path reachable from one crate root.
+/// The public paths reachable from one crate root.
 pub(crate) struct Layer {
     /// The root the layer's paths start with.
     pub(crate) root: &'static str,
+    /// The suffixes, of two or more segments, of every path.
     suffixes: fst::Set<&'static [u8]>,
+    /// Every segment of every path.
+    names: fst::Set<&'static [u8]>,
 }
 
 impl Layer {
-    fn new(root: &'static str, bytes: &'static [u8]) -> Self {
+    fn new(root: &'static str, suffixes: &'static [u8], names: &'static [u8]) -> Self {
+        let set = |bytes| fst::Set::new(bytes).expect("data/std holds fst sets written by xtask");
         Self {
             root,
-            suffixes: fst::Set::new(bytes).expect("data/std holds fst sets written by xtask"),
+            suffixes: set(suffixes),
+            names: set(names),
         }
     }
 
@@ -19,14 +24,63 @@ impl Layer {
     pub(crate) fn ends_a_path(&self, path: &str) -> bool {
         self.suffixes.contains(path)
     }
+
+    /// Whether some public path of this layer has a segment `name`.
+    pub(crate) fn has_name(&self, name: &str) -> bool {
+        self.names.contains(name)
+    }
 }
 
 /// The `core`, `alloc`, `std` and `proc_macro` layers.
 pub(crate) fn layers() -> [Layer; 4] {
     [
-        Layer::new("core", include_bytes!("../data/std/core.fst")),
-        Layer::new("alloc", include_bytes!("../data/std/alloc.fst")),
-        Layer::new("std", include_bytes!("../data/std/std.fst")),
-        Layer::new("proc_macro", include_bytes!("../data/std/proc_macro.fst")),
+        Layer::new(
+            "core",
+            include_bytes!("../data/std/core.fst"),
+            include_bytes!("../data/std/core-names.fst"),
+        ),
+        Layer::new(
+            "alloc",
+            include_bytes!("../data/std/alloc.fst"),
+            include_bytes!("../data/std/alloc-names.fst"),
+        ),
+        Layer::new(
+            "std",
+            include_bytes!("../data/std/std.fst"),
+            include_bytes!("../data/std/std-names.fst"),
+        ),
+        Layer::new(
+            "proc_macro",
+            include_bytes!("../data/std/proc_macro.fst"),
+            include_bytes!("../data/std/proc_macro-names.fst"),
+        ),
     ]
+}
+
+/// English words and programming jargon, which a bare name in running text may simply be.
+pub(crate) struct Vocabulary {
+    words: fst::Set<&'static [u8]>,
+    jargon: Vec<&'static str>,
+}
+
+impl Vocabulary {
+    pub(crate) fn new() -> Self {
+        let mut jargon: Vec<&'static str> = include_str!("../data/english/jargon.txt")
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect();
+        jargon.sort_unstable();
+        Self {
+            words: fst::Set::new(&include_bytes!("../data/english/words.fst")[..])
+                .expect("data/english holds an fst set written by xtask"),
+            jargon,
+        }
+    }
+
+    /// Whether `word`, case-folded, is an English word or jargon.
+    pub(crate) fn claims(&self, word: &str) -> bool {
+        let folded = word.to_lowercase();
+        self.words.contains(&folded) || self.jargon.binary_search(&folded.as_str()).is_ok()
+    }
 }
