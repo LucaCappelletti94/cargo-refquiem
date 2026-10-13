@@ -1,6 +1,7 @@
-//! Every item path a snapshot declares, assembled from its crates' module trees.
+//! Every item path and manifest entry a snapshot declares, assembled from its crates' module
+//! trees and manifests.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 use gix::ObjectId;
@@ -8,9 +9,9 @@ use gix::ObjectId;
 use crate::cache::FileCache;
 use crate::git::Snapshot;
 use crate::intern::{Interner, PathId, Sym};
-use crate::manifest::{self, join};
+use crate::manifest::{self, Member, TargetKind, join};
 use crate::parse::FileItems;
-use crate::{Error, ItemKind};
+use crate::{Error, ItemKind, entry};
 
 /// The paths of one snapshot.
 #[derive(Default)]
@@ -61,6 +62,8 @@ pub(crate) struct Indexer {
     pub(crate) interner: Interner,
     cache: FileCache,
     memo: HashMap<(Rc<Visit>, ObjectId), Rc<Contribution>>,
+    /// The package names every member directory had in any indexed snapshot.
+    pub(crate) members: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl Indexer {
@@ -69,6 +72,33 @@ impl Indexer {
             interner: Interner::default(),
             cache,
             memo: HashMap::new(),
+            members: BTreeMap::new(),
+        }
+    }
+
+    /// Interns the manifest entries of `member` into `paths`.
+    fn entries(&mut self, member: &Member, paths: &mut HashSet<PathId>) {
+        let owner = self.interner.sym(&entry::member(&member.dir));
+        let mut add = |interner: &mut Interner, kind: ItemKind, name: &str| {
+            let path = [owner, interner.sym(entry::marker(kind)), interner.sym(name)];
+            paths.insert(interner.path(&path, kind));
+        };
+        add(&mut self.interner, ItemKind::Package, &member.package);
+        for dependency in &member.dependencies {
+            add(&mut self.interner, ItemKind::Dependency, &dependency.key);
+            if let Some(package) = &dependency.package {
+                add(&mut self.interner, ItemKind::Dependency, package);
+            }
+        }
+        for feature in &member.features {
+            add(&mut self.interner, ItemKind::Feature, feature);
+        }
+        for target in &member.targets {
+            match target.kind {
+                TargetKind::Bin => add(&mut self.interner, ItemKind::Binary, &target.name),
+                TargetKind::Example => add(&mut self.interner, ItemKind::Example, &target.name),
+                TargetKind::Lib | TargetKind::Other => {}
+            }
         }
     }
 
@@ -90,8 +120,8 @@ impl Indexer {
             complete: true,
             ..Index::default()
         };
-        let targets = match manifest::targets(snapshot, workspace) {
-            Ok(targets) => targets,
+        let members = match manifest::workspace(snapshot, workspace) {
+            Ok(members) => members,
             Err(Error::Manifest { .. }) if !head => {
                 index.complete = false;
                 return Ok(index);
@@ -100,20 +130,27 @@ impl Indexer {
         };
         let mut crates = Vec::new();
         let mut stack = Vec::new();
-        for target in targets {
-            let crate_sym = self.interner.sym(&target.crate_name);
-            crates.push(crate_sym);
-            if target.lib {
-                index.libs.push(crate_sym);
+        for member in members {
+            self.entries(&member, &mut index.paths);
+            self.members
+                .entry(member.dir)
+                .or_default()
+                .insert(member.package);
+            for target in member.targets {
+                let crate_sym = self.interner.sym(&target.crate_name);
+                crates.push(crate_sym);
+                if target.kind == TargetKind::Lib {
+                    index.libs.push(crate_sym);
+                }
+                let module = self.interner.path(&[crate_sym], ItemKind::Module);
+                index.paths.insert(module);
+                stack.push(Rc::new(Visit {
+                    origin: target.root.clone(),
+                    file: target.root,
+                    mod_rs: true,
+                    module,
+                }));
             }
-            let module = self.interner.path(&[crate_sym], ItemKind::Module);
-            index.paths.insert(module);
-            stack.push(Rc::new(Visit {
-                origin: target.root.clone(),
-                file: target.root,
-                mod_rs: true,
-                module,
-            }));
         }
 
         let mut seen = HashSet::new();

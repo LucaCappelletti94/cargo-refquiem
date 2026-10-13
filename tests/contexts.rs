@@ -223,3 +223,48 @@ fn compile_fail_and_commented_fences_are_compiled_code_blocks() {
     let uncompiled = context(Source::DocComment, Kind::CodeBlock { compiled: false });
     assert_eq!(got, [compiled, compiled, uncompiled]);
 }
+
+#[test]
+fn uncompiled_code_blocks_only_count_paths_naming_a_workspace_crate() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nredis = \"0.25\"\n",
+    );
+    repo.write(
+        "src/lib.rs",
+        "pub mod images {\n    pub mod postgres {\n        pub struct Postgres;\n    }\n}\n",
+    );
+    repo.commit("bundled images");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "README.md",
+        "Prose names `postgres::Postgres`.
+
+```rust
+let c = redis::Client::open(\"redis://localhost\");
+let p = postgres::Postgres::default();
+let q = fixture::images::postgres::Postgres::default();
+```
+",
+    );
+    repo.commit("images moved to another crate");
+
+    let found: Vec<(usize, usize, String)> =
+        found(&repo).into_iter().map(|m| (m.2, m.3, m.5)).collect();
+    assert_eq!(
+        found,
+        [
+            (1, 14, "postgres::Postgres".to_owned()),
+            (
+                6,
+                9,
+                "fixture::images::postgres::Postgres::default".to_owned()
+            ),
+        ]
+    );
+}

@@ -9,14 +9,33 @@ use ra_ap_rustc_lexer::{
 
 use crate::{Context, Kind, Source};
 
-/// A path spelled in text, before resolution.
+/// What a mention names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A crate by package or dependency name.
+    Crate(String),
+    /// A feature, of `package` when the mention says which.
+    Feature {
+        package: Option<String>,
+        name: String,
+    },
+    /// A binary target.
+    Binary(String),
+    /// An example target.
+    Example(String),
+}
+
+/// A path or manifest name spelled in text, before resolution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Spelled {
     /// Byte offset of the first character in the file.
     pub(crate) start: usize,
     /// Byte offset one past the last character in the file.
     pub(crate) end: usize,
-    /// The segments without generic arguments or `r#`.
+    pub(crate) named: Named,
+    /// The segments of a path without generic arguments or `r#`, empty for other names.
     pub(crate) segments: Vec<String>,
     /// Whether the path starts with `::`.
     pub(crate) leading_colon: bool,
@@ -24,6 +43,20 @@ pub(crate) struct Spelled {
     /// directory of the URL.
     pub(crate) url_item: Option<usize>,
     pub(crate) context: Context,
+}
+
+impl Spelled {
+    fn name(start: usize, end: usize, named: Named, context: Context) -> Self {
+        Self {
+            start,
+            end,
+            named,
+            segments: Vec::new(),
+            leading_colon: false,
+            url_item: None,
+            context,
+        }
+    }
 }
 
 /// rustdoc page names of items with their own page, before the `.Name.html` part.
@@ -110,7 +143,7 @@ pub(crate) fn rust(source: &str) -> Vec<Spelled> {
                 );
             }
             TokenKind::LineComment { doc_style: None } | TokenKind::BlockComment { .. } => {
-                out.extend(paths(text, offset, comment()));
+                scan(text, offset, comment(), &mut out);
             }
             TokenKind::Literal {
                 kind:
@@ -121,14 +154,15 @@ pub(crate) fn rust(source: &str) -> Vec<Spelled> {
                     | LiteralKind::RawByteStr { .. }
                     | LiteralKind::RawCStr { .. },
                 ..
-            } => out.extend(paths(
+            } => scan(
                 text,
                 offset,
                 Context {
                     source: Source::StringLiteral,
                     kind: Kind::Text,
                 },
-            )),
+                &mut out,
+            ),
             _ => {}
         }
         i += 1;
@@ -239,76 +273,390 @@ fn markdown(text: &str, map: impl Fn(usize) -> usize, source: Source, out: &mut 
         Parser::new_with_broken_link_callback(text, Options::empty(), Some(keep_label))
             .into_offset_iter();
     let mut code_block = None;
+    let mut toml_block: Option<(usize, usize)> = None;
     let mut in_label_link = false;
+    let mut in_autolink = false;
     let mut found = Vec::new();
     for (event, range) in events.by_ref() {
         match event {
-            Event::Start(Tag::CodeBlock(kind)) => code_block = Some(compiled(&kind, source)),
-            Event::End(TagEnd::CodeBlock) => code_block = None,
+            Event::Start(Tag::CodeBlock(kind)) => {
+                if let CodeBlockKind::Fenced(info) = &kind
+                    && info.split([',', ' ']).next() == Some("toml")
+                {
+                    toml_block = Some((range.end, range.end));
+                }
+                code_block = Some(compiled(&kind, source));
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                if let Some((start, end)) = toml_block.take()
+                    && start < end
+                {
+                    let kind = Kind::CodeBlock { compiled: false };
+                    toml(&text[start..end], start, in_context(kind), &mut found);
+                }
+                code_block = None;
+            }
             Event::Start(Tag::Link {
                 link_type,
                 dest_url,
                 ..
-            }) => match link_type {
-                LinkType::Shortcut
-                | LinkType::ShortcutUnknown
-                | LinkType::Collapsed
-                | LinkType::CollapsedUnknown => {
-                    let raw = &text[range.clone()];
-                    let label_end = raw.find(']').unwrap_or(raw.len());
-                    let label = &raw[1.min(label_end)..label_end];
-                    let content = label.trim_matches('`');
-                    let at = range.start + 1 + label.find(content).unwrap_or(0);
-                    if let Some(path) = link_path(content, at, in_context(Kind::Link)) {
-                        found.push(path);
-                        in_label_link = true;
-                    }
-                }
-                LinkType::Inline | LinkType::ReferenceUnknown | LinkType::Autolink => {
-                    let raw = &text[range.clone()];
-                    if let Some(at) = raw.rfind(&*dest_url) {
-                        found.extend(link_path(
-                            &dest_url,
-                            range.start + at,
-                            in_context(Kind::Link),
-                        ));
-                    }
-                }
-                _ => {}
-            },
-            Event::End(TagEnd::Link) => in_label_link = false,
+            }) => {
+                in_label_link = link_start(
+                    &text[range.clone()],
+                    range.start,
+                    link_type,
+                    &dest_url,
+                    in_context(Kind::Link),
+                    &mut found,
+                );
+                in_autolink = link_type == LinkType::Autolink;
+            }
+            Event::Start(Tag::Image { dest_url, .. }) => {
+                let raw = &text[range.clone()];
+                destination(
+                    raw,
+                    range.start,
+                    &dest_url,
+                    in_context(Kind::Link),
+                    &mut found,
+                );
+            }
+            Event::End(TagEnd::Link) => (in_label_link, in_autolink) = (false, false),
             Event::Code(_) if !in_label_link => {
                 let raw = &text[range.clone()];
                 let inner = raw.trim_start_matches('`');
                 let at = range.start + raw.len() - inner.len();
-                found.extend(paths(
+                scan(
                     inner.trim_end_matches('`'),
                     at,
                     in_context(Kind::CodeSpan),
-                ));
+                    &mut found,
+                );
             }
-            Event::Text(_) if !in_label_link => {
+            Event::Text(_) if !in_label_link && !in_autolink => {
+                if let Some((start, end)) = &mut toml_block {
+                    if *start == *end {
+                        *start = range.start;
+                    }
+                    *end = range.end;
+                }
                 let kind = code_block.map_or(Kind::Text, |compiled| Kind::CodeBlock { compiled });
-                found.extend(paths(&text[range.clone()], range.start, in_context(kind)));
+                scan(
+                    &text[range.clone()],
+                    range.start,
+                    in_context(kind),
+                    &mut found,
+                );
             }
             _ => {}
         }
     }
-    for (_, definition) in events.reference_definitions().iter() {
-        let raw = &text[definition.span.clone()];
-        if let Some(at) = raw.rfind(&*definition.dest) {
-            found.extend(link_path(
-                &definition.dest,
-                definition.span.start + at,
-                in_context(Kind::Link),
-            ));
-        }
+    for (_, def) in events.reference_definitions().iter() {
+        let raw = &text[def.span.clone()];
+        destination(
+            raw,
+            def.span.start,
+            &def.dest,
+            in_context(Kind::Link),
+            &mut found,
+        );
     }
     for mut path in found {
         path.start = map(path.start);
         path.end = map(path.end);
         out.push(path);
     }
+}
+
+/// Records what destination `dest`, last written in `raw` at `start`, names.
+fn destination(raw: &str, start: usize, dest: &str, context: Context, found: &mut Vec<Spelled>) {
+    if let Some(at) = raw.rfind(dest) {
+        found.extend(link_path(dest, start + at, context));
+    }
+}
+
+/// Records what the link spanning `raw` at `start` names. Returns whether the link is an
+/// intra-doc label whose text must not be scanned again.
+fn link_start(
+    raw: &str,
+    start: usize,
+    link_type: LinkType,
+    dest: &str,
+    context: Context,
+    found: &mut Vec<Spelled>,
+) -> bool {
+    match link_type {
+        LinkType::Shortcut
+        | LinkType::ShortcutUnknown
+        | LinkType::Collapsed
+        | LinkType::CollapsedUnknown => {
+            let label_end = raw.find(']').unwrap_or(raw.len());
+            let label = &raw[1.min(label_end)..label_end];
+            let written = label.trim_matches('`');
+            let at = start + 1 + label.find(written).unwrap_or(0);
+            let path = link_path(written, at, context);
+            let label_link = path.is_some();
+            found.extend(path);
+            label_link
+        }
+        LinkType::Inline | LinkType::ReferenceUnknown | LinkType::Autolink => {
+            destination(raw, start, dest, context, found);
+            false
+        }
+        _ => false,
+    }
+}
+
+/// Paths, cargo flags, `cfg(feature)` predicates and URLs in plain `text` at `base`.
+fn scan(text: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
+    out.extend(paths(text, base, context));
+    cargo_flags(text, base, context, out);
+    cfg_features(text, base, context, out);
+    bare_urls(text, base, context, out);
+}
+
+/// `--features`, `-F`, `--bin` and `--example` arguments.
+fn cargo_flags(text: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
+    const FLAGS: [&str; 4] = ["--features", "-F", "--bin", "--example"];
+    for flag in FLAGS {
+        for (at, _) in text.match_indices(flag) {
+            let before = text[..at].chars().next_back();
+            if before.is_some_and(|c| !c.is_whitespace() && !matches!(c, '`' | '"' | '\'' | '(')) {
+                continue;
+            }
+            let mut cursor = at + flag.len();
+            let rest = &text[cursor..];
+            let separators = rest.len() - rest.trim_start_matches([' ', '\t', '=']).len();
+            if separators == 0 {
+                continue;
+            }
+            cursor += separators;
+            let (value, value_at) =
+                if let Some(quote @ ('"' | '\'')) = text[cursor..].chars().next() {
+                    let body = &text[cursor + 1..];
+                    let len = body.find([quote, '\n']).unwrap_or(body.len());
+                    (&body[..len], cursor + 1)
+                } else {
+                    let body = &text[cursor..];
+                    let len = body
+                        .find(|c: char| c.is_whitespace() || "`\"')|;&<>".contains(c))
+                        .unwrap_or(body.len());
+                    (&body[..len], cursor)
+                };
+            for (offset, part) in split_list(value) {
+                let start = base + value_at + offset;
+                let end = start + part.len();
+                let named = match flag {
+                    "--bin" => Named::Binary(part.to_owned()),
+                    "--example" => Named::Example(part.to_owned()),
+                    _ => match part.split_once('/') {
+                        Some((package, name)) => Named::Feature {
+                            package: Some(package.trim_end_matches('?').to_owned()),
+                            name: name.to_owned(),
+                        },
+                        None => Named::Feature {
+                            package: None,
+                            name: part.to_owned(),
+                        },
+                    },
+                };
+                let start = match &named {
+                    Named::Feature { name, .. } => end - name.len(),
+                    _ => start,
+                };
+                out.push(Spelled::name(start, end, named, context));
+            }
+        }
+    }
+}
+
+/// The non-empty items of a comma or space separated list with their offsets.
+fn split_list(value: &str) -> Vec<(usize, &str)> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    for (i, c) in value
+        .char_indices()
+        .chain(std::iter::once((value.len(), ',')))
+    {
+        if c == ',' || c.is_whitespace() {
+            if i > start {
+                out.push((start, &value[start..i]));
+            }
+            start = i + c.len_utf8();
+        }
+    }
+    out
+}
+
+/// `feature = "name"` predicates on lines that mention `cfg`.
+fn cfg_features(text: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
+    for (at, _) in text.match_indices("feature") {
+        let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
+        if !text[line_start..at].contains("cfg") {
+            continue;
+        }
+        let rest = &text[at + "feature".len()..];
+        let after_eq = rest.trim_start();
+        let Some(after_eq) = after_eq.strip_prefix('=') else {
+            continue;
+        };
+        let value = after_eq.trim_start();
+        let Some(body) = value.strip_prefix('"') else {
+            continue;
+        };
+        let Some(len) = body.find('"') else {
+            continue;
+        };
+        let start = base + text.len() - body.len();
+        out.push(Spelled::name(
+            start,
+            start + len,
+            Named::Feature {
+                package: None,
+                name: body[..len].to_owned(),
+            },
+            context,
+        ));
+    }
+}
+
+/// `http://` and `https://` URLs in running text, read as crate links or rustdoc pages.
+fn bare_urls(text: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
+    for scheme in ["https://", "http://"] {
+        for (at, _) in text.match_indices(scheme) {
+            let body = &text[at..];
+            let len = body
+                .find(|c: char| c.is_whitespace() || "<>()[]\"'`".contains(c))
+                .unwrap_or(body.len());
+            let url = body[..len].trim_end_matches(['.', ',', ';', ':', '!', '?']);
+            out.extend(link_path(url, base + at, context));
+        }
+    }
+}
+
+/// Dependency keys and their requested features in a `toml` code block at `base`.
+fn toml(block: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
+    const KINDS: [&str; 5] = [
+        "dependencies",
+        "dev-dependencies",
+        "dev_dependencies",
+        "build-dependencies",
+        "build_dependencies",
+    ];
+    let mut table: Option<Option<String>> = None;
+    let mut line_start = 0;
+    for line in block.split_inclusive('\n') {
+        let at = line_start;
+        line_start += line.len();
+        let trimmed = line.trim_start();
+        let indent = at + line.len() - trimmed.len();
+        if trimmed.starts_with('[') {
+            let header = trimmed.trim_start_matches('[');
+            let inner_start = indent + trimmed.len() - header.len();
+            let inner = &header[..header.find(']').unwrap_or(header.len())];
+            let keys = dotted_keys(inner);
+            table = match keys.as_slice() {
+                [.., (_, last)] if KINDS.contains(&last.as_str()) => Some(None),
+                [.., (_, kind), (offset, key)] if KINDS.contains(&kind.as_str()) => {
+                    let start = base + inner_start + offset;
+                    out.push(Spelled::name(
+                        start,
+                        start + key.len(),
+                        Named::Crate(key.clone()),
+                        context,
+                    ));
+                    Some(Some(key.clone()))
+                }
+                _ => None,
+            };
+            continue;
+        }
+        match &table {
+            Some(None) => {
+                let key_len = trimmed
+                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+                    .unwrap_or(trimmed.len());
+                let after = trimmed[key_len..].trim_start();
+                if key_len == 0 || !(after.starts_with('=') || after.starts_with('.')) {
+                    continue;
+                }
+                let key = &trimmed[..key_len];
+                let start = base + indent;
+                out.push(Spelled::name(
+                    start,
+                    start + key_len,
+                    Named::Crate(key.to_owned()),
+                    context,
+                ));
+                requested_features(trimmed, base + indent, key, context, out);
+            }
+            Some(Some(key)) if trimmed.starts_with("features") => {
+                requested_features(trimmed, base + indent, key, context, out);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The strings of a `features = [...]` array on `line`, features of `package`.
+fn requested_features(
+    line: &str,
+    base: usize,
+    package: &str,
+    context: Context,
+    out: &mut Vec<Spelled>,
+) {
+    let Some(features) = line.find("features") else {
+        return;
+    };
+    let Some(open) = line[features..].find('[').map(|i| features + i) else {
+        return;
+    };
+    let close = line[open..].find(']').map_or(line.len(), |i| open + i);
+    let mut cursor = open + 1;
+    while let Some(quote) = line[cursor..close].find('"').map(|i| cursor + i) {
+        let Some(len) = line[quote + 1..close].find('"') else {
+            break;
+        };
+        let start = base + quote + 1;
+        out.push(Spelled::name(
+            start,
+            start + len,
+            Named::Feature {
+                package: Some(package.to_owned()),
+                name: line[quote + 1..quote + 1 + len].to_owned(),
+            },
+            context,
+        ));
+        cursor = quote + len + 2;
+    }
+}
+
+/// The keys of a dotted TOML table name with their offsets, quotes removed.
+fn dotted_keys(header: &str) -> Vec<(usize, String)> {
+    let mut keys = Vec::new();
+    let mut start = 0;
+    let mut quote = None;
+    for (i, c) in header
+        .char_indices()
+        .chain(std::iter::once((header.len(), '.')))
+    {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '.') => {
+                let raw = &header[start..i];
+                let trimmed = raw.trim();
+                let offset = start + raw.len() - raw.trim_start().len();
+                let key = trimmed.trim_matches(['"', '\'']);
+                let offset = offset + usize::from(trimmed.len() != key.len());
+                keys.push((offset, key.to_owned()));
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    keys
 }
 
 /// Whether rustdoc compiles a code block of `kind` found in `source`.
@@ -356,15 +704,19 @@ fn without_comments(info: &str) -> String {
 fn link_path(dest: &str, at: usize, context: Context) -> Option<Spelled> {
     let end = at + dest.len();
     if dest.contains("://") || dest.contains(".html") || dest.starts_with(['#', '/', '.']) {
-        let (segments, item) = page_path(dest)?;
-        return Some(Spelled {
-            start: at,
-            end,
-            segments,
-            leading_colon: false,
-            url_item: Some(item),
-            context,
-        });
+        if let Some((segments, item)) = page_path(dest) {
+            return Some(Spelled {
+                start: at,
+                end,
+                named: Named::Path,
+                segments,
+                leading_colon: false,
+                url_item: Some(item),
+                context,
+            });
+        }
+        let name = crate_link(dest)?;
+        return Some(Spelled::name(at, end, Named::Crate(name), context));
     }
     let unprefixed = match dest.split_once('@') {
         Some((kind, rest)) if kind.bytes().all(|b| b.is_ascii_lowercase()) => rest,
@@ -382,6 +734,35 @@ fn link_path(dest: &str, at: usize, context: Context) -> Option<Spelled> {
         end,
         ..path
     })
+}
+
+/// The crate a crates.io, lib.rs, docs.rs or shields.io badge URL is about.
+fn crate_link(url: &str) -> Option<String> {
+    let (_, rest) = url.split_once("://")?;
+    let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
+    let host = host.strip_prefix("www.").unwrap_or(host);
+    let parts: Vec<&str> = path
+        .split(['/', '?', '#'])
+        .filter(|part| !part.is_empty())
+        .collect();
+    let name = match (host, parts.as_slice()) {
+        ("crates.io" | "lib.rs", ["crates", name, ..])
+        | ("docs.rs", ["crate", name, ..])
+        | ("img.shields.io", ["crates", _, name, ..] | ["docsrs", name, ..]) => *name,
+        ("docs.rs", [name, ..]) if !matches!(*name, "about" | "releases" | "-") => {
+            name.split("::").next().unwrap_or(name)
+        }
+        _ => return None,
+    };
+    let name = name
+        .strip_suffix(".svg")
+        .or_else(|| name.strip_suffix(".json"))
+        .unwrap_or(name);
+    let valid = !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    valid.then(|| name.to_owned())
 }
 
 /// The segments a rustdoc page URL names and the index where the item part starts.
@@ -482,6 +863,7 @@ pub(crate) fn paths(text: &str, base: usize, context: Context) -> Vec<Spelled> {
                 out.push(Spelled {
                     start: base + start,
                     end: base + end,
+                    named: Named::Path,
                     segments,
                     leading_colon,
                     url_item: None,
