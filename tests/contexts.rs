@@ -26,7 +26,7 @@ pub fn kept() {}
  */
 pub fn other() {}
 
-pub const MESSAGE: &str = \"use crate::gone instead\";
+pub const MESSAGE: &str = \"use fixture::gone, not crate::gone, which strings cannot resolve\";
 
 pub struct Thing;
 ";
@@ -110,7 +110,7 @@ fn doc_comment_mentions_carry_their_markdown_structure() {
                 18,
                 32,
                 context(Source::StringLiteral, Kind::Text),
-                "crate::gone"
+                gone
             ),
         ]
     );

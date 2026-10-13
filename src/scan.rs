@@ -10,7 +10,7 @@ use crate::git::{self, Head, Snapshot, TreeSnapshot, WorkTreeSnapshot};
 use crate::index::{Index, Indexer};
 use crate::intern::{Interner, PathId, Sym};
 use crate::text::{self, Spelled};
-use crate::{Error, Group, Mention, Options, RemovedIn, Report, stdlib};
+use crate::{Error, Group, Mention, Options, RemovedIn, Report, Source, stdlib};
 
 /// What one commit of the range declares beyond head.
 struct State {
@@ -339,6 +339,10 @@ impl<'a> Matcher<'a> {
         let first = segments[0];
         if path.leading_colon || !matches!(first, "crate" | "self" | "super") {
             return vec![segments];
+        }
+        if path.context.source == Source::StringLiteral {
+            // A string is data, not code, so `crate`, `self` and `super` have nothing to refer to.
+            return Vec::new();
         }
         if first == "crate" {
             let crates = match (in_rust, module) {

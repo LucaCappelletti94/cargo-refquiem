@@ -30,6 +30,9 @@ pub(crate) struct Index {
 /// `None` for a glob.
 type UseDecl = (Vec<Sym>, Vec<Sym>, Option<Sym>);
 
+/// A `Deref` impl: the module it sits in, the dereferencing type and the target as written.
+type DerefDecl = (Vec<Sym>, Vec<Sym>, Vec<Sym>);
+
 /// One file read as one module of one crate, reusable across snapshots.
 struct Contribution {
     paths: Vec<PathId>,
@@ -37,6 +40,7 @@ struct Contribution {
     uses: Vec<UseDecl>,
     invocations: Vec<(PathId, Sym, Vec<Sym>)>,
     macro_rules: Vec<(Sym, Vec<Sym>)>,
+    derefs: Vec<DerefDecl>,
     failure: Option<String>,
 }
 
@@ -142,7 +146,8 @@ impl Indexer {
         }
 
         let uses: Vec<&UseDecl> = reached.iter().flat_map(|c| &c.uses).collect();
-        self.resolve_uses(&mut index.paths, &uses, &crates);
+        let derefs: Vec<&DerefDecl> = reached.iter().flat_map(|c| &c.derefs).collect();
+        self.resolve_aliases(&mut index.paths, &uses, &derefs, &crates);
         if head {
             let mut bodies: HashMap<Sym, Vec<Sym>> = HashMap::new();
             for (name, idents) in reached.iter().flat_map(|c| &c.macro_rules) {
@@ -180,6 +185,7 @@ impl Indexer {
                 uses: Vec::new(),
                 invocations: Vec::new(),
                 macro_rules: Vec::new(),
+                derefs: Vec::new(),
                 failure: Some(message.clone()),
             },
         });
@@ -212,9 +218,54 @@ impl Indexer {
             paths.push(self.interner.path(&[crate_sym, name], ItemKind::Macro));
         }
 
+        let visits = self.visits(visit, &module, items);
+
+        let uses = items
+            .uses
+            .iter()
+            .map(|u| {
+                let name = u.name.as_deref().map(|n| self.interner.sym(n));
+                (self.within(&module, &u.module), self.syms(&u.source), name)
+            })
+            .collect();
+        let invocations = items
+            .invocations
+            .iter()
+            .map(|inv| {
+                let within = self.within(&module, &inv.module);
+                let module = self.interner.path(&within, ItemKind::Module);
+                (module, self.interner.sym(&inv.name), self.syms(&inv.idents))
+            })
+            .collect();
+        let macro_rules = items
+            .macro_rules
+            .iter()
+            .map(|rules| (self.interner.sym(&rules.name), self.syms(&rules.idents)))
+            .collect();
+        let derefs = items
+            .derefs
+            .iter()
+            .map(|d| {
+                let within = self.within(&module, &d.module);
+                (within, self.syms(&d.self_ty), self.syms(&d.target))
+            })
+            .collect();
+        Contribution {
+            paths,
+            visits,
+            uses,
+            invocations,
+            macro_rules,
+            derefs,
+            failure: None,
+        }
+    }
+
+    /// The files `mod` declarations and `include!` invocations of `items` pull into the crate.
+    fn visits(&mut self, visit: &Visit, module: &[Sym], items: &FileItems) -> Vec<Rc<Visit>> {
         let mut visits = Vec::new();
         for decl in &items.mods {
-            let mut child = self.within(&module, &decl.module);
+            let mut child = self.within(module, &decl.module);
             child.push(self.interner.sym(&decl.name));
             let child = self.interner.path(&child, ItemKind::Module);
             let base = owned_dir(&visit.origin, visit.mod_rs, &decl.module);
@@ -246,7 +297,7 @@ impl Indexer {
             }
         }
         for include in &items.includes {
-            let within = self.within(&module, &include.module);
+            let within = self.within(module, &include.module);
             visits.push(Rc::new(Visit {
                 file: join(parent(&visit.file), &include.path),
                 origin: visit.origin.clone(),
@@ -254,37 +305,7 @@ impl Indexer {
                 module: self.interner.path(&within, ItemKind::Module),
             }));
         }
-
-        let uses = items
-            .uses
-            .iter()
-            .map(|u| {
-                let name = u.name.as_deref().map(|n| self.interner.sym(n));
-                (self.within(&module, &u.module), self.syms(&u.source), name)
-            })
-            .collect();
-        let invocations = items
-            .invocations
-            .iter()
-            .map(|inv| {
-                let within = self.within(&module, &inv.module);
-                let module = self.interner.path(&within, ItemKind::Module);
-                (module, self.interner.sym(&inv.name), self.syms(&inv.idents))
-            })
-            .collect();
-        let macro_rules = items
-            .macro_rules
-            .iter()
-            .map(|rules| (self.interner.sym(&rules.name), self.syms(&rules.idents)))
-            .collect();
-        Contribution {
-            paths,
-            visits,
-            uses,
-            invocations,
-            macro_rules,
-            failure: None,
-        }
+        visits
     }
 
     fn syms(&mut self, names: &[String]) -> Vec<Sym> {
@@ -329,8 +350,15 @@ impl Indexer {
         Some(base)
     }
 
-    /// Adds re-export paths and, for sources inside the workspace, everything below them.
-    fn resolve_uses(&mut self, paths: &mut HashSet<PathId>, uses: &[&UseDecl], crates: &[Sym]) {
+    /// Adds re-export paths and, for sources inside the workspace, everything below them, then
+    /// the members a `Deref` target lends its dereferencing type.
+    fn resolve_aliases(
+        &mut self,
+        paths: &mut HashSet<PathId>,
+        uses: &[&UseDecl],
+        derefs: &[&DerefDecl],
+        crates: &[Sym],
+    ) {
         const ROUNDS: usize = 8;
         for _ in 0..ROUNDS {
             let before = paths.len();
@@ -349,6 +377,24 @@ impl Indexer {
                     }
                 } else if let Some(target) = target {
                     self.copy_below(target, module.clone(), &children, paths);
+                }
+            }
+            for (module, self_ty, target) in derefs {
+                let Some(owner) = self.resolve(module, self_ty, module[0]) else {
+                    continue;
+                };
+                let target = self
+                    .resolve(module, target, module[0])
+                    .and_then(|resolved| self.interner.find_path(&resolved))
+                    .filter(|id| paths.contains(id));
+                let owner_known = self
+                    .interner
+                    .find_path(&owner)
+                    .is_some_and(|id| paths.contains(&id));
+                if let Some(target) = target
+                    && owner_known
+                {
+                    self.copy_below(target, owner, &children, paths);
                 }
             }
             if paths.len() == before {
