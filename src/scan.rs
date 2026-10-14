@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use gix::ObjectId;
 
 use crate::cache::FileCache;
+use crate::config::{self, Config, Filter};
 use crate::deps::{self, Removal, Scratch};
 use crate::git::{self, Head, Snapshot, TreeSnapshot, WorkTreeSnapshot};
 use crate::index::{Index, Indexer};
@@ -14,8 +15,8 @@ use crate::parse::SERDE_MARKER;
 use crate::stdlib::Vocabulary;
 use crate::text::{self, Named, Spelled};
 use crate::{
-    Context, Error, Group, ItemKind, Kind, Mention, Options, RemovedIn, Report, Source, entry,
-    stdlib,
+    Context, Error, Group, ItemKind, Kind, Mention, Options, Range, RemovedIn, Report, Source,
+    UnusedMarker, entry, stdlib,
 };
 
 /// What one commit of the range declares beyond head.
@@ -67,11 +68,12 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     // Trees are looked up by path once per module file and commit, mostly hitting the same objects.
     repo.object_cache_size_if_unset(64 * 1024 * 1024);
     let layout = layout(options, &repo)?;
+    let workspace_dir = layout.workdir.join(&layout.workspace);
+    let (config, range) = settings(options, &workspace_dir)?;
     let mut indexer = Indexer::new(FileCache::load(&layout.cache_dir));
-    let (commits, head) = git::range(&repo, &options.range)?;
+    let (commits, head) = git::range(&repo, &range)?;
     let head_snapshot = head_snapshot(&repo, &layout, &commits, &head);
     let head_index = indexer.index(&*head_snapshot, &layout.workspace, true)?;
-    let workspace_dir = layout.workdir.join(&layout.workspace);
     let scratch = Scratch {
         dir: &layout.cache_dir,
         workspace_dir: &workspace_dir,
@@ -80,23 +82,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     };
     let dependencies = deps::head(&mut indexer, &*head_snapshot, &scratch)?;
 
-    let mut slots: Vec<State> = Vec::new();
-    let mut state_of = Vec::with_capacity(commits.len());
-    let mut by_tree: HashMap<ObjectId, usize> = HashMap::new();
-    for commit in &commits {
-        if let Some(&slot) = by_tree.get(&commit.tree) {
-            state_of.push(slot);
-            continue;
-        }
-        let snapshot = TreeSnapshot::new(&repo, commit.tree);
-        let index = indexer.index(&snapshot, &layout.workspace, false)?;
-        by_tree.insert(commit.tree, slots.len());
-        state_of.push(slots.len());
-        slots.push(State {
-            missing: index.paths.difference(&head_index.paths).copied().collect(),
-            complete: index.complete,
-        });
-    }
+    let (slots, state_of) = index_range(&mut indexer, &repo, &commits, &layout, &head_index)?;
     let states: Vec<&State> = state_of.iter().map(|&slot| &slots[slot]).collect();
 
     let mut removed: Vec<PathId> = slots
@@ -124,11 +110,22 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         &entries,
         &indexer.crates,
     );
-    let mut mentions = find_mentions(
+    let filter = filter(
+        options,
+        &config,
+        &entries,
+        &workspace_dir,
+        &layout.workspace,
+    )?;
+    let Found {
+        mut mentions,
+        markers,
+    } = find_mentions(
         &*head_snapshot,
         &head_index,
         &matcher,
         &layout.target_prefix,
+        &filter,
     )?;
     let position: HashMap<ObjectId, usize> =
         commits.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
@@ -155,10 +152,124 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
             mentions: found,
         });
     }
+    let unused_markers = suppress(&mut groups, markers, &config.allow);
     Ok(Report {
         groups,
         skipped: dependency_removals.skipped,
+        unused_markers,
     })
+}
+
+/// The config of the scan and its range, `since` from the config starting a full one.
+fn settings(options: &Options, workspace_dir: &Path) -> Result<(Config, Range), Error> {
+    let path = options
+        .config
+        .clone()
+        .unwrap_or_else(|| workspace_dir.join(config::FILE_NAME));
+    let config = config::load(&path, options.config.is_some())?;
+    let range = match (&options.range, &config.since) {
+        (Range::Full, Some(since)) => Range::Since(since.clone()),
+        (range, _) => range.clone(),
+    };
+    Ok((config, range))
+}
+
+/// The files the scan reads for mentions, inside the `--package` member when one is named.
+fn filter(
+    options: &Options,
+    config: &Config,
+    entries: &Entries<'_>,
+    workspace_dir: &Path,
+    workspace: &str,
+) -> Result<Filter, Error> {
+    let package_dir = match &options.package {
+        Some(name) => Some(
+            entries
+                .package_dir(name)
+                .ok_or_else(|| Error::UnknownPackage(name.clone()))?
+                .to_owned(),
+        ),
+        None => None,
+    };
+    Filter::new(config, workspace_dir, workspace, package_dir)
+}
+
+/// Indexes each distinct tree of the range once, returning the states and each commit's state.
+fn index_range(
+    indexer: &mut Indexer,
+    repo: &gix::Repository,
+    commits: &[git::Commit],
+    layout: &Layout,
+    head_index: &Index,
+) -> Result<(Vec<State>, Vec<usize>), Error> {
+    let mut slots: Vec<State> = Vec::new();
+    let mut state_of = Vec::with_capacity(commits.len());
+    let mut by_tree: HashMap<ObjectId, usize> = HashMap::new();
+    for commit in commits {
+        if let Some(&slot) = by_tree.get(&commit.tree) {
+            state_of.push(slot);
+            continue;
+        }
+        let snapshot = TreeSnapshot::new(repo, commit.tree);
+        let index = indexer.index(&snapshot, &layout.workspace, false)?;
+        by_tree.insert(commit.tree, slots.len());
+        state_of.push(slots.len());
+        slots.push(State {
+            missing: index.paths.difference(&head_index.paths).copied().collect(),
+            complete: index.complete,
+        });
+    }
+    Ok((slots, state_of))
+}
+
+/// A name in a suppression marker of head.
+struct Marker {
+    file: String,
+    line: usize,
+    column: usize,
+    name: String,
+    used: bool,
+}
+
+/// Drops the groups `allow` names and the mentions a marker names, returning the unused markers.
+fn suppress(
+    groups: &mut Vec<Group>,
+    mut markers: Vec<Marker>,
+    allow: &[String],
+) -> Vec<UnusedMarker> {
+    groups.retain(|group| !allow.iter().any(|entry| names(&group.path, entry)));
+    for group in groups.iter_mut() {
+        group.mentions.retain(|mention| {
+            let mut kept = true;
+            for marker in markers.iter_mut().filter(|marker| {
+                marker.file == mention.file
+                    && (marker.line == mention.line || marker.line + 1 == mention.line)
+            }) {
+                if names(&group.path, &marker.name) || mention.text == marker.name {
+                    marker.used = true;
+                    kept = false;
+                }
+            }
+            kept
+        });
+    }
+    groups.retain(|group| !group.mentions.is_empty());
+    markers
+        .into_iter()
+        .filter(|marker| !marker.used)
+        .map(|marker| UnusedMarker {
+            file: marker.file,
+            line: marker.line,
+            column: marker.column,
+            name: marker.name,
+        })
+        .collect()
+}
+
+/// Whether `name` spells the group `path` or ends it at a `::` boundary.
+fn names(path: &str, name: &str) -> bool {
+    path.strip_suffix(name)
+        .is_some_and(|rest| rest.is_empty() || rest.ends_with("::"))
 }
 
 /// The removed dependency entries with the tree closest to head that still has each.
@@ -224,20 +335,28 @@ fn layout(options: &Options, repo: &gix::Repository) -> Result<Layout, Error> {
     })
 }
 
-/// Mentions of removed items in the comments and Markdown files of `snapshot`.
+/// What the files a scan reads hold.
+struct Found {
+    mentions: HashMap<PathId, Vec<Mention>>,
+    markers: Vec<Marker>,
+}
+
+/// The mentions and suppression markers in the comments and Markdown `filter` keeps.
 fn find_mentions(
     snapshot: &dyn Snapshot,
     head: &Index,
     matcher: &Matcher<'_>,
     target_prefix: &str,
-) -> Result<HashMap<PathId, Vec<Mention>>, Error> {
+    filter: &Filter,
+) -> Result<Found, Error> {
     let mut mentions: HashMap<PathId, Vec<Mention>> = HashMap::new();
+    let mut markers = Vec::new();
     for file in snapshot.files()? {
         if !target_prefix.is_empty() && file.starts_with(&format!("{target_prefix}/")) {
             continue;
         }
         let is_rust = has_extension(&file, &["rs"]);
-        if !is_rust && !has_extension(&file, &["md", "markdown"]) {
+        if !is_rust && !has_extension(&file, &["md", "markdown"]) || filter.skips_path(&file) {
             continue;
         }
         let Some(id) = snapshot.blob(&file)? else {
@@ -247,15 +366,25 @@ fn find_mentions(
         let Ok(source) = std::str::from_utf8(&bytes) else {
             continue;
         };
+        if filter.skips_text(source) {
+            continue;
+        }
+        let starts = text::line_starts(source);
+        for marker in text::markers(source, is_rust) {
+            let (line, column) = text::line_column(&starts, source, marker.start);
+            markers.push(Marker {
+                file: file.clone(),
+                line,
+                column,
+                name: marker.name,
+                used: false,
+            });
+        }
         let spelled: Vec<Spelled> = if is_rust {
             text::rust(source)
         } else {
             text::markdown_file(source)
         };
-        if spelled.is_empty() {
-            continue;
-        }
-        let starts = text::line_starts(source);
         let module = head.file_modules.get(&file).map(Vec::as_slice);
         for path in spelled {
             let Some(removed) = matcher.stale(&path, &file, is_rust, module) else {
@@ -271,7 +400,7 @@ fn find_mentions(
             });
         }
     }
-    Ok(mentions)
+    Ok(Found { mentions, markers })
 }
 
 fn canonical(path: &Path) -> Result<PathBuf, Error> {
