@@ -15,6 +15,7 @@ mod git;
 mod index;
 mod intern;
 mod manifest;
+mod output;
 mod parse;
 mod scan;
 mod serde_names;
@@ -71,6 +72,7 @@ impl Options {
 
 /// The kind of a removed name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ItemKind {
     /// A module.
     Module,
@@ -162,7 +164,8 @@ impl ItemKind {
 }
 
 /// The text a mention sits in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Source {
     /// A `//` or `/* */` comment, read as plain text.
     Comment,
@@ -175,7 +178,8 @@ pub enum Source {
 }
 
 /// The Markdown structure a mention sits in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Kind {
     /// Running text.
     Text,
@@ -191,7 +195,7 @@ pub enum Kind {
 }
 
 /// Where a mention sits.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct Context {
     /// The text holding the mention.
     pub source: Source,
@@ -229,8 +233,18 @@ pub enum RemovedIn {
     WorkingTree,
 }
 
+/// A commit id, or `working_tree`.
+impl serde::Serialize for RemovedIn {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Commit(id) => serializer.serialize_str(id),
+            Self::WorkingTree => serializer.serialize_str("working_tree"),
+        }
+    }
+}
+
 /// One mention of a removed name.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Mention {
     /// The file, relative to the repository root with `/` separators.
     pub file: String,
@@ -245,7 +259,7 @@ pub struct Mention {
 }
 
 /// A removed name and its remaining mentions.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Group {
     /// The full path of a removed item, or the name of a removed manifest entry.
     pub path: String,
@@ -260,7 +274,7 @@ pub struct Group {
 }
 
 /// Every removed name still mentioned, by path.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Report {
     /// One group per removed name.
     pub groups: Vec<Group>,
@@ -272,7 +286,7 @@ pub struct Report {
 }
 
 /// A name in a suppression marker that suppressed no mention.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct UnusedMarker {
     /// The file holding the marker, from the repository root.
     pub file: String,
@@ -285,7 +299,7 @@ pub struct UnusedMarker {
 }
 
 /// A removed dependency whose items could not be checked.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Skipped {
     /// The dependency key.
     pub dependency: String,
@@ -331,33 +345,9 @@ impl Report {
         if self.groups.is_empty() {
             return "refquiem: no stale mentions\n".to_owned();
         }
-        let mentions: usize = self.groups.iter().map(|g| g.mentions.len()).sum();
-        let mut out = format!(
-            "refquiem: {} still mentioned, {}\n",
-            plural(self.groups.len(), "removed name", "removed names"),
-            plural(mentions, "mention", "mentions"),
-        );
+        let mut out = format!("refquiem: {}\n", self.tally());
         for group in &self.groups {
-            let _ = write!(out, "\n`{}` ({}", group.path, group.kind.describe());
-            if let Some(member) = &group.member {
-                let _ = write!(out, " of `{member}`");
-            }
-            out.push(')');
-            let verb = if group.kind.is_manifest_entry() {
-                "removed"
-            } else {
-                "deleted"
-            };
-            match &group.removed_in {
-                Some(RemovedIn::Commit(id)) => {
-                    let _ = write!(out, ", {verb} in {}", id.get(..7).unwrap_or(id));
-                }
-                Some(RemovedIn::WorkingTree) => {
-                    let _ = write!(out, ", {verb} in the working tree");
-                }
-                None => {}
-            }
-            out.push('\n');
+            let _ = writeln!(out, "\n{}", group.headline());
             for mention in &group.mentions {
                 let _ = writeln!(
                     out,
@@ -368,6 +358,42 @@ impl Report {
                     mention.context.describe()
                 );
             }
+        }
+        out
+    }
+
+    /// How many removed names are still mentioned, and how often.
+    fn tally(&self) -> String {
+        let mentions: usize = self.groups.iter().map(|g| g.mentions.len()).sum();
+        format!(
+            "{} still mentioned, {}",
+            plural(self.groups.len(), "removed name", "removed names"),
+            plural(mentions, "mention", "mentions"),
+        )
+    }
+}
+
+impl Group {
+    /// The removed name with its kind, member and the change that removed it.
+    fn headline(&self) -> String {
+        let mut out = format!("`{}` ({}", self.path, self.kind.describe());
+        if let Some(member) = &self.member {
+            let _ = write!(out, " of `{member}`");
+        }
+        out.push(')');
+        let verb = if self.kind.is_manifest_entry() {
+            "removed"
+        } else {
+            "deleted"
+        };
+        match &self.removed_in {
+            Some(RemovedIn::Commit(id)) => {
+                let _ = write!(out, ", {verb} in {}", id.get(..7).unwrap_or(id));
+            }
+            Some(RemovedIn::WorkingTree) => {
+                let _ = write!(out, ", {verb} in the working tree");
+            }
+            None => {}
         }
         out
     }
