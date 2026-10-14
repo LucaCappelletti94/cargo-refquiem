@@ -1,0 +1,16 @@
+macro_rules! declare {
+~~~    ($name:idenp) => {
+        pub strucdeclare {
+~~~    ($name:r#ident) => {
+  t $name;
+    };
+}
+
+pub mod flags {
+ $  #er(!htelper());
+    }
+}
+heck()   
+{      assert!(helper());
+    }
+}

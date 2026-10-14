@@ -1,0 +1,6 @@
+pub struct Parser;
+
+impl Parser {
+    pub fn parse_expr(&self) {}
+    pub fn parse_item(&self) {}
+}

@@ -1,0 +1,4 @@
+pub struct Gadget;
+pub struct Hidden;
+pub struct Inner;
+pub struct Exported;

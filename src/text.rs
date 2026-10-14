@@ -314,13 +314,25 @@ fn keep_label(link: BrokenLink<'_>) -> Option<(CowStr<'_>, CowStr<'_>)> {
 
 /// Mentions in Markdown `text`, whose offsets `map` turns into file offsets.
 fn markdown(text: &str, map: impl Fn(usize) -> usize, source: Source, out: &mut Vec<Spelled>) {
+    // pulldown-cmark panics on some text (https://github.com/pulldown-cmark/pulldown-cmark/issues/1129).
+    let Ok(found) = std::panic::catch_unwind(|| markdown_mentions(text, source)) else {
+        return;
+    };
+    for mut path in found {
+        path.start = map(path.start);
+        path.end = map(path.end);
+        out.push(path);
+    }
+}
+
+/// Mentions in Markdown `text`, at offsets into `text`.
+fn markdown_mentions(text: &str, source: Source) -> Vec<Spelled> {
     let in_context = |kind| Context { source, kind };
     let mut events =
         Parser::new_with_broken_link_callback(text, Options::empty(), Some(keep_label))
             .into_offset_iter();
     let mut block: Option<Block> = None;
     let mut in_label_link = false;
-    let mut in_autolink = false;
     let mut found = Vec::new();
     for (event, range) in events.by_ref() {
         match event {
@@ -343,7 +355,6 @@ fn markdown(text: &str, map: impl Fn(usize) -> usize, source: Source, out: &mut 
                     in_context(Kind::Link),
                     &mut found,
                 );
-                in_autolink = link_type == LinkType::Autolink;
             }
             Event::Start(Tag::Image { dest_url, .. }) => {
                 let raw = &text[range.clone()];
@@ -355,7 +366,7 @@ fn markdown(text: &str, map: impl Fn(usize) -> usize, source: Source, out: &mut 
                     &mut found,
                 );
             }
-            Event::End(TagEnd::Link) => (in_label_link, in_autolink) = (false, false),
+            Event::End(TagEnd::Link) => in_label_link = false,
             Event::Code(_) if !in_label_link => {
                 let raw = &text[range.clone()];
                 let inner = raw.trim_start_matches('`');
@@ -367,7 +378,8 @@ fn markdown(text: &str, map: impl Fn(usize) -> usize, source: Source, out: &mut 
                     &mut found,
                 );
             }
-            Event::Text(_) if !in_label_link && !in_autolink => {
+            // Label and autolink text repeats its link at the same offset, which grouping drops.
+            Event::Text(_) => {
                 let kind = match &mut block {
                     Some(block) => {
                         block.read(range.clone());
@@ -397,11 +409,7 @@ fn markdown(text: &str, map: impl Fn(usize) -> usize, source: Source, out: &mut 
             &mut found,
         );
     }
-    for mut path in found {
-        path.start = map(path.start);
-        path.end = map(path.end);
-        out.push(path);
-    }
+    found
 }
 
 /// Fence languages of data formats whose keys and values serde may spell.
@@ -1131,10 +1139,9 @@ fn crate_link(url: &str) -> Option<String> {
         .strip_suffix(".svg")
         .or_else(|| name.strip_suffix(".json"))
         .unwrap_or(name);
-    let valid = !name.is_empty()
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    let valid = name
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
     valid.then(|| name.to_owned())
 }
 
@@ -1187,10 +1194,7 @@ fn page_path(dest: &str) -> Option<(Vec<String>, usize)> {
 pub(crate) fn paths(text: &str, base: usize, context: Context) -> Vec<Spelled> {
     let mut out = Vec::new();
     let mut i = 0;
-    while i < text.len() {
-        let Some(c) = text[i..].chars().next() else {
-            break;
-        };
+    while let Some(c) = text[i..].chars().next() {
         let previous = text[..i].chars().next_back();
         let boundary = previous.is_none_or(|p| !is_id_continue(p) && p != ':' && p != '#');
         let leading_colon = boundary && text[i..].starts_with("::") && starts_ident(&text[i + 2..]);
@@ -1206,12 +1210,10 @@ pub(crate) fn paths(text: &str, base: usize, context: Context) -> Vec<Spelled> {
                 cursor = after;
                 let mut probe = cursor;
                 if text[probe..].starts_with('<') {
-                    match skip_angles(text, probe) {
-                        Some(after_angles) if text[after_angles..].starts_with("::") => {
-                            probe = after_angles;
-                        }
-                        _ => break,
-                    }
+                    let Some(after_angles) = skip_angles(text, probe) else {
+                        break;
+                    };
+                    probe = after_angles;
                 }
                 if !text[probe..].starts_with("::") {
                     break;
@@ -1243,7 +1245,8 @@ pub(crate) fn paths(text: &str, base: usize, context: Context) -> Vec<Spelled> {
                     context,
                 });
             }
-            i = end.max(i + c.len_utf8());
+            // The path's first identifier ends past `i`.
+            i = end;
         } else {
             i += c.len_utf8();
         }

@@ -112,4 +112,7 @@ pub enum Error {
         /// The dependency key.
         name: String,
     },
+    /// The thread a scan runs on could not start.
+    #[error("starting the scan thread")]
+    Thread(#[source] std::io::Error),
 }

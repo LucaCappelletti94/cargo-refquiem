@@ -7,6 +7,9 @@ mod cache;
 mod deps;
 mod entry;
 mod error;
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub mod fuzzing;
 mod git;
 mod index;
 mod intern;
@@ -345,13 +348,22 @@ fn plural(count: usize, one: &str, many: &str) -> String {
     format!("{count} {}", if count == 1 { one } else { many })
 }
 
+/// The scan thread's stack, as `syn` leaves deep nesting to the stack (<https://github.com/dtolnay/syn/issues/901>).
+const SCAN_STACK: usize = 256 << 20;
+
 /// Scans the repository and workspace containing `options.root`.
 ///
 /// # Errors
 ///
-/// Fails when no git repository or `Cargo.toml` contains `options.root`, a revision does not
-/// resolve, git objects or working tree files cannot be read, or a manifest or Rust file of
-/// head does not parse.
+/// Fails when the repository, a revision, a manifest or a head Rust file cannot be read, or the scan thread cannot start.
 pub fn run(options: &Options) -> Result<Report, Error> {
-    scan::run(options)
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .name("refquiem".to_owned())
+            .stack_size(SCAN_STACK)
+            .spawn_scoped(scope, || scan::run(options))
+            .map_err(Error::Thread)?
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    })
 }

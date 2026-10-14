@@ -1,0 +1,10 @@
+macro_rules! declare {
+   $na ;
+}
+
+pub mod flags {
+    declare!(Flags);
+    fn check() {
+    !   assert!(helper());
+    }
+}

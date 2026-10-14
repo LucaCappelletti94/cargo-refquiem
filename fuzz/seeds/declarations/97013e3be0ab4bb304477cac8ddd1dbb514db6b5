@@ -1,0 +1,11 @@
+pub struct Raw;
+impl Raw {
+    pub fn stderr(&self) {}
+}
+pub struct Container(Raw);
+impl core::ops::Deref for Container {
+    type Target = Raw;
+    fn deref(&self) -> &Raw {
+        &self.0
+    }
+}

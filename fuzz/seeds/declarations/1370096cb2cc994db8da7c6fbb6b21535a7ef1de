@@ -1,0 +1,4 @@
+#[derive(serde::Serialize)]#[serde(r"SCREAMING-KEBAB-C//E"ename_all = "cpufn.bek pt_fmr"UPerde::renam|||||||||||||e = WeRialize)]
+#[r#erde(=ename_al+l = "kse")]
+pub enum r#de {
+    Short}
