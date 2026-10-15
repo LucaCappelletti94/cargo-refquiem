@@ -1,0 +1,39 @@
+name: Wrong review
+description: A refquiem review comment is wrong or a stale mention was missed
+title: "Wrong review"
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What is wrong
+      options:
+        - The mentioned name still exists
+        - The text does not mention the removed name
+        - A stale mention was missed
+        - The comment is on the wrong line
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: refquiem version
+    validations:
+      required: true
+  - type: input
+    id: review
+    attributes:
+      label: Review
+      description: The pull request the review was posted on, or the run that rendered it
+  - type: input
+    id: mention
+    attributes:
+      label: Reported mention
+      description: The file, line and column of the comment
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: The text involved when the pull request is private, and what you expected
+    validations:
+      required: true
