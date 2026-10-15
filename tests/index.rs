@@ -293,6 +293,52 @@ fn private_uses_do_not_create_reported_paths() {
 }
 
 #[test]
+fn a_module_reexporting_its_parent_does_not_nest_the_crate_into_itself() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod alias {\n    pub use super::*;\n}\n\npub mod zone {\n    pub fn gone() {}\n}\n",
+    );
+    repo.commit("self alias");
+    repo.write("src/lib.rs", "pub mod zone {}\n");
+    repo.write("README.md", "`gone`\n");
+    repo.commit("drop gone");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::alias::zone::gone"]);
+}
+
+#[test]
+fn a_path_returning_through_aliases_to_a_module_it_passed_is_not_indexed() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub mod tour;\n");
+    repo.write("src/tour/mod.rs", "pub mod c0;\npub mod c1;\npub mod c2;\n");
+    repo.write("src/tour/c0.rs", "pub use super::c1 as next;\n");
+    repo.write(
+        "src/tour/c1.rs",
+        "pub fn step() {}\npub use super::c0 as previous;\npub use super::c2 as next;\n",
+    );
+    repo.write("src/tour/c2.rs", "pub use super::c1 as previous;\n");
+    repo.commit("tour");
+    repo.write(
+        "src/tour/c1.rs",
+        "pub use super::c0 as previous;\npub use super::c2 as next;\n",
+    );
+    repo.write(
+        "README.md",
+        "`fixture::tour::c0::next::next::previous::step` and `fixture::tour::c0::next::step`\n",
+    );
+    repo.commit("drop step");
+
+    let report = run(&repo);
+    let mentioned: Vec<&str> = report
+        .groups
+        .iter()
+        .flat_map(|g| g.mentions.iter().map(|m| m.text.as_str()))
+        .collect();
+    assert_eq!(mentioned, ["fixture::tour::c0::next::step"]);
+}
+
+#[test]
 fn a_rename_drops_underscore_aliases_and_keeps_its_source_name() {
     let repo = Repo::new();
     repo.write(

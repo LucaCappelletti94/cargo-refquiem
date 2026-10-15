@@ -572,6 +572,7 @@ impl Indexer {
         crates: &[Sym],
     ) {
         const ROUNDS: usize = 8;
+        let mut origins = HashMap::new();
         for _ in 0..ROUNDS {
             let before = paths.len();
             let children = self.children(paths);
@@ -583,12 +584,15 @@ impl Indexer {
                 if let Some(name) = name {
                     let mut alias = module.clone();
                     alias.push(*name);
-                    paths.insert(self.interner.path(&alias, ItemKind::Reexport));
+                    let id = self.interner.path(&alias, ItemKind::Reexport);
+                    paths.insert(id);
                     if let Some(target) = target {
-                        self.copy_below(target, alias, &children, paths);
+                        let stands_for = origin(&origins, target);
+                        origins.entry(id).or_insert(stands_for);
+                        self.copy_below(target, alias, &children, paths, &mut origins);
                     }
                 } else if let Some(target) = target {
-                    self.copy_below(target, module.clone(), &children, paths);
+                    self.copy_below(target, module.clone(), &children, paths, &mut origins);
                 }
             }
             for (module, self_ty, target) in derefs {
@@ -606,7 +610,7 @@ impl Indexer {
                 if let Some(target) = target
                     && owner_known
                 {
-                    self.copy_below(target, owner, &children, paths);
+                    self.copy_below(target, owner, &children, paths, &mut origins);
                 }
             }
             if paths.len() == before {
@@ -642,17 +646,25 @@ impl Indexer {
         crates.contains(&first).then(|| source.to_vec())
     }
 
-    /// Re-roots every path strictly below `from` under `to`.
+    /// Re-roots every path strictly below `from` under `to`, never through a module the copy
+    /// already passes, so that re-exports forming a cycle stay finite.
+    ///
+    /// `origins` maps every alias and copied path to the declared path it stands for.
     fn copy_below(
         &mut self,
         from: PathId,
         to: Vec<Sym>,
         children: &HashMap<PathId, Vec<PathId>>,
         paths: &mut HashSet<PathId>,
+        origins: &mut HashMap<PathId, PathId>,
     ) {
-        let mut stack = vec![(from, to)];
+        let chain: Vec<PathId> = (1..=to.len())
+            .filter_map(|len| self.interner.find_path(&to[..len]))
+            .map(|id| origin(origins, id))
+            .collect();
+        let mut stack = vec![(from, to, chain)];
         let mut guard = HashSet::new();
-        while let Some((source, prefix)) = stack.pop() {
+        while let Some((source, prefix, chain)) = stack.pop() {
             if !guard.insert(source) {
                 continue;
             }
@@ -665,8 +677,15 @@ impl Indexer {
                 let mut path = prefix.clone();
                 path.push(last);
                 let kind = self.interner.kind(child);
-                paths.insert(self.interner.path(&path, kind));
-                stack.push((child, path));
+                let id = self.interner.path(&path, kind);
+                paths.insert(id);
+                let child_origin = origin(origins, child);
+                origins.entry(id).or_insert(child_origin);
+                if !chain.contains(&child_origin) {
+                    let mut deeper = chain.clone();
+                    deeper.push(child_origin);
+                    stack.push((child, path, deeper));
+                }
             }
         }
     }
@@ -689,6 +708,11 @@ impl Indexer {
         }
         children
     }
+}
+
+/// The declared path `id` stands for, given the alias and copy `origins`.
+fn origin(origins: &HashMap<PathId, PathId>, id: PathId) -> PathId {
+    origins.get(&id).copied().unwrap_or(id)
 }
 
 /// The directory owned by `file` for `mod` declarations nested in the inline modules `inline`.
