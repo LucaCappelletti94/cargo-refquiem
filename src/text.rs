@@ -319,16 +319,37 @@ fn compiled(kind: &CodeBlockKind<'_>, source: Source) -> bool {
     let CodeBlockKind::Fenced(info) = kind else {
         return true;
     };
-    info.split(|c: char| c == ',' || c.is_whitespace())
+    without_comments(info)
+        .split(|c: char| c == ',' || c.is_whitespace())
         .filter(|token| !token.is_empty())
         .all(|token| {
             matches!(
                 token,
-                "rust" | "should_panic" | "no_run" | "test_harness" | "standalone_crate"
+                "rust"
+                    | "should_panic"
+                    | "no_run"
+                    | "compile_fail"
+                    | "test_harness"
+                    | "standalone_crate"
             ) || token.starts_with("edition")
                 || token.starts_with('{')
                 || (token.starts_with('E') && token[1..].bytes().all(|b| b.is_ascii_digit()))
         })
+}
+
+/// A fence info line without its `(…)` comments, which rustdoc skips.
+fn without_comments(info: &str) -> String {
+    let mut out = String::with_capacity(info.len());
+    let mut inside = false;
+    for c in info.chars() {
+        match c {
+            '(' => inside = true,
+            ')' => inside = false,
+            _ if !inside => out.push(c),
+            _ => {}
+        }
+    }
+    out
 }
 
 /// The path a link destination or intra-doc label names, located at `at`.

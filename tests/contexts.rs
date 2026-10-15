@@ -206,3 +206,20 @@ fn context_names_appear_in_the_report() {
         assert!(human.contains(line), "missing {line:?} in:\n{human}");
     }
 }
+
+#[test]
+fn compile_fail_and_commented_fences_are_compiled_code_blocks() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", BEFORE);
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```compile_fail\n/// let _ = fixture::gone();\n/// ```\n///\n/// ```no_run (needs a network)\n/// let _ = fixture::gone();\n/// ```\n///\n/// ```no_run (a reason) ignore\n/// let _ = fixture::gone();\n/// ```\npub fn kept() {}\n",
+    );
+    repo.commit("drop gone");
+
+    let got: Vec<Context> = found(&repo).into_iter().map(|m| m.4).collect();
+    let compiled = context(Source::DocComment, Kind::CodeBlock { compiled: true });
+    let uncompiled = context(Source::DocComment, Kind::CodeBlock { compiled: false });
+    assert_eq!(got, [compiled, compiled, uncompiled]);
+}
