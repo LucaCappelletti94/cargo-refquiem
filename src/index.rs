@@ -25,6 +25,8 @@ pub(crate) struct Index {
     pub(crate) alive: HashMap<PathId, HashSet<Sym>>,
     /// The library crate names.
     pub(crate) libs: Vec<Sym>,
+    /// The parameter names of every function, method and trait method.
+    pub(crate) params: HashSet<Sym>,
 }
 
 /// A `use` creating a path: the module it sits in, the imported path, the created name or
@@ -37,11 +39,14 @@ type DerefDecl = (Vec<Sym>, Vec<Sym>, Vec<Sym>);
 /// One file read as one module of one crate, reusable across snapshots.
 struct Contribution {
     paths: Vec<PathId>,
+    /// Modules declared without `pub`, recorded when only public items count.
+    private_modules: Vec<PathId>,
     visits: Vec<Rc<Visit>>,
     uses: Vec<UseDecl>,
     invocations: Vec<(PathId, Sym, Vec<Sym>)>,
     macro_rules: Vec<(Sym, Vec<Sym>)>,
     derefs: Vec<DerefDecl>,
+    params: Vec<Sym>,
     failure: Option<String>,
 }
 
@@ -55,6 +60,46 @@ struct Visit {
     /// Whether `origin` is a `mod.rs`-style file owning its directory.
     mod_rs: bool,
     module: PathId,
+    /// Whether only `pub` items and `pub use` re-exports count, as for a dependency.
+    public_only: bool,
+}
+
+/// The public paths of one library, before re-exports between libraries are resolved.
+pub(crate) struct Library {
+    paths: HashSet<PathId>,
+    private_modules: Vec<PathId>,
+    uses: Vec<UseDecl>,
+    derefs: Vec<DerefDecl>,
+    /// Identifiers its item-position macros may turn into items, in any module.
+    pub(crate) macro_idents: HashSet<Sym>,
+}
+
+impl Library {
+    /// The first segments of the library's `pub use` sources, among them the crates it
+    /// re-exports from.
+    pub(crate) fn use_roots(&self) -> impl Iterator<Item = Sym> {
+        self.uses
+            .iter()
+            .filter_map(|(_, source, _)| source.first().copied())
+    }
+}
+
+/// The identifiers the item-position macro invocations of each module of `reached` may turn
+/// into items, with the `macro_rules!` bodies they call.
+fn macro_idents(reached: &[Rc<Contribution>]) -> HashMap<PathId, HashSet<Sym>> {
+    let mut bodies: HashMap<Sym, Vec<Sym>> = HashMap::new();
+    for (name, idents) in reached.iter().flat_map(|c| &c.macro_rules) {
+        bodies.entry(*name).or_default().extend(idents);
+    }
+    let mut alive: HashMap<PathId, HashSet<Sym>> = HashMap::new();
+    for (module, name, idents) in reached.iter().flat_map(|c| &c.invocations) {
+        let module = alive.entry(*module).or_default();
+        module.extend(idents);
+        if let Some(body) = bodies.get(name) {
+            module.extend(body);
+        }
+    }
+    alive
 }
 
 /// Builds indexes, sharing parsed files and per-module contributions between snapshots.
@@ -64,6 +109,8 @@ pub(crate) struct Indexer {
     memo: HashMap<(Rc<Visit>, ObjectId), Rc<Contribution>>,
     /// The package names every member directory had in any indexed snapshot.
     pub(crate) members: BTreeMap<String, BTreeSet<String>>,
+    /// The crate names of every workspace target in any indexed snapshot.
+    pub(crate) crates: HashSet<Sym>,
 }
 
 impl Indexer {
@@ -73,6 +120,7 @@ impl Indexer {
             cache,
             memo: HashMap::new(),
             members: BTreeMap::new(),
+            crates: HashSet::new(),
         }
     }
 
@@ -139,6 +187,7 @@ impl Indexer {
             for target in member.targets {
                 let crate_sym = self.interner.sym(&target.crate_name);
                 crates.push(crate_sym);
+                self.crates.insert(crate_sym);
                 if target.kind == TargetKind::Lib {
                     index.libs.push(crate_sym);
                 }
@@ -149,10 +198,35 @@ impl Indexer {
                     file: target.root,
                     mod_rs: true,
                     module,
+                    public_only: false,
                 }));
             }
         }
 
+        let reached = self.reach(snapshot, stack, head, &mut index)?;
+        let uses: Vec<&UseDecl> = reached.iter().flat_map(|c| &c.uses).collect();
+        let derefs: Vec<&DerefDecl> = reached.iter().flat_map(|c| &c.derefs).collect();
+        self.resolve_aliases(&mut index.paths, &uses, &derefs, &crates);
+        if head {
+            index.alive = macro_idents(&reached);
+            index.params = reached
+                .iter()
+                .flat_map(|c| c.params.iter().copied())
+                .collect();
+        }
+        Ok(index)
+    }
+
+    /// Reads every file reachable from `stack` into `index`, returning their contributions.
+    ///
+    /// At `head`, an unreadable Rust file is an error. Elsewhere it leaves the index incomplete.
+    fn reach(
+        &mut self,
+        snapshot: &dyn Snapshot,
+        mut stack: Vec<Rc<Visit>>,
+        head: bool,
+        index: &mut Index,
+    ) -> Result<Vec<Rc<Contribution>>, Error> {
         let mut seen = HashSet::new();
         let mut reached = Vec::new();
         while let Some(visit) = stack.pop() {
@@ -181,24 +255,77 @@ impl Indexer {
             stack.extend(contribution.visits.iter().map(Rc::clone));
             reached.push(contribution);
         }
+        Ok(reached)
+    }
 
-        let uses: Vec<&UseDecl> = reached.iter().flat_map(|c| &c.uses).collect();
-        let derefs: Vec<&DerefDecl> = reached.iter().flat_map(|c| &c.derefs).collect();
-        self.resolve_aliases(&mut index.paths, &uses, &derefs, &crates);
-        if head {
-            let mut bodies: HashMap<Sym, Vec<Sym>> = HashMap::new();
-            for (name, idents) in reached.iter().flat_map(|c| &c.macro_rules) {
-                bodies.entry(*name).or_default().extend(idents);
-            }
-            for (module, name, idents) in reached.iter().flat_map(|c| &c.invocations) {
-                let alive = index.alive.entry(*module).or_default();
-                alive.extend(idents);
-                if let Some(body) = bodies.get(name) {
-                    alive.extend(body);
-                }
-            }
-        }
-        Ok(index)
+    /// The public items of the library whose root file is `root` in `snapshot`, rooted at
+    /// `crate_name`.
+    pub(crate) fn library(
+        &mut self,
+        snapshot: &dyn Snapshot,
+        root: &str,
+        crate_name: &str,
+    ) -> Result<Library, Error> {
+        let crate_sym = self.interner.sym(crate_name);
+        let module = self.interner.path(&[crate_sym], ItemKind::Module);
+        let mut index = Index::default();
+        index.paths.insert(module);
+        let visit = Rc::new(Visit {
+            origin: root.to_owned(),
+            file: root.to_owned(),
+            mod_rs: true,
+            module,
+            public_only: true,
+        });
+        let reached = self.reach(snapshot, vec![visit], false, &mut index)?;
+        Ok(Library {
+            macro_idents: macro_idents(&reached).into_values().flatten().collect(),
+            paths: index.paths,
+            private_modules: reached
+                .iter()
+                .flat_map(|c| c.private_modules.iter().copied())
+                .collect(),
+            uses: reached
+                .iter()
+                .flat_map(|c| c.uses.iter().cloned())
+                .collect(),
+            derefs: reached
+                .iter()
+                .flat_map(|c| c.derefs.iter().cloned())
+                .collect(),
+        })
+    }
+
+    /// The paths of `libraries` that start with one of `roots` and lie outside every private
+    /// module, after resolving the re-exports between all of them.
+    pub(crate) fn public_paths(&mut self, libraries: &[Library], roots: &[Sym]) -> HashSet<PathId> {
+        let mut paths: HashSet<PathId> = libraries
+            .iter()
+            .flat_map(|library| library.paths.iter().copied())
+            .collect();
+        let crates: Vec<Sym> = paths
+            .iter()
+            .map(|&id| self.interner.segments(id)[0])
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        let uses: Vec<&UseDecl> = libraries.iter().flat_map(|l| &l.uses).collect();
+        let derefs: Vec<&DerefDecl> = libraries.iter().flat_map(|l| &l.derefs).collect();
+        self.resolve_aliases(&mut paths, &uses, &derefs, &crates);
+        let private: HashSet<PathId> = libraries
+            .iter()
+            .flat_map(|library| library.private_modules.iter().copied())
+            .collect();
+        paths.retain(|&id| {
+            let segments = self.interner.segments(id);
+            roots.contains(&segments[0])
+                && !(2..=segments.len()).any(|len| {
+                    self.interner
+                        .find_path(&segments[..len])
+                        .is_some_and(|prefix| private.contains(&prefix))
+                })
+        });
+        paths
     }
 
     fn contribution(
@@ -218,11 +345,13 @@ impl Indexer {
             Ok(items) => self.build(visit, items),
             Err(message) => Contribution {
                 paths: Vec::new(),
+                private_modules: Vec::new(),
                 visits: Vec::new(),
                 uses: Vec::new(),
                 invocations: Vec::new(),
                 macro_rules: Vec::new(),
                 derefs: Vec::new(),
+                params: Vec::new(),
                 failure: Some(message.clone()),
             },
         });
@@ -233,10 +362,22 @@ impl Indexer {
     fn build(&mut self, visit: &Visit, items: &FileItems) -> Contribution {
         let module: Vec<Sym> = self.interner.segments(visit.module).to_vec();
         let crate_sym = module[0];
+        let counts = |public: bool| public || !visit.public_only;
         let mut paths = Vec::new();
+        let mut private_modules = Vec::new();
         for decl in &items.items {
+            // A private module stays, so that re-exports out of it resolve, and is dropped
+            // with everything below it once they have.
+            let private_module = decl.kind == ItemKind::Module && !counts(decl.public);
+            if !counts(decl.public) && !private_module {
+                continue;
+            }
             let path = self.within(&module, &decl.path);
-            paths.push(self.interner.path(&path, decl.kind));
+            let id = self.interner.path(&path, decl.kind);
+            paths.push(id);
+            if private_module {
+                private_modules.push(id);
+            }
         }
         for block in &items.impls {
             let within = self.within(&module, &block.module);
@@ -244,10 +385,12 @@ impl Indexer {
             let Some(mut base) = self.resolve(&within, &self_ty, crate_sym) else {
                 continue;
             };
-            for (name, kind) in &block.items {
-                base.push(self.interner.sym(name));
-                paths.push(self.interner.path(&base, *kind));
-                base.pop();
+            for (name, kind, public) in &block.items {
+                if counts(*public) {
+                    base.push(self.interner.sym(name));
+                    paths.push(self.interner.path(&base, *kind));
+                    base.pop();
+                }
             }
         }
         for rules in items.macro_rules.iter().filter(|rules| rules.exported) {
@@ -260,6 +403,7 @@ impl Indexer {
         let uses = items
             .uses
             .iter()
+            .filter(|u| counts(u.public))
             .map(|u| {
                 let name = u.name.as_deref().map(|n| self.interner.sym(n));
                 (self.within(&module, &u.module), self.syms(&u.source), name)
@@ -289,11 +433,13 @@ impl Indexer {
             .collect();
         Contribution {
             paths,
+            private_modules,
             visits,
             uses,
             invocations,
             macro_rules,
             derefs,
+            params: self.syms(&items.params),
             failure: None,
         }
     }
@@ -317,6 +463,7 @@ impl Indexer {
                     file,
                     mod_rs: true,
                     module: child,
+                    public_only: visit.public_only,
                 }));
             }
             if decl.paths.is_empty() {
@@ -329,6 +476,7 @@ impl Indexer {
                         file,
                         mod_rs,
                         module: child,
+                        public_only: visit.public_only,
                     }));
                 }
             }
@@ -340,6 +488,7 @@ impl Indexer {
                 origin: visit.origin.clone(),
                 mod_rs: visit.mod_rs,
                 module: self.interner.path(&within, ItemKind::Module),
+                public_only: visit.public_only,
             }));
         }
         visits

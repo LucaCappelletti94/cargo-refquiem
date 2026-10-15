@@ -28,14 +28,18 @@ pub(crate) struct Target {
 }
 
 /// A dependency, by the key code names it with and the package it renames, if any.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Dependency {
     pub(crate) key: String,
     pub(crate) package: Option<String>,
+    /// The directory of a `path` dependency, from the repository root.
+    pub(crate) path: Option<String>,
+    /// The specification as a table, workspace inheritance applied.
+    pub(crate) spec: Table,
 }
 
 /// One workspace member package.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Member {
     /// The member directory, from the repository root.
     pub(crate) dir: String,
@@ -77,9 +81,9 @@ pub(crate) fn workspace(snapshot: &dyn Snapshot, dir: &str) -> Result<Vec<Member
     let mut members = Vec::new();
     for member_dir in &dirs {
         let member = if member_dir == dir {
-            read_member(snapshot, member_dir, &root, inherited)?
+            read_member(snapshot, member_dir, &root, (dir, inherited))?
         } else if let Some(manifest) = read_manifest(snapshot, member_dir)? {
-            read_member(snapshot, member_dir, &manifest, inherited)?
+            read_member(snapshot, member_dir, &manifest, (dir, inherited))?
         } else {
             None
         };
@@ -88,7 +92,8 @@ pub(crate) fn workspace(snapshot: &dyn Snapshot, dir: &str) -> Result<Vec<Member
     Ok(members)
 }
 
-fn read_manifest(snapshot: &dyn Snapshot, dir: &str) -> Result<Option<Table>, Error> {
+/// The manifest in `dir`, `None` when there is none.
+pub(crate) fn read_manifest(snapshot: &dyn Snapshot, dir: &str) -> Result<Option<Table>, Error> {
     let path = join(dir, "Cargo.toml");
     let Some(id) = snapshot.blob(&path)? else {
         return Ok(None);
@@ -107,7 +112,7 @@ fn read_member(
     snapshot: &dyn Snapshot,
     dir: &str,
     manifest: &Table,
-    inherited: Option<&Table>,
+    inherited: Inherited<'_>,
 ) -> Result<Option<Member>, Error> {
     let Some(package) = manifest.get("package").and_then(toml::Value::as_table) else {
         return Ok(None);
@@ -117,7 +122,7 @@ fn read_member(
     };
     let mut targets = Vec::new();
     package_targets(snapshot, dir, manifest, package, name, &mut targets)?;
-    let (dependencies, optional) = dependencies(manifest, inherited);
+    let (dependencies, optional) = dependencies(manifest, dir, inherited);
     Ok(Some(Member {
         dir: dir.to_owned(),
         package: name.to_owned(),
@@ -127,8 +132,16 @@ fn read_member(
     }))
 }
 
-/// Every dependency of every kind and platform, and the keys of the optional ones.
-fn dependencies(manifest: &Table, inherited: Option<&Table>) -> (Vec<Dependency>, Vec<String>) {
+/// The workspace directory and its `[workspace.dependencies]` table.
+type Inherited<'a> = (&'a str, Option<&'a Table>);
+
+/// Every dependency of every kind and platform of the manifest in `dir`, and the keys of the
+/// optional ones.
+fn dependencies(
+    manifest: &Table,
+    dir: &str,
+    (workspace_dir, inherited): Inherited<'_>,
+) -> (Vec<Dependency>, Vec<String>) {
     const KINDS: [&str; 5] = [
         "dependencies",
         "dev-dependencies",
@@ -155,32 +168,51 @@ fn dependencies(manifest: &Table, inherited: Option<&Table>) -> (Vec<Dependency>
     }
     let mut dependencies: Vec<Dependency> = Vec::new();
     let mut optional = Vec::new();
-    for (key, spec) in tables.into_iter().flatten() {
-        let field = |name: &str| spec.as_table().and_then(|t| t.get(name));
-        let inherits = field("workspace").and_then(toml::Value::as_bool) == Some(true);
-        let package = if inherits {
-            inherited
-                .and_then(|w| w.get(key))
-                .and_then(toml::Value::as_table)
-                .and_then(|t| t.get("package"))
-        } else {
-            field("package")
+    for (key, own) in tables.into_iter().flatten() {
+        let own = as_spec(own);
+        let inherits = own.get("workspace").and_then(toml::Value::as_bool) == Some(true);
+        let (spec_dir, mut spec) = match inherited.and_then(|w| w.get(key)) {
+            Some(shared) if inherits => (workspace_dir, as_spec(shared)),
+            _ => (dir, own.clone()),
+        };
+        if inherits {
+            for (name, value) in own {
+                if name != "workspace" {
+                    spec.entry(name).or_insert(value);
+                }
+            }
         }
-        .and_then(toml::Value::as_str)
-        .filter(|package| *package != key)
-        .map(str::to_owned);
-        if field("optional").and_then(toml::Value::as_bool) == Some(true) && !optional.contains(key)
-        {
+        let package = spec
+            .get("package")
+            .and_then(toml::Value::as_str)
+            .filter(|package| *package != key)
+            .map(str::to_owned);
+        let path = spec
+            .get("path")
+            .and_then(toml::Value::as_str)
+            .map(|path| join(spec_dir, path));
+        let is_optional = spec.get("optional").and_then(toml::Value::as_bool) == Some(true);
+        if is_optional && !optional.contains(key) {
             optional.push(key.clone());
         }
         if !dependencies.iter().any(|d| d.key == *key) {
             dependencies.push(Dependency {
                 key: key.clone(),
                 package,
+                path,
+                spec,
             });
         }
     }
     (dependencies, optional)
+}
+
+/// A dependency specification as a table, a bare string being its version requirement.
+fn as_spec(value: &toml::Value) -> Table {
+    match value {
+        toml::Value::Table(table) => table.clone(),
+        other => Table::from_iter([("version".to_owned(), other.clone())]),
+    }
 }
 
 /// The `[features]` keys and the implicit features of optional dependencies no `dep:` hides.

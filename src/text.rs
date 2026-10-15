@@ -1,5 +1,7 @@
 //! Path-shaped mentions in comments, doc comments, string literals and Markdown.
 
+use std::collections::HashSet;
+
 use pulldown_cmark::{
     BrokenLink, CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd,
 };
@@ -25,6 +27,12 @@ pub(crate) enum Named {
     Binary(String),
     /// An example target.
     Example(String),
+    /// A name written alone, an identifier or a hyphenated word.
+    Name {
+        word: String,
+        /// Whether the word sits in a data example, where only serialized spellings count.
+        data: bool,
+    },
 }
 
 /// A path or manifest name spelled in text, before resolution.
@@ -101,9 +109,11 @@ pub(crate) fn rust(source: &str) -> Vec<Spelled> {
     }
 
     let mut out = Vec::new();
+    let mut attribute = Attribute::default();
     let mut i = 0;
     while i < tokens.len() {
         let (offset, len, kind) = tokens[i];
+        attribute.step(kind);
         let text = &source[offset..offset + len];
         match kind {
             TokenKind::LineComment {
@@ -154,20 +164,56 @@ pub(crate) fn rust(source: &str) -> Vec<Spelled> {
                     | LiteralKind::RawByteStr { .. }
                     | LiteralKind::RawCStr { .. },
                 ..
-            } => scan(
-                text,
-                offset,
-                Context {
+            } => {
+                let context = Context {
                     source: Source::StringLiteral,
                     kind: Kind::Text,
-                },
-                &mut out,
-            ),
+                };
+                // A string inside an attribute is a macro argument, whose words are no names.
+                if attribute.inside() {
+                    spelled(text, offset, context, &mut out);
+                } else {
+                    scan(text, offset, context, &mut out);
+                }
+            }
             _ => {}
         }
         i += 1;
     }
     out
+}
+
+/// Whether the tokens read so far sit inside an attribute, `#[...]` or `#![...]`.
+#[derive(Default)]
+struct Attribute {
+    /// The brackets open inside the attribute.
+    depth: usize,
+    /// Whether a `#` that may open an attribute was just read.
+    pound: bool,
+}
+
+impl Attribute {
+    fn step(&mut self, kind: TokenKind) {
+        match kind {
+            TokenKind::Pound => self.pound = true,
+            TokenKind::Bang | TokenKind::Whitespace => {}
+            TokenKind::OpenBracket => {
+                if self.pound || self.depth > 0 {
+                    self.depth += 1;
+                }
+                self.pound = false;
+            }
+            TokenKind::CloseBracket => {
+                self.depth = self.depth.saturating_sub(1);
+                self.pound = false;
+            }
+            _ => self.pound = false,
+        }
+    }
+
+    fn inside(&self) -> bool {
+        self.depth > 0
+    }
 }
 
 /// Every mention in a Markdown file.
@@ -272,29 +318,17 @@ fn markdown(text: &str, map: impl Fn(usize) -> usize, source: Source, out: &mut 
     let mut events =
         Parser::new_with_broken_link_callback(text, Options::empty(), Some(keep_label))
             .into_offset_iter();
-    let mut code_block = None;
-    let mut toml_block: Option<(usize, usize)> = None;
+    let mut block: Option<Block> = None;
     let mut in_label_link = false;
     let mut in_autolink = false;
     let mut found = Vec::new();
     for (event, range) in events.by_ref() {
         match event {
-            Event::Start(Tag::CodeBlock(kind)) => {
-                if let CodeBlockKind::Fenced(info) = &kind
-                    && info.split([',', ' ']).next() == Some("toml")
-                {
-                    toml_block = Some((range.end, range.end));
-                }
-                code_block = Some(compiled(&kind, source));
-            }
+            Event::Start(Tag::CodeBlock(kind)) => block = Some(Block::new(&kind, source)),
             Event::End(TagEnd::CodeBlock) => {
-                if let Some((start, end)) = toml_block.take()
-                    && start < end
-                {
-                    let kind = Kind::CodeBlock { compiled: false };
-                    toml(&text[start..end], start, in_context(kind), &mut found);
+                if let Some(block) = block.take() {
+                    block.finish(text, source, &mut found);
                 }
-                code_block = None;
             }
             Event::Start(Tag::Link {
                 link_type,
@@ -334,13 +368,15 @@ fn markdown(text: &str, map: impl Fn(usize) -> usize, source: Source, out: &mut 
                 );
             }
             Event::Text(_) if !in_label_link && !in_autolink => {
-                if let Some((start, end)) = &mut toml_block {
-                    if *start == *end {
-                        *start = range.start;
+                let kind = match &mut block {
+                    Some(block) => {
+                        block.read(range.clone());
+                        Kind::CodeBlock {
+                            compiled: block.compiled,
+                        }
                     }
-                    *end = range.end;
-                }
-                let kind = code_block.map_or(Kind::Text, |compiled| Kind::CodeBlock { compiled });
+                    None => Kind::Text,
+                };
                 scan(
                     &text[range.clone()],
                     range.start,
@@ -365,6 +401,174 @@ fn markdown(text: &str, map: impl Fn(usize) -> usize, source: Source, out: &mut 
         path.start = map(path.start);
         path.end = map(path.end);
         out.push(path);
+    }
+}
+
+/// Fence languages of data formats whose keys and values serde may spell.
+const DATA_FORMATS: [&str; 5] = ["json", "yaml", "yml", "toml", "ron"];
+
+/// A code block being read.
+struct Block {
+    compiled: bool,
+    /// Whether the fence names `toml`, whose dependency tables count.
+    toml: bool,
+    /// Whether the fence names one of [`DATA_FORMATS`].
+    data: bool,
+    /// The offsets of the block's text in the Markdown.
+    span: Option<(usize, usize)>,
+}
+
+impl Block {
+    fn new(kind: &CodeBlockKind<'_>, source: Source) -> Self {
+        let language = match kind {
+            CodeBlockKind::Fenced(info) => info.split([',', ' ']).next().unwrap_or_default(),
+            CodeBlockKind::Indented => "",
+        };
+        Self {
+            compiled: compiled(kind, source),
+            toml: language == "toml",
+            data: DATA_FORMATS.contains(&language),
+            span: None,
+        }
+    }
+
+    fn read(&mut self, range: std::ops::Range<usize>) {
+        let start = self.span.map_or(range.start, |(start, _)| start);
+        self.span = Some((start, range.end));
+    }
+
+    /// Records the dependency tables, serialized spellings and code identifiers of a finished
+    /// block in Markdown `text` from `source`.
+    fn finish(self, text: &str, source: Source, out: &mut Vec<Spelled>) {
+        let Some((start, end)) = self.span else {
+            return;
+        };
+        let block = &text[start..end];
+        let kind = Kind::CodeBlock {
+            compiled: self.compiled,
+        };
+        let context = Context { source, kind };
+        if self.toml {
+            toml(block, start, context, out);
+        }
+        if self.data {
+            for (from, to) in runs(block, true) {
+                if !block[from..].starts_with(|c: char| c.is_ascii_digit()) {
+                    out.push(name(block, start, (from, to), true, context));
+                }
+            }
+        }
+        if self.compiled {
+            code_names(block, start, context, out);
+        }
+    }
+}
+
+/// The identifier tokens of compiled `code` at `base`, outside its paths and other than the
+/// names it binds itself.
+fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
+    let mut tokens = Vec::new();
+    let mut offset = 0;
+    for token in ra_ap_rustc_lexer::tokenize(code, FrontmatterAllowed::No) {
+        let len = usize::try_from(token.len).expect("token lengths fit in usize");
+        let trivia = matches!(
+            token.kind,
+            TokenKind::Whitespace | TokenKind::LineComment { .. } | TokenKind::BlockComment { .. }
+        );
+        if !trivia {
+            tokens.push((offset, offset + len, token.kind));
+        }
+        offset += len;
+    }
+    let bound = bindings(code, &tokens);
+    let taken: Vec<(usize, usize)> = paths(code, 0, context)
+        .iter()
+        .map(|path| (path.start, path.end))
+        .collect();
+    for &(start, end, kind) in &tokens {
+        let span = match kind {
+            TokenKind::Ident => (start, end),
+            TokenKind::RawIdent => (start + 2, end),
+            _ => continue,
+        };
+        let free = taken.iter().all(|&(s, e)| span.1 <= s || e <= span.0);
+        if free && !bound.contains(&code[span.0..span.1]) {
+            out.push(name(code, base, span, false, context));
+        }
+    }
+}
+
+/// The lowercase names `code` binds with `let` and `for` patterns and closure parameters, from
+/// its non-trivia `tokens` as `(start, end, kind)`.
+fn bindings<'c>(code: &'c str, tokens: &[(usize, usize, TokenKind)]) -> HashSet<&'c str> {
+    let text = |i: usize| &code[tokens[i].0..tokens[i].1];
+    let mut bound = HashSet::new();
+    let mut i = 0;
+    while i < tokens.len() {
+        let opens_closure = tokens[i].2 == TokenKind::Or
+            && (i == 0
+                || matches!(
+                    tokens[i - 1].2,
+                    TokenKind::OpenParen
+                        | TokenKind::Comma
+                        | TokenKind::Eq
+                        | TokenKind::OpenBrace
+                        | TokenKind::Semi
+                )
+                || text(i - 1) == "move");
+        let pattern = match (tokens[i].2, text(i)) {
+            (TokenKind::Ident, "let") => Pattern::Let,
+            (TokenKind::Ident, "for") => Pattern::For,
+            _ if opens_closure => Pattern::Closure,
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        let mut depth = 0usize;
+        i += 1;
+        while i < tokens.len() {
+            let kind = tokens[i].2;
+            match kind {
+                TokenKind::OpenParen | TokenKind::OpenBracket | TokenKind::OpenBrace => depth += 1,
+                TokenKind::CloseParen | TokenKind::CloseBracket | TokenKind::CloseBrace => {
+                    let Some(inner) = depth.checked_sub(1) else {
+                        break;
+                    };
+                    depth = inner;
+                }
+                _ if depth == 0 && pattern.ends(kind, text(i)) => break,
+                TokenKind::Ident
+                    if text(i).starts_with(|c: char| c.is_lowercase() || c == '_')
+                        && !matches!(text(i), "mut" | "ref") =>
+                {
+                    bound.insert(text(i));
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        i += 1;
+    }
+    bound
+}
+
+/// A binding pattern of compiled code, by the keyword or token that opens it.
+#[derive(Clone, Copy)]
+enum Pattern {
+    Let,
+    For,
+    Closure,
+}
+
+impl Pattern {
+    /// Whether the token of `kind` spelled `text`, outside any brackets, ends the pattern.
+    fn ends(self, kind: TokenKind, text: &str) -> bool {
+        match self {
+            Self::Let => matches!(kind, TokenKind::Eq | TokenKind::Semi | TokenKind::Colon),
+            Self::For => text == "in",
+            Self::Closure => kind == TokenKind::Or,
+        }
     }
 }
 
@@ -407,12 +611,143 @@ fn link_start(
     }
 }
 
-/// Paths, cargo flags, `cfg(feature)` predicates and URLs in plain `text` at `base`.
+/// Paths, cargo flags, `cfg(feature)` predicates, URLs and bare names in plain `text` at `base`.
 fn scan(text: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
+    let taken = spelled(text, base, context, out);
+    names(text, base, context, &taken, out);
+}
+
+/// Paths, cargo flags, `cfg(feature)` predicates and URLs in plain `text` at `base`. Returns the
+/// ranges of `text` they cover, with every URL and, in a string literal, every `{...}` format
+/// argument.
+fn spelled(
+    text: &str,
+    base: usize,
+    context: Context,
+    out: &mut Vec<Spelled>,
+) -> Vec<(usize, usize)> {
+    let first = out.len();
     out.extend(paths(text, base, context));
     cargo_flags(text, base, context, out);
     cfg_features(text, base, context, out);
     bare_urls(text, base, context, out);
+    let mut taken: Vec<(usize, usize)> = out[first..]
+        .iter()
+        .map(|spelled| (spelled.start - base, spelled.end - base))
+        .collect();
+    taken.extend(urls(text));
+    if context.source == Source::StringLiteral {
+        for (open, _) in text.match_indices('{') {
+            if let Some(close) = text[open..].find('}') {
+                taken.push((open, open + close + 1));
+            }
+        }
+    }
+    taken
+}
+
+/// Bare names in `text` at `base` outside the `taken` ranges of `text`. Those are the
+/// code-shaped words of running text and a code span holding one identifier or hyphenated
+/// word. Compiled code blocks yield theirs once whole, in [`Block::finish`].
+fn names(
+    text: &str,
+    base: usize,
+    context: Context,
+    taken: &[(usize, usize)],
+    out: &mut Vec<Spelled>,
+) {
+    let free = |(start, end): (usize, usize)| taken.iter().all(|&(s, e)| end <= s || e <= start);
+    let named = |word: &str| word.contains('-') || word.starts_with(is_id_start);
+    match context.kind {
+        Kind::Text => {
+            for span in runs(text, true) {
+                let word = &text[span.0..span.1];
+                if free(span) && code_shaped(word) && standalone(text, span.0, span.1) {
+                    out.push(name(text, base, span, false, context));
+                }
+            }
+        }
+        Kind::CodeSpan => {
+            let trimmed = text.trim_start();
+            let whole = trimmed
+                .trim_end()
+                .trim_end_matches("()")
+                .trim_end_matches('!');
+            let from = text.len() - trimmed.len();
+            let span = (from, from + whole.len());
+            if runs(whole, true) == [(0, whole.len())] && named(whole) && free(span) {
+                out.push(name(text, base, span, false, context));
+            }
+        }
+        Kind::CodeBlock { .. } | Kind::Link => {}
+    }
+}
+
+/// Whether `word` of running text looks like code rather than prose. It has a `_` or a `-`, or
+/// an uppercase letter after its first character together with a lowercase letter.
+fn code_shaped(word: &str) -> bool {
+    if !word.starts_with(is_id_start) && !word.contains('-') {
+        return false;
+    }
+    let inner_upper = word.chars().skip(1).any(char::is_uppercase);
+    word.contains(['_', '-']) || (inner_upper && word.chars().any(char::is_lowercase))
+}
+
+/// The bare name at `span` of `text`, which sits at `base`.
+fn name(text: &str, base: usize, span: (usize, usize), data: bool, context: Context) -> Spelled {
+    let word = text[span.0..span.1].to_owned();
+    Spelled::name(
+        base + span.0,
+        base + span.1,
+        Named::Name { word, data },
+        context,
+    )
+}
+
+/// The maximal runs of identifier characters in `text`, joined by inner `-` when `hyphens`.
+fn runs(text: &str, hyphens: bool) -> Vec<(usize, usize)> {
+    let inside = |c: char| is_id_continue(c) || (hyphens && c == '-');
+    let mut out = Vec::new();
+    let mut start = None;
+    for (at, c) in text
+        .char_indices()
+        .chain(std::iter::once((text.len(), ' ')))
+    {
+        match (start, inside(c)) {
+            (None, true) => start = Some(at),
+            (Some(from), false) => {
+                start = None;
+                let run = &text[from..at];
+                let trimmed = run.trim_start_matches('-');
+                let from = from + run.len() - trimmed.len();
+                let to = from + trimmed.trim_end_matches('-').len();
+                if from < to {
+                    out.push((from, to));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Whether the word at `start..end` of running text stands alone rather than being part of a
+/// file name, an address, an email or a path.
+fn standalone(text: &str, start: usize, end: usize) -> bool {
+    let before = text[..start].chars().next_back();
+    let mut after = text[end..].chars();
+    let (next, then) = (after.next(), after.next());
+    let glued_before = matches!(
+        before,
+        Some('.' | ':' | '/' | '\\' | '@' | '#' | '$' | '%' | '&' | '=' | '~')
+    );
+    let glued_after = match next {
+        Some('/' | '\\' | '@') => true,
+        Some('.') => then.is_some_and(is_id_continue),
+        Some(':') => then == Some(':'),
+        _ => false,
+    };
+    !glued_before && !glued_after
 }
 
 /// `--features`, `-F`, `--bin` and `--example` arguments.
@@ -545,6 +880,14 @@ fn inside_cfg(before: &str) -> bool {
 
 /// `http://` and `https://` URLs in running text, read as crate links or rustdoc pages.
 fn bare_urls(text: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
+    for (start, end) in urls(text) {
+        out.extend(link_path(&text[start..end], base + start, context));
+    }
+}
+
+/// The spans of the `http://` and `https://` URLs in `text`.
+fn urls(text: &str) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
     for scheme in ["https://", "http://"] {
         for (at, _) in text.match_indices(scheme) {
             let body = &text[at..];
@@ -552,9 +895,10 @@ fn bare_urls(text: &str, base: usize, context: Context, out: &mut Vec<Spelled>) 
                 .find(|c: char| c.is_whitespace() || "<>()[]\"'`".contains(c))
                 .unwrap_or(body.len());
             let url = body[..len].trim_end_matches(['.', ',', ';', ':', '!', '?']);
-            out.extend(link_path(url, base + at, context));
+            out.push((at, at + url.len()));
         }
     }
+    out
 }
 
 /// Dependency keys and their requested features in a `toml` code block at `base`.
@@ -723,7 +1067,7 @@ fn without_comments(info: &str) -> String {
     out
 }
 
-/// The path a link destination or intra-doc label names, located at `at`.
+/// The path or name a link destination or intra-doc label names, located at `at`.
 fn link_path(dest: &str, at: usize, context: Context) -> Option<Spelled> {
     let end = at + dest.len();
     if dest.contains("://") || dest.contains(".html") || dest.starts_with(['#', '/', '.']) {
@@ -748,6 +1092,12 @@ fn link_path(dest: &str, at: usize, context: Context) -> Option<Spelled> {
     let bare = unprefixed
         .trim_end_matches("()")
         .trim_end_matches(['!', '(', ')', '[', ']', '{', '}']);
+    if let Some((word, after)) = ident(bare, 0)
+        && after == bare.len()
+    {
+        let named = Named::Name { word, data: false };
+        return Some(Spelled::name(at, end, named, context));
+    }
     let path = paths(bare, 0, context).into_iter().next()?;
     if path.start != 0 || path.end != bare.len() {
         return None;
