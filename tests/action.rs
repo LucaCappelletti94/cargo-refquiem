@@ -278,8 +278,8 @@ struct FakeGh {
 }
 
 impl FakeGh {
-    /// `changed` are the pull request's files, `fail` makes posting a comment on that path
-    /// fail with that status.
+    /// `changed` are the pull request's files, `fail` makes posting a comment on that path,
+    /// or listing the files for `files`, fail with that status.
     fn new(changed: &[&str], fail: Option<(&str, u16)>) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let (fail_path, fail_status) = fail.map_or((String::new(), 0), |(p, s)| (p.to_owned(), s));
@@ -299,7 +299,12 @@ case "$*" in
     fi
     echo '{{}}' ;;
   *pulls/7/reviews*) echo '{{"state": "CHANGES_REQUESTED"}}' ;;
-  *pulls/7/files*) printf '%s\n' {changed} ;;
+  *pulls/7/files*)
+    if [ '{fail_path}' = files ]; then
+      echo 'gh: HTTP {fail_status}' >&2
+      exit 1
+    fi
+    printf '%s\n' {changed} ;;
   *pulls/7*) echo 'f00df00df00df00df00df00df00df00df00df00d' ;;
   *) echo "unexpected gh $*" >&2; exit 1 ;;
 esac
@@ -642,6 +647,40 @@ fn post_without_a_prepared_review_fails() {
         .unwrap();
     assert!(!result.status.success());
     assert_eq!(std::fs::read_to_string(&status).unwrap().trim(), "failed");
+}
+
+#[test]
+fn a_review_whose_changed_files_cannot_be_read_fails_without_posting() {
+    let gh = FakeGh::new(&["README.md"], Some(("files", 500)));
+    let dir = tempfile::tempdir().unwrap();
+    let report = dir.path().join("report.json");
+    let status = dir.path().join("status");
+    std::fs::write(&report, stale_scan()).unwrap();
+    let result = Command::new("bash")
+        .arg(script("review.sh"))
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                gh.dir.path().display(),
+                std::env::var("PATH").unwrap()
+            ),
+        )
+        .env("MODE", "review")
+        .env("DRY_RUN", "false")
+        .env("PR_NUMBER", "7")
+        .env("REPORT", &report)
+        .env("PAYLOAD", dir.path().join("payload"))
+        .env("STATUS", &status)
+        .env("GITHUB_REPOSITORY", "owner/repo")
+        .env("GITHUB_SERVER_URL", "https://github.com")
+        .env("GITHUB_STEP_SUMMARY", dir.path().join("summary.md"))
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert_eq!(std::fs::read_to_string(&status).unwrap().trim(), "failed");
+    assert!(!gh.log().contains("comments"), "{}", gh.log());
+    assert!(!gh.log().contains("reviews"), "{}", gh.log());
 }
 
 #[test]

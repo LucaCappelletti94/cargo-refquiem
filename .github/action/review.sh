@@ -62,7 +62,10 @@ else
       printf '%s\n' "$head_sha"
       finish failed 1
     fi
-    changed="$(gh api "repos/$repo/pulls/$pr/files" --paginate --jq '.[].filename' | jq -R . | jq -s .)"
+    if ! changed="$(gh api "repos/$repo/pulls/$pr/files" --paginate --jq '.[].filename' | jq -R . | jq -s .)"; then
+      echo "refquiem: cannot read the files of pull request $pr, the review is not posted"
+      finish failed 1
+    fi
   fi
 
   uri() { jq -rn --arg s "$1" '$s | @uri'; }
