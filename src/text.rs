@@ -120,14 +120,12 @@ pub(crate) fn rust(source: &str) -> Vec<Spelled> {
                 doc_style: Some(style),
             } => {
                 let mut lines = vec![(offset, len)];
-                let mut next = i + 1;
-                while let Some(&(o, l, k)) = tokens.get(next) {
+                for (next, &(o, l, k)) in tokens.iter().enumerate().skip(i + 1) {
                     match k {
-                        TokenKind::Whitespace => next += 1,
+                        TokenKind::Whitespace => {}
                         TokenKind::LineComment { doc_style: Some(s) } if s == style => {
                             lines.push((o, l));
-                            next += 1;
-                            i = next - 1;
+                            i = next;
                         }
                         _ => break,
                     }
