@@ -57,11 +57,22 @@ fn json_prints_the_report_with_snake_case_keys() {
     let group = &report["groups"][0];
     assert_eq!(
         keys(group),
-        ["kind", "member", "mentions", "path", "removed_in"]
+        [
+            "headline",
+            "kind",
+            "member",
+            "mentions",
+            "path",
+            "removed_in"
+        ]
     );
     assert_eq!(group["path"], "fixture::gone");
     assert_eq!(group["kind"], "function");
     assert_eq!(group["member"], serde_json::Value::Null);
+    assert_eq!(
+        group["headline"],
+        format!("`fixture::gone` (function), deleted in {deleting}")
+    );
     assert!(
         group["removed_in"]
             .as_str()

@@ -259,7 +259,7 @@ pub struct Mention {
 }
 
 /// A removed name and its remaining mentions.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Group {
     /// The full path of a removed item, or the name of a removed manifest entry.
     pub path: String,
@@ -271,6 +271,21 @@ pub struct Group {
     pub removed_in: Option<RemovedIn>,
     /// Its mentions at head, by file and position.
     pub mentions: Vec<Mention>,
+}
+
+/// The fields, plus the `headline` a reader shows for the group.
+impl serde::Serialize for Group {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct as _;
+        let mut group = serializer.serialize_struct("Group", 6)?;
+        group.serialize_field("path", &self.path)?;
+        group.serialize_field("kind", &self.kind)?;
+        group.serialize_field("member", &self.member)?;
+        group.serialize_field("removed_in", &self.removed_in)?;
+        group.serialize_field("headline", &self.headline())?;
+        group.serialize_field("mentions", &self.mentions)?;
+        group.end()
+    }
 }
 
 /// Every removed name still mentioned, by path.
