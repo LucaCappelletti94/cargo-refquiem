@@ -126,3 +126,41 @@ fn the_config_and_package_flags_reach_the_scan() {
     let output = cargo_refquiem(repo.path(), &["--package", "missing"]);
     assert_eq!(output.status.code(), Some(2));
 }
+
+#[test]
+fn since_scans_only_the_commits_after_a_revision() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "`fixture::gone`\n");
+    repo.commit("drop gone");
+
+    let output = cargo_refquiem(repo.path(), &["--since", "HEAD~1"]);
+    assert_eq!(output.status.code(), Some(1));
+    let output = cargo_refquiem(repo.path(), &["--since", "HEAD"]);
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn the_cache_lives_under_cargo_target_dir_when_it_is_set() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    repo.commit("start");
+    let target = tempfile::tempdir().unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
+        .arg("refquiem")
+        .current_dir(repo.path())
+        .env("CARGO_TARGET_DIR", target.path())
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let cached = std::fs::read_dir(target.path().join("refquiem"))
+        .unwrap()
+        .count();
+    assert!(cached > 0);
+    assert!(!repo.path().join("target/refquiem").exists());
+}
