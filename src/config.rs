@@ -83,21 +83,25 @@ impl Filter {
         })
     }
 
-    /// Whether `file`, from the repository root, is left out before it is read.
+    /// Whether `file`, from the repository root, is left out before it is read, exclude globs
+    /// matching only below the workspace.
     pub(crate) fn skips_path(&self, file: &str) -> bool {
         if let Some(dir) = &self.package_dir
             && !below(dir, file)
         {
             return true;
         }
-        let relative = file
-            .strip_prefix(&self.workspace)
-            .and_then(|rest| rest.strip_prefix('/'))
-            .filter(|_| !self.workspace.is_empty())
-            .unwrap_or(file);
-        self.excludes
-            .matched_path_or_any_parents(relative, false)
-            .is_ignore()
+        let relative = if self.workspace.is_empty() {
+            Some(file)
+        } else {
+            file.strip_prefix(&self.workspace)
+                .and_then(|rest| rest.strip_prefix('/'))
+        };
+        relative.is_some_and(|relative| {
+            self.excludes
+                .matched_path_or_any_parents(relative, false)
+                .is_ignore()
+        })
     }
 
     /// Whether a file holding `text` is left out as generated.

@@ -162,6 +162,28 @@ fn exclude_globs_are_relative_to_a_workspace_in_a_subdirectory() {
 }
 
 #[test]
+fn exclude_globs_leave_files_above_a_subdirectory_workspace_alone() {
+    let repo = Repo::new();
+    std::fs::remove_file(repo.path().join("Cargo.toml")).unwrap();
+    repo.write(
+        "ws/Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("ws/src/lib.rs", "pub struct Gone;\n");
+    repo.commit("start");
+    repo.write("ws/src/lib.rs", "");
+    repo.write("ws/.refquiem.toml", "exclude = [\"NOTES.md\"]\n");
+    repo.write("ws/NOTES.md", "`fixture::Gone`\n");
+    repo.write("NOTES.md", "`fixture::Gone`\n");
+    repo.commit("drop Gone");
+
+    assert_eq!(
+        found(&Options::new(repo.path().join("ws"))),
+        [("fixture::Gone".to_owned(), "NOTES.md".to_owned())]
+    );
+}
+
+#[test]
 fn since_in_the_config_starts_the_range() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "pub struct Early;\npub struct Late;\n");
