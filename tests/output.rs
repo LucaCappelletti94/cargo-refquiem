@@ -58,20 +58,24 @@ fn json_prints_the_report_with_snake_case_keys() {
     assert_eq!(
         keys(group),
         [
+            "candidates",
             "headline",
             "kind",
             "member",
             "mentions",
             "path",
-            "removed_in"
+            "removed_in",
+            "suggestion"
         ]
     );
     assert_eq!(group["path"], "fixture::gone");
     assert_eq!(group["kind"], "function");
     assert_eq!(group["member"], serde_json::Value::Null);
+    assert_eq!(group["suggestion"], "fixture::kept");
+    assert_eq!(group["candidates"], serde_json::json!([]));
     assert_eq!(
         group["headline"],
-        format!("`fixture::gone` (function), deleted in {deleting}")
+        format!("`fixture::gone` (function), deleted in {deleting}, replaced by `fixture::kept`")
     );
     assert!(
         group["removed_in"]
@@ -80,7 +84,11 @@ fn json_prints_the_report_with_snake_case_keys() {
         "{group}"
     );
     let mention = &group["mentions"][0];
-    assert_eq!(keys(mention), ["column", "context", "file", "line", "text"]);
+    assert_eq!(
+        keys(mention),
+        ["column", "context", "file", "line", "replacement", "text"]
+    );
+    assert_eq!(mention["replacement"], "Call `fixture::kept`.");
     assert_eq!(mention["file"], "README.md");
     assert_eq!(mention["line"], 1);
     assert_eq!(mention["column"], 7);
@@ -120,8 +128,8 @@ fn github_annotations_follow_the_report() {
     assert_eq!(
         annotations,
         [
-            format!("::error file=README.md,line=1,col=7,title=refquiem::`fixture::gone` (function), deleted in {deleting}, is still mentioned here"),
-            format!("::error file=a%2Cb.md,line=1,col=2,title=refquiem::`fixture::gone` (function), deleted in {deleting}, is still mentioned here"),
+            format!("::error file=README.md,line=1,col=7,title=refquiem::`fixture::gone` (function), deleted in {deleting}, replaced by `fixture::kept`, is still mentioned here"),
+            format!("::error file=a%2Cb.md,line=1,col=2,title=refquiem::`fixture::gone` (function), deleted in {deleting}, replaced by `fixture::kept`, is still mentioned here"),
             "::error file=src/lib.rs,line=1,col=20,title=refquiem::refquiem: allow(Nothing) suppresses nothing".to_owned(),
         ]
     );
@@ -166,7 +174,7 @@ fn github_appends_the_job_summary_when_github_provides_the_file() {
     assert_eq!(
         std::fs::read_to_string(&summary).unwrap(),
         format!(
-            "earlier step\n## refquiem\n\n1 removed name still mentioned, 2 mentions\n\n| Removed name | Kind | Removed in | Mentions |\n|---|---|---|---|\n| `fixture::gone` | function | {deleting} | `README.md:1:7`<br>`a,b.md:1:2` |\n\n### Unused suppression markers\n\n- `src/lib.rs:1:20` `refquiem: allow(Nothing)`\n"
+            "earlier step\n## refquiem\n\n1 removed name still mentioned, 2 mentions\n\n| Removed name | Kind | Removed in | Became | Mentions |\n|---|---|---|---|---|\n| `fixture::gone` | function | {deleting} | replaced by `fixture::kept` | `README.md:1:7`<br>`a,b.md:1:2` |\n\n### Unused suppression markers\n\n- `src/lib.rs:1:20` `refquiem: allow(Nothing)`\n"
         )
     );
 
@@ -252,7 +260,7 @@ fn the_output_names_the_member_and_a_removal_in_the_working_tree() {
     let summary = std::fs::read_to_string(&summary).unwrap();
     assert!(
         summary.contains(
-            "| `x` of `alpha` | feature | working tree | `crates/alpha/README.md:1:13` |\n"
+            "| `x` of `alpha` | feature | working tree |  | `crates/alpha/README.md:1:13` |\n"
         ),
         "{summary}"
     );
