@@ -478,6 +478,38 @@ fn a_removed_dependency_cargo_cannot_resolve_is_skipped_with_a_warning() {
 }
 
 #[test]
+fn a_removed_path_dependency_with_an_unreadable_manifest_is_skipped() {
+    let repo = Repo::new();
+    repo.write("vendor/helper/Cargo.toml", "this is not toml [\n");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
+    );
+    repo.write("src/lib.rs", "");
+    repo.commit("helper");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("README.md", "Call `helper::run`.\n");
+    repo.commit("drop helper");
+
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let groups: Vec<(&str, ItemKind)> = report
+        .groups
+        .iter()
+        .map(|g| (g.path.as_str(), g.kind))
+        .collect();
+    assert_eq!(groups, [("helper", ItemKind::Dependency)]);
+    let skipped: Vec<&str> = report
+        .skipped
+        .iter()
+        .map(|s| s.dependency.as_str())
+        .collect();
+    assert_eq!(skipped, ["helper"]);
+}
+
+#[test]
 fn serialized_spellings_a_dependency_re_exports_are_live() {
     let repo = Repo::new();
     repo.write(

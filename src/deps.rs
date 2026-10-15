@@ -133,7 +133,7 @@ pub(crate) fn removed(
                 continue;
             }
             Err(Error::Metadata { source, .. }) => source.to_string(),
-            Err(error @ Error::NoLibrary { .. }) => error.to_string(),
+            Err(error @ (Error::NoLibrary { .. } | Error::Manifest { .. })) => error.to_string(),
             Err(error) => return Err(error),
         };
         removed.skipped.push(Skipped {
