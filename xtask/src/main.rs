@@ -150,11 +150,24 @@ fn english(out: &Path) -> Result<(), Error> {
     let listing = run(
         &checkout,
         "./scowl",
-        &["--db", "scowl.db", "word-list", "70", "A,B,Z,C", "1"],
+        &[
+            "--db",
+            "scowl.db",
+            "word-list",
+            "--hyphen",
+            "70",
+            "A,B,Z,C",
+            "1",
+        ],
     )?;
+    // Letters, and hyphenated compounds such as `well-known`, the shape a kebab-case
+    // serialized spelling shares with prose.
     let words: BTreeSet<String> = listing
         .lines()
-        .filter(|word| word.chars().all(char::is_alphabetic))
+        .filter(|word| {
+            word.split('-')
+                .all(|part| !part.is_empty() && part.chars().all(char::is_alphabetic))
+        })
         .map(str::to_lowercase)
         .collect();
     create_dir(out)?;

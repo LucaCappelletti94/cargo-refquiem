@@ -98,6 +98,31 @@ fn bare_names_are_stale_unless_a_vocabulary_or_live_item_claims_them() {
 }
 
 #[test]
+fn hyphenated_english_in_prose_is_no_kebab_case_spelling() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "#[derive(serde::Serialize)]\n#[serde(rename_all = \"kebab-case\")]\npub struct View {\n    pub well_known: bool,\n    pub self_contained: bool,\n    pub frob_nicate: bool,\n}\n",
+    );
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub struct View;\n");
+    repo.write(
+        "README.md",
+        "A well-known, self-contained view, then frob-nicate and `well-known`.\n",
+    );
+    repo.commit("drop the fields");
+
+    let texts: Vec<(Kind, String)> = found(&repo).into_iter().map(|m| (m.4.kind, m.5)).collect();
+    assert_eq!(
+        texts,
+        [
+            (Kind::Text, "frob-nicate".to_owned()),
+            (Kind::CodeSpan, "well-known".to_owned())
+        ]
+    );
+}
+
+#[test]
 fn bare_names_inside_paths_urls_or_item_macros_are_left_alone() {
     let repo = Repo::new();
     repo.write(
