@@ -1333,7 +1333,8 @@ pub(crate) fn markers(source: &str, rust: bool) -> Vec<MarkerName> {
     out
 }
 
-/// The names of every `refquiem: allow(...)` in `text`, which sits at `base`.
+/// The names of every `refquiem: allow(...)` in `text`, which sits at `base`, skipping a
+/// marker that holds anything but names and paths.
 fn marker_names(text: &str, base: usize, out: &mut Vec<MarkerName>) {
     const OPEN: &str = "refquiem: allow(";
     for (at, _) in text.match_indices(OPEN) {
@@ -1341,19 +1342,34 @@ fn marker_names(text: &str, base: usize, out: &mut Vec<MarkerName>) {
         let Some(len) = text[inner..].find(')') else {
             continue;
         };
+        let mut names = Vec::new();
         let mut start = inner;
         for part in text[inner..inner + len].split(',') {
             let name = part.trim();
             if !name.is_empty() {
                 let lead = part.len() - part.trim_start().len();
-                out.push(MarkerName {
+                names.push(MarkerName {
                     start: base + start + lead,
                     name: name.to_owned(),
                 });
             }
             start += part.len() + 1;
         }
+        if names.iter().all(|marker| is_marker_name(&marker.name)) {
+            out.append(&mut names);
+        }
     }
+}
+
+/// Whether `name` is an item path or a manifest entry name, whose segments may also hold
+/// `-`, `+` and `.`.
+fn is_marker_name(name: &str) -> bool {
+    name.split("::").all(|segment| {
+        segment.chars().any(|c| c.is_alphanumeric() || c == '_')
+            && segment
+                .chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '+' | '.'))
+    })
 }
 
 /// One-based line and character column of byte `offset` in `text`.

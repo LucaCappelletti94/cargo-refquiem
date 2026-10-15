@@ -100,3 +100,24 @@ fn a_marker_in_a_string_literal_or_plain_markdown_text_is_not_a_marker() {
     );
     assert_eq!(report.unused_markers, []);
 }
+
+#[test]
+fn a_marker_holding_anything_but_names_or_paths_is_not_a_marker() {
+    let repo = removed();
+    repo.write(
+        "src/lib.rs",
+        "//! Writes `refquiem: allow(...)` markers.\n// refquiem: allow(Gone, the rest)\n// `fixture::Gone`\n",
+    );
+    repo.write(
+        "README.md",
+        "<!-- refquiem: allow(...) -->\n`fixture::Gone`\n",
+    );
+    repo.commit("drop them");
+
+    let report = refquiem::run(&Options::new(repo.path().to_path_buf())).unwrap();
+    assert_eq!(
+        reported(&report),
+        [("README.md".to_owned(), 2), ("src/lib.rs".to_owned(), 3)]
+    );
+    assert_eq!(report.unused_markers, []);
+}
