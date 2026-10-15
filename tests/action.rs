@@ -87,31 +87,40 @@ fn pair(key: &str, value: &str) -> (String, String) {
     (key.to_owned(), value.to_owned())
 }
 
+/// The checkout is the merge commit, and the scan ends at the pull request's head so mention
+/// lines match the commit review comments anchor to.
 #[test]
-fn a_pull_request_scans_its_base_and_fetches_every_commit_it_adds() {
+fn a_pull_request_scans_its_own_commits_up_to_its_head() {
     let origin = Repo::new();
     origin.commit("a");
-    let base = origin.commit("b");
+    let fork = origin.commit("b");
     origin.git(&["checkout", "-q", "-b", "pr"]);
     // More commits than one deepening step fetches.
     for n in 0..100 {
         origin.commit(&n.to_string());
     }
     let head = origin.commit("tip");
-    let clone = shallow_clone(&origin, "pr");
+    origin.git(&["checkout", "-q", "main"]);
+    let base = origin.commit("base moved on");
+    origin.git(&["checkout", "-q", "-b", "merge"]);
+    origin.git(&["merge", "-q", "--no-ff", "-m", "merge", "pr"]);
+    let merge = origin.rev("HEAD");
+    let clone = shallow_clone(&origin, "merge");
 
     let out = range(
         clone.path(),
         "pull_request",
-        &format!("{{\"pull_request\": {{\"base\": {{\"sha\": \"{base}\"}}}}}}"),
-        &head,
+        &format!(
+            "{{\"pull_request\": {{\"base\": {{\"sha\": \"{base}\"}}, \"head\": {{\"sha\": \"{head}\"}}}}}}"
+        ),
+        &merge,
         &[],
     );
     assert_eq!(
         out,
-        [pair("base", &base), pair("head", &head), pair("since", "")]
+        [pair("base", &fork), pair("head", &head), pair("since", "")]
     );
-    assert_eq!(git(clone.path(), &["merge-base", &base, &head]), base);
+    assert_eq!(git(clone.path(), &["merge-base", &fork, &head]), fork);
 }
 
 #[test]
