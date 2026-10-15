@@ -1,6 +1,8 @@
 //! `--json`, `--github` annotations, the job summary and `--no-fail`.
 
 mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
 
 use common::Repo;
 use std::process::{Command, Output};
@@ -160,4 +162,99 @@ fn github_appends_the_job_summary_when_github_provides_the_file() {
     std::fs::write(&summary, "").unwrap();
     cargo_refquiem(repo.path(), &[], Some(&summary));
     assert_eq!(std::fs::read_to_string(&summary).unwrap(), "");
+}
+
+#[test]
+fn a_skipped_dependency_is_a_warning_annotation_and_a_summary_section() {
+    let repo = Repo::new();
+    repo.vendor("broken", "1.0.0", "pub struct Broken;\n");
+    repo.write(
+        "vendor/broken-1.0.0/Cargo.toml",
+        "[package]\nname = \"broken\"\nversion = \"1.0.0\"\nedition = \"2021\"\n\n[dependencies]\nabsent = \"1\"\n",
+    );
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nbroken = \"1\"\n",
+    );
+    repo.write("src/lib.rs", "");
+    repo.commit("broken without a lock");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.commit("drop broken");
+    let summary = repo.path().join("summary.md");
+
+    let output = cargo_refquiem(repo.path(), &["--github"], Some(&summary));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("::warning title=refquiem::removed dependency `broken` could not be resolved, so its items were not checked\n"),
+        "{stdout}"
+    );
+    let summary = std::fs::read_to_string(&summary).unwrap();
+    assert!(
+        summary.ends_with("\n### Skipped dependencies\n\n- `broken` could not be resolved\n"),
+        "{summary}"
+    );
+}
+
+#[test]
+fn a_clean_job_summary_says_nothing_is_stale() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    repo.commit("start");
+    let summary = repo.path().join("summary.md");
+
+    let output = cargo_refquiem(repo.path(), &["--github"], Some(&summary));
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        std::fs::read_to_string(&summary).unwrap(),
+        "## refquiem\n\nNo stale mentions\n"
+    );
+}
+
+#[test]
+fn the_output_names_the_member_and_a_removal_in_the_working_tree() {
+    let repo = Repo::new();
+    repo.write("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n");
+    for member in ["alpha", "beta"] {
+        repo.write(
+            &format!("crates/{member}/Cargo.toml"),
+            &format!("[package]\nname = \"{member}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[features]\nx = []\n"),
+        );
+        repo.write(&format!("crates/{member}/src/lib.rs"), "");
+    }
+    repo.commit("two members");
+    repo.write(
+        "crates/alpha/Cargo.toml",
+        "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("crates/alpha/README.md", "`--features x`\n");
+    let summary = repo.path().join("summary.md");
+
+    let output = cargo_refquiem(repo.path(), &["--github"], Some(&summary));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("::error file=crates/alpha/README.md,line=1,col=13,title=refquiem::`x` (feature of `alpha`), removed in the working tree, is still mentioned here\n"),
+        "{stdout}"
+    );
+    let summary = std::fs::read_to_string(&summary).unwrap();
+    assert!(
+        summary.contains(
+            "| `x` of `alpha` | feature | working tree | `crates/alpha/README.md:1:13` |\n"
+        ),
+        "{summary}"
+    );
+}
+
+#[test]
+fn a_job_summary_that_cannot_be_written_fails_the_run() {
+    let (repo, _) = fixture();
+    let summary = repo.path().join("summary-dir");
+    std::fs::create_dir(&summary).unwrap();
+
+    let output = cargo_refquiem(repo.path(), &["--github", "--no-fail"], Some(&summary));
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("summary-dir"), "{stderr}");
 }
