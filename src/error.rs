@@ -115,4 +115,19 @@ pub enum Error {
     /// The thread a scan runs on could not start.
     #[error("starting the scan thread")]
     Thread(#[source] std::io::Error),
+    /// A config file is not valid TOML or has an unknown key.
+    #[error("reading the config file {path}")]
+    Config {
+        /// The config file.
+        path: PathBuf,
+        /// The cause.
+        #[source]
+        source: Box<toml::de::Error>,
+    },
+    /// `--package` names no workspace member.
+    #[error("no workspace member is named `{0}`")]
+    UnknownPackage(String),
+    /// An exclude glob is not valid gitignore syntax.
+    #[error("reading the exclude globs")]
+    Exclude(#[source] ignore::Error),
 }

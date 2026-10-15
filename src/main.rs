@@ -21,6 +21,12 @@ struct Args {
     /// Compare against this revision instead of the working tree.
     #[arg(long, value_name = "REV", requires = "base")]
     head: Option<String>,
+    /// Read this config file instead of the workspace's `.refquiem.toml`.
+    #[arg(long, value_name = "PATH")]
+    config: Option<std::path::PathBuf>,
+    /// Scan only the files of this workspace member for mentions.
+    #[arg(long, value_name = "NAME")]
+    package: Option<String>,
 }
 
 fn main() -> ExitCode {
@@ -50,6 +56,7 @@ fn run(args: Args) -> Result<refquiem::Report, refquiem::Error> {
         path: ".".into(),
         source,
     })?;
+    let config = args.config.map(|path| root.join(path));
     let mut options = refquiem::Options::new(root);
     options.range = match (args.since, args.base) {
         (Some(since), _) => refquiem::Range::Since(since),
@@ -62,6 +69,8 @@ fn run(args: Args) -> Result<refquiem::Report, refquiem::Error> {
     if let Some(target) = std::env::var_os("CARGO_TARGET_DIR") {
         options.cache_dir = Some(std::path::PathBuf::from(target).join("refquiem"));
     }
+    options.config = config;
+    options.package = args.package;
     refquiem::run(&options)
 }
 

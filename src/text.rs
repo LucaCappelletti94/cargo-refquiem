@@ -1294,6 +1294,84 @@ fn skip_angles(text: &str, at: usize) -> Option<usize> {
     None
 }
 
+/// A name in a `refquiem: allow(...)` suppression marker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MarkerName {
+    /// Byte offset of the name in the file.
+    pub(crate) start: usize,
+    pub(crate) name: String,
+}
+
+/// The marker names in the `//` and doc comments of a Rust file, or the HTML comments of a Markdown file.
+pub(crate) fn markers(source: &str, rust: bool) -> Vec<MarkerName> {
+    let mut out = Vec::new();
+    if rust {
+        let mut offset = ra_ap_rustc_lexer::strip_shebang(source).unwrap_or(0);
+        for token in ra_ap_rustc_lexer::tokenize(&source[offset..], FrontmatterAllowed::Yes) {
+            let len = usize::try_from(token.len).expect("token lengths fit in usize");
+            let comment = matches!(
+                token.kind,
+                TokenKind::LineComment { .. }
+                    | TokenKind::BlockComment {
+                        doc_style: Some(_),
+                        ..
+                    }
+            );
+            if comment {
+                marker_names(&source[offset..offset + len], offset, &mut out);
+            }
+            offset += len;
+        }
+    } else {
+        for (open, _) in source.match_indices("<!--") {
+            let close = source[open..]
+                .find("-->")
+                .map_or(source.len(), |i| open + i);
+            marker_names(&source[open..close], open, &mut out);
+        }
+    }
+    out
+}
+
+/// The names of every `refquiem: allow(...)` in `text`, which sits at `base`, skipping a
+/// marker that holds anything but names and paths.
+fn marker_names(text: &str, base: usize, out: &mut Vec<MarkerName>) {
+    const OPEN: &str = "refquiem: allow(";
+    for (at, _) in text.match_indices(OPEN) {
+        let inner = at + OPEN.len();
+        let Some(len) = text[inner..].find(')') else {
+            continue;
+        };
+        let mut names = Vec::new();
+        let mut start = inner;
+        for part in text[inner..inner + len].split(',') {
+            let name = part.trim();
+            if !name.is_empty() {
+                let lead = part.len() - part.trim_start().len();
+                names.push(MarkerName {
+                    start: base + start + lead,
+                    name: name.to_owned(),
+                });
+            }
+            start += part.len() + 1;
+        }
+        if names.iter().all(|marker| is_marker_name(&marker.name)) {
+            out.append(&mut names);
+        }
+    }
+}
+
+/// Whether `name` is an item path or a manifest entry name, whose segments may also hold
+/// `-`, `+` and `.`.
+fn is_marker_name(name: &str) -> bool {
+    name.split("::").all(|segment| {
+        segment.chars().any(|c| c.is_alphanumeric() || c == '_')
+            && segment
+                .chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '+' | '.'))
+    })
+}
+
 /// One-based line and character column of byte `offset` in `text`.
 pub(crate) fn line_column(line_starts: &[usize], text: &str, offset: usize) -> (usize, usize) {
     let line = line_starts.partition_point(|&start| start <= offset);

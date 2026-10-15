@@ -107,3 +107,22 @@ fn a_scan_failure_prints_the_full_error_chain() {
         format!("refquiem: no Cargo.toml at or above {}\n", path.display())
     );
 }
+
+#[test]
+fn the_config_and_package_flags_reach_the_scan() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "`fixture::gone`\n");
+    repo.write("quiet.toml", "allow = [\"gone\"]\n");
+
+    let output = cargo_refquiem(repo.path(), &["--config", "quiet.toml"]);
+    assert_eq!(output.status.code(), Some(0));
+
+    let output = cargo_refquiem(repo.path(), &["--package", "fixture"]);
+    assert_eq!(output.status.code(), Some(1));
+
+    let output = cargo_refquiem(repo.path(), &["--package", "missing"]);
+    assert_eq!(output.status.code(), Some(2));
+}
