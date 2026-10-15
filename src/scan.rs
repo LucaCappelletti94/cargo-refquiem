@@ -16,7 +16,7 @@ use crate::stdlib::Vocabulary;
 use crate::text::{self, Named, Spelled};
 use crate::{
     Context, Error, Group, ItemKind, Kind, Mention, Options, Range, RemovedIn, Report, Source,
-    UnusedMarker, entry, stdlib,
+    Suggestion, UnusedMarker, entry, stdlib, suggest,
 };
 
 /// What one commit of the range declares beyond head.
@@ -96,7 +96,6 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let alive = [&head_index.paths, &dependencies.paths];
     let dependency_removals = deps::removed(&mut indexer, &repo, &removals, alive, &scratch)?;
     let dependency_items = dependency_removals.items;
-    indexer.save();
     let interner = &indexer.interner;
     removed.extend(dependency_items.keys().copied());
     removed.sort_by_cached_key(|&id| display(interner, id));
@@ -117,19 +116,100 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         &workspace_dir,
         &layout.workspace,
     )?;
-    let Found {
-        mut mentions,
-        markers,
-    } = find_mentions(
+    let Found { mentions, markers } = find_mentions(
         &*head_snapshot,
         &head_index,
         &matcher,
         &layout.target_prefix,
         &filter,
     )?;
-    let position: HashMap<ObjectId, usize> =
-        commits.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
+    let history = History {
+        commits: &commits,
+        states: &states,
+        position: commits.iter().enumerate().map(|(i, c)| (c.id, i)).collect(),
+        head: &head,
+    };
+    let (mut groups, suggestable) = groups(
+        interner,
+        &entries,
+        &history,
+        removed,
+        mentions,
+        &dependency_items,
+    );
+    suggestions(
+        &mut indexer,
+        &repo,
+        &layout.workspace,
+        &head_index,
+        &suggestable,
+        &mut groups,
+    )?;
+    indexer.save();
+    let unused_markers = suppress(&mut groups, markers, &config.allow);
+    suggest::replacements(&mut groups, |file| {
+        let id = head_snapshot.blob(file).ok()??;
+        String::from_utf8(head_snapshot.read(file, id).ok()?).ok()
+    });
+    Ok(Report {
+        groups,
+        skipped: dependency_removals.skipped,
+        unused_markers,
+    })
+}
+
+/// The walked commits and their states, children first.
+struct History<'a> {
+    commits: &'a [git::Commit],
+    states: &'a [&'a State],
+    position: HashMap<ObjectId, usize>,
+    head: &'a Head,
+}
+
+impl History<'_> {
+    /// The change that removed `id`: the uncommitted changes when `HEAD` has it, else the
+    /// commit closest to head that lacks it while every parent has it.
+    fn blame(&self, id: PathId) -> Option<RemovedIn> {
+        let has = |i: usize| self.states[i].complete && self.states[i].missing.contains(&id);
+        if let Head::WorkTree(Some(head_commit)) = self.head
+            && self.position.get(head_commit).is_some_and(|&i| has(i))
+        {
+            return Some(RemovedIn::WorkingTree);
+        }
+        self.commits.iter().enumerate().find_map(|(i, commit)| {
+            let lacks = self.states[i].complete && !self.states[i].missing.contains(&id);
+            let removed_here = lacks
+                && !commit.parents.is_empty()
+                && commit
+                    .parents
+                    .iter()
+                    .all(|parent| self.position.get(parent).is_some_and(|&p| has(p)));
+            removed_here.then(|| RemovedIn::Commit(commit.id.to_string()))
+        })
+    }
+
+    /// The tree of the oldest commit that has `id`, where it first appeared.
+    fn first_tree(&self, id: PathId) -> Option<ObjectId> {
+        let at = self
+            .states
+            .iter()
+            .rposition(|state| state.missing.contains(&id))?;
+        Some(self.commits[at].tree)
+    }
+}
+
+/// A group per removed path still mentioned, and each group the suggestion rules apply to,
+/// by index with its removed path and the tree where that path first appeared.
+fn groups(
+    interner: &Interner,
+    entries: &Entries<'_>,
+    history: &History<'_>,
+    removed: Vec<PathId>,
+    mut mentions: HashMap<PathId, Vec<Mention>>,
+    dependency_items: &HashMap<PathId, PathId>,
+) -> (Vec<Group>, Vec<(usize, PathId, ObjectId)>) {
     let mut groups = Vec::new();
+    let mut suggestable = Vec::new();
     for id in removed {
         let Some(mut found) = mentions.remove(&id) else {
             continue;
@@ -144,20 +224,67 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
             (display(interner, id), None)
         };
         let removal = dependency_items.get(&id).copied().unwrap_or(id);
+        if removal == id
+            && let Some(tree) = history.first_tree(id)
+        {
+            suggestable.push((groups.len(), id, tree));
+        }
         groups.push(Group {
             path,
             kind,
             member,
-            removed_in: blame(removal, &commits, &states, &position, &head),
+            removed_in: history.blame(removal),
+            suggestion: None,
+            candidates: Vec::new(),
             mentions: found,
         });
     }
-    let unused_markers = suppress(&mut groups, markers, &config.allow);
-    Ok(Report {
-        groups,
-        skipped: dependency_removals.skipped,
-        unused_markers,
-    })
+    (groups, suggestable)
+}
+
+/// Fills the suggestion or candidates of each group in `suggestable`, given by index with its
+/// removed path and the tree where that path first appeared.
+fn suggestions(
+    indexer: &mut Indexer,
+    repo: &gix::Repository,
+    workspace: &str,
+    head: &Index,
+    suggestable: &[(usize, PathId, ObjectId)],
+    groups: &mut [Group],
+) -> Result<(), Error> {
+    let mut befores: HashMap<ObjectId, Index> = HashMap::new();
+    for &(_, _, tree) in suggestable {
+        if let std::collections::hash_map::Entry::Vacant(slot) = befores.entry(tree) {
+            slot.insert(indexer.index(&TreeSnapshot::new(repo, tree), workspace, false)?);
+        }
+    }
+    let interner = &indexer.interner;
+    for &(at, id, tree) in suggestable {
+        let outcome = suggest::suggest(interner, id, head, &befores[&tree]);
+        let group = &mut groups[at];
+        group.suggestion = outcome.suggestion.map(|(path, change)| Suggestion {
+            path: reported(interner, path),
+            change,
+        });
+        group.candidates = outcome
+            .candidates
+            .into_iter()
+            .map(|path| reported(interner, path))
+            .collect();
+        group.candidates.sort();
+    }
+    Ok(())
+}
+
+/// How path `id` reads in a group: its name for a manifest entry, else its full path.
+fn reported(interner: &Interner, id: PathId) -> String {
+    if interner.kind(id).is_manifest_entry() {
+        let name = interner.segments(id).last().copied();
+        name.map(|sym| interner.name(sym).to_owned())
+            .unwrap_or_default()
+    } else {
+        display(interner, id)
+    }
 }
 
 /// The config of the scan and its range, `since` from the config starting a full one.
@@ -397,6 +524,7 @@ fn find_mentions(
                 column,
                 text: source[path.start..path.end].to_owned(),
                 context: path.context,
+                replacement: None,
             });
         }
     }
@@ -465,33 +593,6 @@ fn kept_by_macro(interner: &Interner, head: &Index, id: PathId) -> bool {
         }
     }
     false
-}
-
-/// The change that removed `id`: the uncommitted changes when `HEAD` has it, else the commit
-/// closest to head that lacks it while every parent has it.
-fn blame(
-    id: PathId,
-    commits: &[git::Commit],
-    states: &[&State],
-    position: &HashMap<ObjectId, usize>,
-    head: &Head,
-) -> Option<RemovedIn> {
-    let has = |i: usize| states[i].complete && states[i].missing.contains(&id);
-    if let Head::WorkTree(Some(head_commit)) = head
-        && position.get(head_commit).is_some_and(|&i| has(i))
-    {
-        return Some(RemovedIn::WorkingTree);
-    }
-    commits.iter().enumerate().find_map(|(i, commit)| {
-        let lacks = states[i].complete && !states[i].missing.contains(&id);
-        let removed_here = lacks
-            && !commit.parents.is_empty()
-            && commit
-                .parents
-                .iter()
-                .all(|parent| position.get(parent).is_some_and(|&p| has(p)));
-        removed_here.then(|| RemovedIn::Commit(commit.id.to_string()))
-    })
 }
 
 /// Decides which spelled paths, bare names and manifest names name something removed.

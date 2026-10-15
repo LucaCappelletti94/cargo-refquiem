@@ -697,3 +697,48 @@ fn a_clean_scan_posts_nothing() {
     assert!(!gh.log().contains("comments"), "{}", gh.log());
     assert!(!gh.log().contains("reviews"), "{}", gh.log());
 }
+
+#[test]
+fn a_line_with_rewrites_becomes_one_comment_with_a_suggestion_block() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    repo.write(
+        "README.md",
+        "Call `fixture::gone` or `fixture::gone`.\n\nThe ```` fence `fixture::gone`.\n",
+    );
+    repo.commit("replace gone");
+    let report = scan(&repo);
+    let gh = FakeGh::new(&["README.md"], None);
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(&gh, "review", false, payload.path(), &report);
+    assert_eq!(status, "posted");
+
+    let log = gh.log();
+    assert_eq!(
+        commented(&log),
+        [pair("README.md", "1"), pair("README.md", "3")]
+    );
+    let first = log
+        .split("CALL ")
+        .find(|call| call.contains("line=1 "))
+        .unwrap();
+    assert_eq!(
+        first.matches("is still mentioned here.").count(),
+        1,
+        "{first}"
+    );
+    assert!(
+        first.contains("\n\n```suggestion\nCall `fixture::kept` or `fixture::kept`.\n```\n\n"),
+        "{first}"
+    );
+    let third = log
+        .split("CALL ")
+        .find(|call| call.contains("line=3 "))
+        .unwrap();
+    assert!(
+        third.contains("\n\n`````suggestion\nThe ```` fence `fixture::kept`.\n`````\n\n"),
+        "{third}"
+    );
+}
