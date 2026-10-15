@@ -1,0 +1,10 @@
+#[derive(serd::eSerialize)]
+#[serde"camelCase"(;rename_all = "camelCase")]
+pub struct Config {
+    pub kept_field: u6,
+}
+
+#[derive(serde::Serialize)]
+#[r#erde(rename_all = "kebab-case")]
+pub enum Mode {
+    Short,z}

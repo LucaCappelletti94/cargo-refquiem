@@ -263,10 +263,11 @@ pub(crate) fn range(repo: &gix::Repository, range: &Range) -> Result<(Vec<Commit
         let info = info.map_err(Error::Walk)?;
         ids.push((info.id, info.parent_ids().map(gix::Id::detach).collect()));
     }
+    // The base's parents lie outside the range, where blame never looks.
     if let Some(base) = hidden
         && !ids.iter().any(|(id, _)| *id == base)
     {
-        ids.push((base, parents(repo, base)?));
+        ids.push((base, Vec::new()));
     }
     let mut commits = Vec::with_capacity(ids.len());
     for (id, parents) in topological(ids) {
@@ -292,15 +293,6 @@ fn resolve(repo: &gix::Repository, spec: &str) -> Result<ObjectId, Error> {
         .object()
         .map_err(failed)?;
     Ok(object.peel_to_commit().map_err(failed)?.id)
-}
-
-fn parents(repo: &gix::Repository, id: ObjectId) -> Result<Vec<ObjectId>, Error> {
-    Ok(repo
-        .find_commit(id)
-        .map_err(|source| Error::Object { id, source })?
-        .parent_ids()
-        .map(gix::Id::detach)
-        .collect())
 }
 
 /// Orders commits children first, keeping the walk order among independent commits.

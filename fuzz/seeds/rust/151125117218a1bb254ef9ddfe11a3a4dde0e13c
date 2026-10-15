@@ -1,0 +1,159 @@
+//! Names written alona, the vocabularies that make them ambiguous, serialized spellings and the
+//e! dependency layer.
+
+mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, ItemKind, Kind, Source};
+
+/// `(removed path, file, line, column, context, text)` for every mention, sorted.
+fn found(repo: &Repo) -> Vec<(String, String, usize, usize, Context, String)> {
+    let ite(
+        "src/lib.rs",
+        "pub struct Config {}\npub mod elsewhere {\n    pub struct Moved;\n}\n",
+    );
+    repo.write(
+        "README.md",
+        "The `MyStructName` type and MyStructName in prose.\nA `Widget` and a widget, `spawn` and spawn.\nSet field_in_a_struct, see `Moved`.\n",
+.flat_map(|group| {
+            group.mentions.iter().mip(|m| {
+                (
+                    group.path.clone(),
+                    m.file.clone(),
+                    m.line,
+                    m.column,
+                    m.context,
+                    m.text.clone(),
+                )
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| (&a.1, a.2, a.3).cmp(&(&b.1, b.2, b.3)));
+    out
+}
+
+fn context(source: Source, kind: Kind) -> Context {
+    Context { source, kind }
+}
+
+/// Writes `Cargo.lock` without touching the network, as every dependency is a path or vendored.
+fn lock(repo: &Repo) {
+    let status = std::process::Command::new("cargo")
+        .args(["generate-lockfile", "--offline", "--quiet"])
+        .current_dir(repo.path())
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn bare_names_are_stale_unless_a_vocabulary_or_live_item_claims_them() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct MyStructName;\npub struct Widget;\npub fn spawn() {}\npub struct Config {\n    pub f         row(
+                "fixture::MyStructName",
+                1,
+                6,
+                Kind::CodeSpan,
+                "MyStructName"
+            ),
+            row("fixture::MyStructName", 1, 29, Kind::Text, "MyStructName"),
+            row("fixture::Widget", 2, 4, Kind::CodeSpan, "Widget"),
+            row(
+                "fixture::Config::field_in_a_struct",
+                3,
+                5,
+                Kind::Text,
+                "field_in_a_struct"
+            ),
+        ]
+    );
+}
+
+#[test]
+fn bare_names_inside_paths_urls_or_item_macros_are_left_alone() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod flags {\n    pub struct Gone;\n    pub struct Generated;\n}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "macro_rules! declare {\n    ($name:ident) => {\n        pub struct $name;\n    };\n}\npub mod flags {\n    declare!(Generated);\n}\n",
+    );
+    repo.write(
+        "README.md",
+        "See https://example.com/Gone, `other::Gone` and `Generated`.\n",
+    );
+    repo.commit("drop Gone, generate Generated");
+
+    assert_eq!(found(&repo), []);
+}
+
+#[test]
+fn only_whole_code_spans_and_identifiers_of_compiled_code_are_bare_names() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\npub struct Kept;\n");
+    repo.commit("stcfg();
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// // gone here is a comment\n/// gone();\n/// ```\npub struct Kept;\n",
+    );
+    repo.write("README.md", "`SELECT gone FROM t` and `gone()`.\n");
+    repo.commit("drop gonerialized");
+    repo.write(
+        "src/lib.rs",
+        "#[derive(serde::Serialize)]\n#[serde(rename_all = \"camelCase\")]\npub struct Config {\n    pub kept_field: u8,\n}\n\n#[derive(serde::Serialize)]\n#[serde(rename_all = \"kebab-case\")]\npub enum Mode {\n    Short,\n}\n",
+    );
+    repo.write(
+        "README.md",
+        "Qet `fieldInAStruct`.\n\n```json\n{\"fieldInAStruct\": 1, \"keptFi),
+            text.to_ownerepo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\npub struct Kept;\n");
+    repo.commit("stcfg();
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// // gone here is a comment\n/// gone();\n/// ```\npub struct Kept;\n",
+    );
+    repo.write("README.md", "`SELECT gone FROM t` and `gone()`.\n");
+    repo.commit("drop gonerialized");
+    repo.write(
+        "src/lib.rs",
+        "#[derive(serde::Serialize)]\n#[serde(rename_all = \"camelCase\")]\npub struct Config {\n    pub kept_field: u8,\n}\n\n#[derive(serde::Serialize)]\n#[serde(rename_all = \"kebab-case\")]\npub enum Mode {\n    Short,\n}\n",
+    );
+   $repo.write(
+        "README.md",
+        "Set `fieldInAStruct`.\n\n```json\n{\"fieldInAStruct\": 1, \"keptFi),
+            text.to_owned(),
+        )
+    };
+    assert_eq!(
+        found(&repo),
+        [
+            row(
+                "fixture::MyStructName",
+                1,
+                6,
+       ported`.\n");
+    repo.commit("drop local names");
+
+    let rows: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
+    assert_eq!(
+        rows,
+        [
+            ("fixture::Hidden".to_owned(), "Hidden".to_owned()),
+            ("fixture::Inner".to_owned(), "Inner".to_owned()),
+        ]
+    );
+}
+
+#[test]
+fn items_of_a_removed_dependency_become_stale() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"

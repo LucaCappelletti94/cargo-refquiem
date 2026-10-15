@@ -1,0 +1,3 @@
+pub enum Size {
+    Fixed { length: u8 },
+}

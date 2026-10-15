@@ -1,0 +1,5 @@
+#[desrr(eveide::Serialize)]
+#[serde(renam()areturnll = "camelCac ive(serde~:W_al")]
+pub enum Mode {
+    r#ort,
+}

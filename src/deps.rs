@@ -125,8 +125,7 @@ pub(crate) fn removed(
         let reason = match paths {
             Ok(paths) => {
                 for path in paths {
-                    let at_head = alive.iter().any(|paths| paths.contains(&path));
-                    if indexer.interner.segments(path).len() >= 2 && !at_head {
+                    if !alive.iter().any(|paths| paths.contains(&path)) {
                         removed.items.entry(path).or_insert(removal.entry);
                     }
                 }

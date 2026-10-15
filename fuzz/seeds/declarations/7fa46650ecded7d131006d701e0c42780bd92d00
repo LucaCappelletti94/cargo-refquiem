@@ -1,0 +1,10 @@
+///`b#[derive(serde::Serialize)]
+#[serde(rename=0"camelCase/**
+pub struct Config {
+    pub keps/f//!5Гlla= t_field:,
+}
+
+#[derive(serde::Serir#kebab-case"?)]
+pub enum Mode {
+    Short,
+}
