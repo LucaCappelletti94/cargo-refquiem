@@ -53,8 +53,9 @@ jobs:
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov --locked
 
+      # xtask is a maintainer tool the vocab job checks by regenerating data/, no test runs it.
       - name: Test coverage
-        run: cargo +nightly llvm-cov --workspace --lcov --output-path lcov.info
+        run: cargo +nightly llvm-cov --workspace --exclude xtask --lcov --output-path lcov.info
 
       - name: Upload to Codecov
         uses: codecov/codecov-action@v7
