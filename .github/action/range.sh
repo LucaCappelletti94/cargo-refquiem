@@ -46,18 +46,26 @@ base=''
 head=''
 since=''
 case "$GITHUB_EVENT_NAME" in
-  pull_request | pull_request_target | merge_group)
-    if [ "$GITHUB_EVENT_NAME" = merge_group ]; then
-      base="$(field .merge_group.base_sha)"
-      head="$(field .merge_group.head_sha)"
-    else
-      base="$(field .pull_request.base.sha)"
-      head="$GITHUB_SHA"
-    fi
+  merge_group)
+    base="$(field .merge_group.base_sha)"
+    head="$(field .merge_group.head_sha)"
     fetch_commit "$base"
     fetch_commit "$head"
     if [ -z "$(deepen_to_merge_base "$base" "$head" "$base" "$head")" ]; then
       fetch_all
+    fi
+    ;;
+  pull_request | pull_request_target)
+    # The scan ends at the pull request head, the commit review comments anchor their lines to,
+    # and starts where the pull request forked from its base branch.
+    tip="$(field .pull_request.base.sha)"
+    head="$(field .pull_request.head.sha)"
+    fetch_commit "$tip"
+    fetch_commit "$head"
+    base="$(deepen_to_merge_base "$tip" "$head" "$tip" "$head")"
+    if [ -z "$base" ]; then
+      fetch_all
+      head=''
     fi
     ;;
   push)
