@@ -1,6 +1,6 @@
 //! A scan: index the range, subtract head, find mentions, attribute removals.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use gix::ObjectId;
@@ -9,8 +9,10 @@ use crate::cache::FileCache;
 use crate::git::{self, Head, Snapshot, TreeSnapshot, WorkTreeSnapshot};
 use crate::index::{Index, Indexer};
 use crate::intern::{Interner, PathId, Sym};
-use crate::text::{self, Spelled};
-use crate::{Error, Group, Mention, Options, RemovedIn, Report, stdlib};
+use crate::text::{self, Named, Spelled};
+use crate::{
+    Error, Group, ItemKind, Kind, Mention, Options, RemovedIn, Report, Source, entry, stdlib,
+};
 
 /// What one commit of the range declares beyond head.
 struct State {
@@ -86,7 +88,8 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         .collect();
     removed.sort_by_cached_key(|&id| interner.display(id));
 
-    let matcher = Matcher::new(interner, &head_index, &removed);
+    let entries = Entries::new(interner, &head_index, &removed, &indexer.members);
+    let matcher = Matcher::new(interner, &head_index, &removed, &entries);
     let mut mentions = find_mentions(
         &*head_snapshot,
         &head_index,
@@ -101,9 +104,18 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
             continue;
         };
         found.sort_by(|a, b| (&a.file, a.line, a.column).cmp(&(&b.file, b.line, b.column)));
+        found.dedup_by(|a, b| (&a.file, a.line, a.column) == (&b.file, b.line, b.column));
+        let kind = interner.kind(id);
+        let (path, member) = if kind.is_manifest_entry() {
+            let (dir, name) = entries.decode(id);
+            (name.to_owned(), entries.member_label(dir))
+        } else {
+            (interner.display(id), None)
+        };
         groups.push(Group {
-            path: interner.display(id),
-            kind: interner.kind(id),
+            path,
+            kind,
+            member,
             removed_in: blame(id, &commits, &states, &position, &head),
             mentions: found,
         });
@@ -164,7 +176,7 @@ fn find_mentions(
         let starts = text::line_starts(source);
         let module = head.file_modules.get(&file).map(Vec::as_slice);
         for path in spelled {
-            let Some(removed) = matcher.stale(&path, is_rust, module) else {
+            let Some(removed) = matcher.stale(&path, &file, is_rust, module) else {
                 continue;
             };
             let (line, column) = text::line_column(&starts, source, path.start);
@@ -271,7 +283,7 @@ fn blame(
     })
 }
 
-/// Decides which spelled paths name a removed item.
+/// Decides which spelled paths and manifest names name something removed.
 struct Matcher<'a> {
     interner: &'a Interner,
     alive: HashSet<Box<[Sym]>>,
@@ -279,10 +291,16 @@ struct Matcher<'a> {
     /// The library crate names of head.
     libs: Vec<&'a str>,
     std: [stdlib::Layer; 4],
+    entries: &'a Entries<'a>,
 }
 
 impl<'a> Matcher<'a> {
-    fn new(interner: &'a Interner, head: &'a Index, removed: &[PathId]) -> Self {
+    fn new(
+        interner: &'a Interner,
+        head: &'a Index,
+        removed: &[PathId],
+        entries: &'a Entries<'a>,
+    ) -> Self {
         let mut alive = HashSet::new();
         for &id in &head.paths {
             let segments = interner.segments(id);
@@ -301,17 +319,91 @@ impl<'a> Matcher<'a> {
             removed: removed_suffixes,
             libs: head.libs.iter().map(|&lib| interner.name(lib)).collect(),
             std: stdlib::layers(),
+            entries,
         }
     }
 
-    /// The removed item `path` names, when every reading of it names one.
-    fn stale(&self, path: &Spelled, in_rust: bool, module: Option<&[Sym]>) -> Option<PathId> {
-        let mut found = None;
-        for candidate in self.readings(path, in_rust, module) {
-            let hit = self.match_removed(&candidate)?;
-            found.get_or_insert(hit);
+    /// The removed item or manifest entry `path`, found in `file`, names.
+    fn stale(
+        &self,
+        path: &Spelled,
+        file: &str,
+        in_rust: bool,
+        module: Option<&[Sym]>,
+    ) -> Option<PathId> {
+        let scope = self.entries.scope(file);
+        match &path.named {
+            Named::Path => self.stale_path(path, scope, in_rust, module),
+            Named::Crate(name) => {
+                let kinds = [ItemKind::Package, ItemKind::Dependency];
+                self.entries.stale(&kinds, name, scope)
+            }
+            Named::Feature { package, name } => {
+                let scope = match package {
+                    Some(package) => Some(self.entries.package_dir(package)?),
+                    None => scope,
+                };
+                self.entries.stale(&[ItemKind::Feature], name, scope)
+            }
+            Named::Binary(name) => self.entries.stale(&[ItemKind::Binary], name, scope),
+            Named::Example(name) => self.entries.stale(&[ItemKind::Example], name, scope),
         }
-        found
+    }
+
+    /// The removed item every reading of `path` names, else the removed dependency its first
+    /// segment names when no reading is alive.
+    fn stale_path(
+        &self,
+        path: &Spelled,
+        scope: Option<&str>,
+        in_rust: bool,
+        module: Option<&[Sym]>,
+    ) -> Option<PathId> {
+        // Uncompiled examples freely use crates the workspace never depends on, so there only
+        // paths spelled from a workspace crate root count.
+        let example = path.context.kind == Kind::CodeBlock { compiled: false };
+        let mut readings = self.readings(path, in_rust, module);
+        if example {
+            readings.retain(|reading| self.is_crate(reading[0]));
+            if readings.is_empty() {
+                return None;
+            }
+        }
+        let mut found = None;
+        let mut all_removed = !readings.is_empty();
+        for reading in &readings {
+            match self.match_removed(reading) {
+                Hit::Alive => return None,
+                Hit::Removed(id) => {
+                    found.get_or_insert(id);
+                }
+                Hit::Unknown => all_removed = false,
+            }
+        }
+        if all_removed {
+            return found;
+        }
+        if example {
+            return None;
+        }
+        let first = match path.url_item {
+            Some(0) => return None,
+            _ => path.segments.first()?.as_str(),
+        };
+        let known = matches!(first, "crate" | "self" | "super" | "Self")
+            || self.libs.contains(&first)
+            || self.std.iter().any(|layer| layer.root == first);
+        if known {
+            return None;
+        }
+        self.entries.stale(&[ItemKind::Dependency], first, scope)
+    }
+
+    /// Whether `name` was the crate name of a workspace target in some indexed snapshot.
+    fn is_crate(&self, name: &str) -> bool {
+        self.interner
+            .find_sym(name)
+            .is_some_and(|sym| self.interner.find_path(&[sym]).is_some())
     }
 
     /// The full paths `path` may mean.
@@ -339,6 +431,10 @@ impl<'a> Matcher<'a> {
         let first = segments[0];
         if path.leading_colon || !matches!(first, "crate" | "self" | "super") {
             return vec![segments];
+        }
+        if path.context.source == Source::StringLiteral {
+            // A string is data, not code, so `crate`, `self` and `super` have nothing to refer to.
+            return Vec::new();
         }
         if first == "crate" {
             let crates = match (in_rust, module) {
@@ -370,14 +466,14 @@ impl<'a> Matcher<'a> {
         vec![base]
     }
 
-    /// The removed item named by the longest prefix of `path` that is not alive in head or
-    /// the standard library.
-    fn match_removed(&self, path: &[&str]) -> Option<PathId> {
+    /// What the longest prefix of `path` that is alive in head or the standard library, or
+    /// removed, says about it.
+    fn match_removed(&self, path: &[&str]) -> Hit {
         for len in (2..=path.len()).rev() {
             let prefix = &path[..len];
             let joined = prefix.join("::");
             if self.std.iter().any(|layer| layer.ends_a_path(&joined)) {
-                return None;
+                return Hit::Alive;
             }
             let Some(syms) = prefix
                 .iter()
@@ -387,13 +483,159 @@ impl<'a> Matcher<'a> {
                 continue;
             };
             if self.alive.contains(syms.as_slice()) {
-                return None;
+                return Hit::Alive;
             }
             if let Some(&removed) = self.removed.get(syms.as_slice()) {
-                return Some(removed);
+                return Hit::Removed(removed);
             }
         }
-        None
+        Hit::Unknown
+    }
+}
+
+/// What a reading of a path names.
+enum Hit {
+    Alive,
+    Removed(PathId),
+    Unknown,
+}
+
+/// Removed and live manifest entries, by kind, name and member directory.
+struct Entries<'a> {
+    interner: &'a Interner,
+    removed: HashMap<(ItemKind, String), Vec<(&'a str, PathId)>>,
+    head: HashSet<(ItemKind, String, &'a str)>,
+    head_any: HashSet<(ItemKind, String)>,
+    /// The member directories of head, longest first.
+    dirs: Vec<&'a str>,
+    /// Whether the range ever had more than one member.
+    several: bool,
+    /// The member directory of every package name seen in the range.
+    packages: HashMap<String, &'a str>,
+    /// The package name of each member directory, head's first.
+    labels: HashMap<&'a str, &'a str>,
+}
+
+impl<'a> Entries<'a> {
+    fn new(
+        interner: &'a Interner,
+        head: &Index,
+        removed: &[PathId],
+        members: &'a BTreeMap<String, BTreeSet<String>>,
+    ) -> Self {
+        let mut entries = Self {
+            interner,
+            removed: HashMap::new(),
+            head: HashSet::new(),
+            head_any: HashSet::new(),
+            dirs: Vec::new(),
+            several: members.len() > 1,
+            packages: HashMap::new(),
+            labels: HashMap::new(),
+        };
+        for &id in &head.paths {
+            let kind = interner.kind(id);
+            if !kind.is_manifest_entry() {
+                continue;
+            }
+            let (dir, name) = entries.decode(id);
+            if kind == ItemKind::Package {
+                entries.labels.insert(dir, name);
+                entries.dirs.push(dir);
+            }
+            entries.head.insert((kind, comparable(kind, name), dir));
+            entries.head_any.insert((kind, comparable(kind, name)));
+        }
+        for &id in removed {
+            let kind = interner.kind(id);
+            if kind.is_manifest_entry() {
+                let (dir, name) = entries.decode(id);
+                entries
+                    .removed
+                    .entry((kind, comparable(kind, name)))
+                    .or_default()
+                    .push((dir, id));
+            }
+        }
+        for (dir, names) in members {
+            for name in names {
+                entries
+                    .packages
+                    .insert(comparable(ItemKind::Package, name), dir.as_str());
+                entries.labels.entry(dir.as_str()).or_insert(name.as_str());
+            }
+        }
+        // A package at head keeps its head directory, whatever member held its name before.
+        for &dir in &entries.dirs {
+            if let Some(&name) = entries.labels.get(dir) {
+                entries
+                    .packages
+                    .insert(comparable(ItemKind::Package, name), dir);
+            }
+        }
+        entries.dirs.sort_by_key(|dir| std::cmp::Reverse(dir.len()));
+        entries
+    }
+
+    /// The member directory and name of entry `id`.
+    fn decode(&self, id: PathId) -> (&'a str, &'a str) {
+        let segments = self.interner.segments(id);
+        let dir = entry::member_dir(self.interner.name(segments[0])).unwrap_or_default();
+        (dir, self.interner.name(segments[2]))
+    }
+
+    /// The package naming member `dir` in reports, when the workspace has several members.
+    fn member_label(&self, dir: &str) -> Option<String> {
+        self.several
+            .then(|| self.labels.get(dir).map(|&name| name.to_owned()))
+            .flatten()
+    }
+
+    /// The member whose directory holds `file`, none when no member does.
+    fn scope(&self, file: &str) -> Option<&'a str> {
+        self.dirs.iter().copied().find(|dir| {
+            dir.is_empty()
+                || file
+                    .strip_prefix(*dir)
+                    .is_some_and(|rest| rest.starts_with('/'))
+        })
+    }
+
+    /// The member directory of package `name`.
+    fn package_dir(&self, name: &str) -> Option<&'a str> {
+        self.packages
+            .get(&comparable(ItemKind::Package, name))
+            .copied()
+    }
+
+    /// The removed entry of one of `kinds` called `name` as seen from `scope`, when no entry of
+    /// those kinds keeps the name alive there.
+    fn stale(&self, kinds: &[ItemKind], name: &str, scope: Option<&str>) -> Option<PathId> {
+        let alive = kinds.iter().any(|&kind| {
+            let name = comparable(kind, name);
+            match scope {
+                Some(dir) => self.head.contains(&(kind, name, dir)),
+                None => self.head_any.contains(&(kind, name)),
+            }
+        });
+        if alive {
+            return None;
+        }
+        kinds.iter().find_map(|&kind| {
+            let removed = self.removed.get(&(kind, comparable(kind, name)))?;
+            match scope {
+                Some(dir) => removed.iter().find(|(d, _)| *d == dir).map(|&(_, id)| id),
+                None => removed.first().map(|&(_, id)| id),
+            }
+        })
+    }
+}
+
+/// `name` as compared for `kind`: package and dependency names treat `-` and `_` alike.
+fn comparable(kind: ItemKind, name: &str) -> String {
+    match kind {
+        ItemKind::Package | ItemKind::Dependency => name.replace('_', "-"),
+        _ => name.to_owned(),
     }
 }
 

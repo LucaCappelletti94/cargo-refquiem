@@ -1,54 +1,91 @@
-//! Workspace members and their compilation targets, read from `Cargo.toml` files of a snapshot.
+//! Workspace members, their compilation targets and their manifest entries, read from the
+//! `Cargo.toml` files of a snapshot.
 
 use toml::Table;
 
 use crate::Error;
 use crate::git::Snapshot;
 
+/// What a compilation target builds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TargetKind {
+    Lib,
+    Bin,
+    Example,
+    Other,
+}
+
 /// One compilation target: a crate root file and the name its paths start with.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Target {
+    /// The target name as declared or discovered.
+    pub(crate) name: String,
     /// The crate name as written in paths, `-` replaced by `_`.
     pub(crate) crate_name: String,
     /// The root file, from the repository root.
     pub(crate) root: String,
-    /// Whether this is a library target.
-    pub(crate) lib: bool,
+    pub(crate) kind: TargetKind,
 }
 
-/// The targets of every workspace member of the workspace whose root manifest sits in `dir`.
+/// A dependency, by the key code names it with and the package it renames, if any.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Dependency {
+    pub(crate) key: String,
+    pub(crate) package: Option<String>,
+}
+
+/// One workspace member package.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Member {
+    /// The member directory, from the repository root.
+    pub(crate) dir: String,
+    pub(crate) package: String,
+    pub(crate) dependencies: Vec<Dependency>,
+    /// Declared features and the implicit features of optional dependencies.
+    pub(crate) features: Vec<String>,
+    pub(crate) targets: Vec<Target>,
+}
+
+/// Every member of the workspace whose root manifest sits in `dir`.
 ///
-/// A missing root manifest yields no targets. A manifest that is not valid TOML is an error.
-pub(crate) fn targets(snapshot: &dyn Snapshot, dir: &str) -> Result<Vec<Target>, Error> {
+/// A missing root manifest yields no members. A manifest that is not valid TOML is an error.
+pub(crate) fn workspace(snapshot: &dyn Snapshot, dir: &str) -> Result<Vec<Member>, Error> {
     let Some(root) = read_manifest(snapshot, dir)? else {
         return Ok(Vec::new());
     };
-    let mut members = Vec::new();
+    let workspace = root.get("workspace").and_then(toml::Value::as_table);
+    let mut dirs = Vec::new();
     if root.contains_key("package") {
-        members.push(dir.to_owned());
+        dirs.push(dir.to_owned());
     }
-    if let Some(workspace) = root.get("workspace").and_then(toml::Value::as_table) {
+    if let Some(workspace) = workspace {
         let excluded: Vec<String> = strings(workspace.get("exclude"))
             .into_iter()
             .map(|e| join(dir, &e))
             .collect();
         for pattern in strings(workspace.get("members")) {
             for member in expand(snapshot, dir, &pattern)? {
-                if !excluded.contains(&member) && !members.contains(&member) {
-                    members.push(member);
+                if !excluded.contains(&member) && !dirs.contains(&member) {
+                    dirs.push(member);
                 }
             }
         }
     }
-    let mut targets = Vec::new();
-    for member in &members {
-        if member == dir {
-            package_targets(snapshot, member, &root, &mut targets)?;
-        } else if let Some(manifest) = read_manifest(snapshot, member)? {
-            package_targets(snapshot, member, &manifest, &mut targets)?;
-        }
+    let inherited = workspace
+        .and_then(|w| w.get("dependencies"))
+        .and_then(toml::Value::as_table);
+    let mut members = Vec::new();
+    for member_dir in &dirs {
+        let member = if member_dir == dir {
+            read_member(snapshot, member_dir, &root, inherited)?
+        } else if let Some(manifest) = read_manifest(snapshot, member_dir)? {
+            read_member(snapshot, member_dir, &manifest, inherited)?
+        } else {
+            None
+        };
+        members.extend(member);
     }
-    Ok(targets)
+    Ok(members)
 }
 
 fn read_manifest(snapshot: &dyn Snapshot, dir: &str) -> Result<Option<Table>, Error> {
@@ -66,25 +103,122 @@ fn read_manifest(snapshot: &dyn Snapshot, dir: &str) -> Result<Option<Table>, Er
         })
 }
 
+fn read_member(
+    snapshot: &dyn Snapshot,
+    dir: &str,
+    manifest: &Table,
+    inherited: Option<&Table>,
+) -> Result<Option<Member>, Error> {
+    let Some(package) = manifest.get("package").and_then(toml::Value::as_table) else {
+        return Ok(None);
+    };
+    let Some(name) = package.get("name").and_then(toml::Value::as_str) else {
+        return Ok(None);
+    };
+    let mut targets = Vec::new();
+    package_targets(snapshot, dir, manifest, package, name, &mut targets)?;
+    let (dependencies, optional) = dependencies(manifest, inherited);
+    Ok(Some(Member {
+        dir: dir.to_owned(),
+        package: name.to_owned(),
+        features: features(manifest, &optional),
+        dependencies,
+        targets,
+    }))
+}
+
+/// Every dependency of every kind and platform, and the keys of the optional ones.
+fn dependencies(manifest: &Table, inherited: Option<&Table>) -> (Vec<Dependency>, Vec<String>) {
+    const KINDS: [&str; 5] = [
+        "dependencies",
+        "dev-dependencies",
+        "dev_dependencies",
+        "build-dependencies",
+        "build_dependencies",
+    ];
+    let mut tables: Vec<&Table> = KINDS
+        .iter()
+        .filter_map(|kind| manifest.get(*kind).and_then(toml::Value::as_table))
+        .collect();
+    for platform in manifest
+        .get("target")
+        .and_then(toml::Value::as_table)
+        .into_iter()
+        .flat_map(Table::values)
+        .filter_map(toml::Value::as_table)
+    {
+        tables.extend(
+            KINDS
+                .iter()
+                .filter_map(|kind| platform.get(*kind).and_then(toml::Value::as_table)),
+        );
+    }
+    let mut dependencies: Vec<Dependency> = Vec::new();
+    let mut optional = Vec::new();
+    for (key, spec) in tables.into_iter().flatten() {
+        let field = |name: &str| spec.as_table().and_then(|t| t.get(name));
+        let inherits = field("workspace").and_then(toml::Value::as_bool) == Some(true);
+        let package = if inherits {
+            inherited
+                .and_then(|w| w.get(key))
+                .and_then(toml::Value::as_table)
+                .and_then(|t| t.get("package"))
+        } else {
+            field("package")
+        }
+        .and_then(toml::Value::as_str)
+        .filter(|package| *package != key)
+        .map(str::to_owned);
+        if field("optional").and_then(toml::Value::as_bool) == Some(true) && !optional.contains(key)
+        {
+            optional.push(key.clone());
+        }
+        if !dependencies.iter().any(|d| d.key == *key) {
+            dependencies.push(Dependency {
+                key: key.clone(),
+                package,
+            });
+        }
+    }
+    (dependencies, optional)
+}
+
+/// The `[features]` keys and the implicit features of optional dependencies no `dep:` hides.
+fn features(manifest: &Table, optional: &[String]) -> Vec<String> {
+    let table = manifest.get("features").and_then(toml::Value::as_table);
+    let mut features: Vec<String> = table.into_iter().flat_map(|t| t.keys().cloned()).collect();
+    let hidden: Vec<&str> = table
+        .into_iter()
+        .flat_map(Table::values)
+        .filter_map(toml::Value::as_array)
+        .flatten()
+        .filter_map(toml::Value::as_str)
+        .filter_map(|value| value.strip_prefix("dep:"))
+        .collect();
+    for key in optional {
+        if !hidden.contains(&key.as_str()) && !features.contains(key) {
+            features.push(key.clone());
+        }
+    }
+    features
+}
+
 fn package_targets(
     snapshot: &dyn Snapshot,
     dir: &str,
     manifest: &Table,
+    package: &Table,
+    name: &str,
     out: &mut Vec<Target>,
 ) -> Result<(), Error> {
-    let Some(package) = manifest.get("package").and_then(toml::Value::as_table) else {
-        return Ok(());
-    };
-    let Some(name) = package.get("name").and_then(toml::Value::as_str) else {
-        return Ok(());
-    };
     let auto = |key: &str| package.get(key).and_then(toml::Value::as_bool) != Some(false);
-    let mut push = |crate_name: &str, root: String, lib: bool| {
+    let mut push = |target_name: &str, root: String, kind: TargetKind| {
         if !out.iter().any(|t| t.root == root) {
             out.push(Target {
-                crate_name: crate_name.replace('-', "_"),
+                name: target_name.to_owned(),
+                crate_name: target_name.replace('-', "_"),
                 root,
-                lib,
+                kind,
             });
         }
     };
@@ -98,23 +232,23 @@ fn package_targets(
         .and_then(|lib| lib.get("path"))
         .and_then(toml::Value::as_str)
     {
-        Some(path) => push(lib_name, join(dir, path), true),
+        Some(path) => push(lib_name, join(dir, path), TargetKind::Lib),
         None if auto("autolib") => {
             let path = join(dir, "src/lib.rs");
             if snapshot.blob(&path)?.is_some() {
-                push(lib_name, path, true);
+                push(lib_name, path, TargetKind::Lib);
             }
         }
         None => {}
     }
 
     let kinds = [
-        ("bin", "autobins", "src/bin"),
-        ("example", "autoexamples", "examples"),
-        ("test", "autotests", "tests"),
-        ("bench", "autobenches", "benches"),
+        ("bin", "autobins", "src/bin", TargetKind::Bin),
+        ("example", "autoexamples", "examples", TargetKind::Example),
+        ("test", "autotests", "tests", TargetKind::Other),
+        ("bench", "autobenches", "benches", TargetKind::Other),
     ];
-    for (key, auto_key, default_dir) in kinds {
+    for (key, auto_key, default_dir, kind) in kinds {
         for table in manifest
             .get(key)
             .and_then(toml::Value::as_array)
@@ -130,29 +264,31 @@ fn package_targets(
                 None => default_target_path(snapshot, dir, key, default_dir, target_name, name)?,
             };
             if let Some(path) = path {
-                push(target_name, path, false);
+                push(target_name, path, kind);
             }
         }
         if auto(auto_key) {
             if key == "bin" {
                 let main = join(dir, "src/main.rs");
                 if snapshot.blob(&main)?.is_some() {
-                    push(name, main, false);
+                    push(name, main, kind);
                 }
             }
             for (target_name, path) in discovered(snapshot, &join(dir, default_dir))? {
-                push(&target_name, path, false);
+                push(&target_name, path, kind);
             }
         }
     }
 
     match package.get("build") {
-        Some(toml::Value::String(path)) => push("build_script_build", join(dir, path), false),
+        Some(toml::Value::String(path)) => {
+            push("build_script_build", join(dir, path), TargetKind::Other);
+        }
         Some(toml::Value::Boolean(false)) => {}
         _ => {
             let path = join(dir, "build.rs");
             if snapshot.blob(&path)?.is_some() {
-                push("build_script_build", path, false);
+                push("build_script_build", path, TargetKind::Other);
             }
         }
     }
