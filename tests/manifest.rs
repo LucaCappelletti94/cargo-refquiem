@@ -356,6 +356,32 @@ fixture = { version = \"0.1\", features = [\"fast\"] }
 }
 
 #[test]
+fn only_the_closed_strings_of_a_features_array_are_features() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "Cargo.toml",
+        &format!("{PACKAGE}\n[features]\nfast = []\npar = []\n"),
+    );
+    repo.commit("fast and par");
+    repo.write("Cargo.toml", PACKAGE);
+    repo.write(
+        "README.md",
+        "```toml\n[dependencies]\nfixture = { branch = \"fast\", features = [\"par\"] }\nfixture = { features = [\"par\", \"fast] }\n```\n",
+    );
+    repo.commit("drop both");
+
+    let feature = ItemKind::Feature;
+    assert_eq!(
+        found(&repo),
+        [
+            mention("par", feature, "README.md", 3, 43, "par"),
+            mention("par", feature, "README.md", 4, 26, "par"),
+        ]
+    );
+}
+
+#[test]
 fn a_feature_of_a_moved_member_is_looked_up_where_the_member_is_now() {
     let repo = Repo::new();
     repo.write("Cargo.toml", "[workspace]\nmembers = [\"z\"]\n");

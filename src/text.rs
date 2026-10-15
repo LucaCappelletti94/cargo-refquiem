@@ -636,22 +636,22 @@ fn requested_features(
         return;
     };
     let close = line[open..].find(']').map_or(line.len(), |i| open + i);
-    let mut cursor = open + 1;
-    while let Some(quote) = line[cursor..close].find('"').map(|i| cursor + i) {
-        let Some(len) = line[quote + 1..close].find('"') else {
-            break;
-        };
-        let start = base + quote + 1;
-        out.push(Spelled::name(
-            start,
-            start + len,
-            Named::Feature {
-                package: Some(package.to_owned()),
-                name: line[quote + 1..quote + 1 + len].to_owned(),
-            },
-            context,
-        ));
-        cursor = quote + len + 2;
+    // Between the brackets, every odd part of a split at `"` is a string, when a quote closes it.
+    let mut parts = line[open + 1..close].split('"').enumerate().peekable();
+    let mut at = base + open + 1;
+    while let Some((index, part)) = parts.next() {
+        if index % 2 == 1 && parts.peek().is_some() {
+            out.push(Spelled::name(
+                at,
+                at + part.len(),
+                Named::Feature {
+                    package: Some(package.to_owned()),
+                    name: part.to_owned(),
+                },
+                context,
+            ));
+        }
+        at += part.len() + 1;
     }
 }
 
