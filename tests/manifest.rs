@@ -354,3 +354,52 @@ fixture = { version = \"0.1\", features = [\"fast\"] }
         )]
     );
 }
+
+#[test]
+fn a_feature_of_a_moved_member_is_looked_up_where_the_member_is_now() {
+    let repo = Repo::new();
+    repo.write("Cargo.toml", "[workspace]\nmembers = [\"z\"]\n");
+    repo.write(
+        "z/Cargo.toml",
+        &format!("{PACKAGE}\n[features]\nfast = []\n"),
+    );
+    repo.write("z/src/lib.rs", "");
+    repo.commit("member in z");
+    std::fs::remove_dir_all(repo.path().join("z")).unwrap();
+    repo.write("Cargo.toml", "[workspace]\nmembers = [\"a\"]\n");
+    repo.write(
+        "a/Cargo.toml",
+        &format!("{PACKAGE}\n[features]\nfast = []\n"),
+    );
+    repo.write("a/src/lib.rs", "");
+    repo.write("README.md", "`--features fixture/fast`\n");
+    repo.commit("move the member to a");
+
+    assert_eq!(found(&repo), []);
+}
+
+#[test]
+fn a_feature_in_a_cfg_attribute_spread_over_lines_is_found() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "");
+    repo.write("Cargo.toml", &format!("{PACKAGE}\n[features]\nfast = []\n"));
+    repo.commit("fast");
+    repo.write("Cargo.toml", PACKAGE);
+    repo.write(
+        "README.md",
+        "```rust\n#[cfg(\n    feature = \"fast\"\n)]\nfn quick() {}\n// Here feature = \"fast\" is no predicate.\n```\n\nA prose feature = \"fast\" is no predicate.\n",
+    );
+    repo.commit("drop fast");
+
+    assert_eq!(
+        found(&repo),
+        [mention(
+            "fast",
+            ItemKind::Feature,
+            "README.md",
+            3,
+            16,
+            "fast"
+        )]
+    );
+}

@@ -488,11 +488,10 @@ fn split_list(value: &str) -> Vec<(usize, &str)> {
     out
 }
 
-/// `feature = "name"` predicates on lines that mention `cfg`.
+/// `feature = "name"` predicates inside the parentheses of a `cfg`, `cfg!` or `cfg_attr`.
 fn cfg_features(text: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
     for (at, _) in text.match_indices("feature") {
-        let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
-        if !text[line_start..at].contains("cfg") {
+        if !inside_cfg(&text[..at]) {
             continue;
         }
         let rest = &text[at + "feature".len()..];
@@ -518,6 +517,30 @@ fn cfg_features(text: &str, base: usize, context: Context, out: &mut Vec<Spelled
             context,
         ));
     }
+}
+
+/// Whether `before` ends inside the still open parentheses of its last `cfg`, `cfg!` or
+/// `cfg_attr`, however many lines they span.
+fn inside_cfg(before: &str) -> bool {
+    let Some(start) = before.rfind("cfg") else {
+        return false;
+    };
+    let rest = &before[start + "cfg".len()..];
+    let Some(open) = rest.find('(') else {
+        return false;
+    };
+    if !matches!(rest[..open].trim(), "" | "!" | "_attr") {
+        return false;
+    }
+    let mut depth = 0_usize;
+    for c in rest[open..].chars() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    depth > 0
 }
 
 /// `http://` and `https://` URLs in running text, read as crate links or rustdoc pages.

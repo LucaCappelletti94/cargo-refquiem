@@ -565,6 +565,14 @@ impl<'a> Entries<'a> {
                 entries.labels.entry(dir.as_str()).or_insert(name.as_str());
             }
         }
+        // A package at head keeps its head directory, whatever member held its name before.
+        for &dir in &entries.dirs {
+            if let Some(&name) = entries.labels.get(dir) {
+                entries
+                    .packages
+                    .insert(comparable(ItemKind::Package, name), dir);
+            }
+        }
         entries.dirs.sort_by_key(|dir| std::cmp::Reverse(dir.len()));
         entries
     }
