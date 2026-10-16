@@ -418,6 +418,87 @@ fn a_removed_entry_is_labeled_by_the_package_that_owned_it() {
 }
 
 #[test]
+fn an_item_several_removed_dependencies_provided_is_blamed_on_the_last_removal() {
+    let repo = Repo::new();
+    repo.vendor("helper", "1.0.0", "pub struct Thing;\n");
+    let member = |name: &str, dependency: &str| {
+        format!(
+            "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n{dependency}"
+        )
+    };
+    let with_helper = "\n[dependencies]\nhelper = \"1\"\n";
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"a\", \"b\"]\n",
+    );
+    repo.write("a/Cargo.toml", &member("a", with_helper));
+    repo.write("b/Cargo.toml", &member("b", with_helper));
+    for file in ["src/lib.rs", "a/src/lib.rs", "b/src/lib.rs"] {
+        repo.write(file, "");
+    }
+    lock(&repo);
+    repo.commit("both use helper");
+    repo.write("a/Cargo.toml", &member("a", ""));
+    lock(&repo);
+    repo.commit("a drops helper");
+    repo.write("b/Cargo.toml", &member("b", ""));
+    lock(&repo);
+    repo.write("README.md", "`helper::Thing`\n");
+    let last = repo.commit("b drops helper");
+
+    for _ in 0..6 {
+        let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+        let group = report
+            .groups
+            .iter()
+            .find(|g| g.path == "helper::Thing")
+            .unwrap();
+        assert_eq!(
+            group.removed_in,
+            Some(refquiem::RemovedIn::Commit(last.clone()))
+        );
+    }
+}
+
+#[test]
+fn a_path_the_workspace_removed_after_a_dependency_on_it_went_is_blamed_on_its_own_removal() {
+    let repo = Repo::new();
+    let app = |dependency: &str| {
+        format!("[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n{dependency}")
+    };
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"core_lib\", \"app\"]\nresolver = \"2\"\n",
+    );
+    repo.write(
+        "core_lib/Cargo.toml",
+        "[package]\nname = \"core_lib\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("core_lib/src/lib.rs", "pub struct Thing;\n");
+    repo.write(
+        "app/Cargo.toml",
+        &app("\n[dependencies]\ncore_lib = { path = \"../core_lib\" }\n"),
+    );
+    repo.write("app/src/lib.rs", "");
+    lock(&repo);
+    repo.commit("app uses core_lib");
+    repo.write("app/Cargo.toml", &app(""));
+    lock(&repo);
+    repo.commit("app drops core_lib");
+    repo.write("core_lib/src/lib.rs", "");
+    repo.write("README.md", "`core_lib::Thing`\n");
+    let last = repo.commit("core_lib drops Thing");
+
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let group = report
+        .groups
+        .iter()
+        .find(|g| g.path == "core_lib::Thing")
+        .unwrap();
+    assert_eq!(group.removed_in, Some(refquiem::RemovedIn::Commit(last)));
+}
+
+#[test]
 fn a_hyphenated_spelling_matches_a_name_with_underscores() {
     let repo = Repo::new();
     repo.vendor("helper_lib", "1.0.0", "pub struct Thing;\n");

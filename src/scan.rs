@@ -168,26 +168,47 @@ struct History<'a> {
     head: &'a Head,
 }
 
+/// Where a path was removed, ordered from the latest change to the earliest.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum RemovedAt {
+    WorkingTree,
+    /// The commit at this position of the walk, children first.
+    Commit(usize),
+}
+
 impl History<'_> {
+    /// The latest of the changes that removed one of `ids`, so a name several removals took
+    /// away is blamed on the one after which it exists nowhere.
+    fn blame(&self, ids: &[PathId]) -> Option<RemovedIn> {
+        let latest = ids.iter().filter_map(|&id| self.removal(id)).min()?;
+        Some(match latest {
+            RemovedAt::WorkingTree => RemovedIn::WorkingTree,
+            RemovedAt::Commit(i) => RemovedIn::Commit(self.commits[i].id.to_string()),
+        })
+    }
+
     /// The change that removed `id`: the uncommitted changes when `HEAD` has it, else the
     /// commit closest to head that lacks it while every parent has it.
-    fn blame(&self, id: PathId) -> Option<RemovedIn> {
+    fn removal(&self, id: PathId) -> Option<RemovedAt> {
         let has = |i: usize| self.states[i].complete && self.states[i].missing.contains(&id);
         if let Head::WorkTree(Some(head_commit)) = self.head
             && self.position.get(head_commit).is_some_and(|&i| has(i))
         {
-            return Some(RemovedIn::WorkingTree);
+            return Some(RemovedAt::WorkingTree);
         }
-        self.commits.iter().enumerate().find_map(|(i, commit)| {
-            let lacks = self.states[i].complete && !self.states[i].missing.contains(&id);
-            let removed_here = lacks
-                && !commit.parents.is_empty()
-                && commit
-                    .parents
-                    .iter()
-                    .all(|parent| self.position.get(parent).is_some_and(|&p| has(p)));
-            removed_here.then(|| RemovedIn::Commit(commit.id.to_string()))
-        })
+        self.commits
+            .iter()
+            .enumerate()
+            .position(|(i, commit)| {
+                let lacks = self.states[i].complete && !self.states[i].missing.contains(&id);
+                lacks
+                    && !commit.parents.is_empty()
+                    && commit
+                        .parents
+                        .iter()
+                        .all(|parent| self.position.get(parent).is_some_and(|&p| has(p)))
+            })
+            .map(RemovedAt::Commit)
     }
 
     /// The tree of the oldest commit that has `id`, where it first appeared.
@@ -235,7 +256,7 @@ fn groups(
             path,
             kind,
             member,
-            removed_in: history.blame(removal),
+            removed_in: history.blame(&[id, removal]),
             suggestion: None,
             candidates: Vec::new(),
             mentions: found,
@@ -401,28 +422,33 @@ fn names(path: &str, name: &str) -> bool {
         .is_some_and(|rest| rest.is_empty() || rest.ends_with("::"))
 }
 
-/// The removed dependency entries with the tree closest to head that still has each.
+/// The removed dependency entries with the tree closest to head that still has each, those
+/// removed closest to head first, so an item several of them provide maps to the removal
+/// after which it exists nowhere.
 fn removals(
     interner: &Interner,
     removed: &[PathId],
     commits: &[git::Commit],
     states: &[&State],
 ) -> Vec<Removal> {
-    removed
+    let mut found: Vec<(usize, String, Removal)> = removed
         .iter()
         .filter(|&&id| interner.kind(id) == ItemKind::Dependency)
         .filter_map(|&id| {
             let at = (0..commits.len())
                 .find(|&i| states[i].complete && states[i].missing.contains(&id))?;
             let segments = interner.segments(id);
-            Some(Removal {
+            let removal = Removal {
                 entry: id,
                 tree: commits[at].tree,
                 member_dir: entry::member_dir(interner.name(segments[0]))?.to_owned(),
                 key: interner.name(segments[2]).to_owned(),
-            })
+            };
+            Some((at, display(interner, id), removal))
         })
-        .collect()
+        .collect();
+    found.sort_by(|(a, a_name, _), (b, b_name, _)| (a, a_name).cmp(&(b, b_name)));
+    found.into_iter().map(|(_, _, removal)| removal).collect()
 }
 
 /// How removed path `id` reads in reports, a serialized spelling quoted after its owner.
