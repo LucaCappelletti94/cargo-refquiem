@@ -504,8 +504,9 @@ fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>)
     }
 }
 
-/// The lowercase names `code` binds with `let` and `for` patterns and closure parameters, from
-/// its non-trivia `tokens` as `(start, end, kind)`.
+/// The lowercase names of `let` and `for` patterns and of closure and declared `fn` parameters
+/// in `code`, and every name and generic parameter its item declarations introduce, from its
+/// non-trivia `tokens` as `(start, end, kind)`.
 fn bindings<'c>(code: &'c str, tokens: &[(usize, usize, TokenKind)]) -> HashSet<&'c str> {
     let text = |i: usize| &code[tokens[i].0..tokens[i].1];
     let mut bound = HashSet::new();
@@ -526,6 +527,11 @@ fn bindings<'c>(code: &'c str, tokens: &[(usize, usize, TokenKind)]) -> HashSet<
             (TokenKind::Ident, "let") => Pattern::Let,
             (TokenKind::Ident, "for") => Pattern::For,
             _ if opens_closure => Pattern::Closure,
+            (TokenKind::Ident, keyword) => {
+                declaration(code, tokens, i, keyword, &mut bound);
+                i += 1;
+                continue;
+            }
             _ => {
                 i += 1;
                 continue;
@@ -544,10 +550,7 @@ fn bindings<'c>(code: &'c str, tokens: &[(usize, usize, TokenKind)]) -> HashSet<
                     depth = inner;
                 }
                 _ if depth == 0 && pattern.ends(kind, text(i)) => break,
-                TokenKind::Ident
-                    if text(i).starts_with(|c: char| c.is_lowercase() || c == '_')
-                        && !matches!(text(i), "mut" | "ref") =>
-                {
+                TokenKind::Ident if binds(text(i)) => {
                     bound.insert(text(i));
                 }
                 _ => {}
@@ -557,6 +560,89 @@ fn bindings<'c>(code: &'c str, tokens: &[(usize, usize, TokenKind)]) -> HashSet<
         i += 1;
     }
     bound
+}
+
+/// Whether pattern identifier `name` binds a variable, as lowercase names do apart from `mut`
+/// and `ref`.
+fn binds(name: &str) -> bool {
+    name.starts_with(|c: char| c.is_lowercase() || c == '_') && !matches!(name, "mut" | "ref")
+}
+
+/// Adds to `bound` the name, the generic parameters and, for `fn`, the parameter names of the
+/// item declaration opened by `keyword` at token `at`.
+fn declaration<'c>(
+    code: &'c str,
+    tokens: &[(usize, usize, TokenKind)],
+    at: usize,
+    keyword: &str,
+    bound: &mut HashSet<&'c str>,
+) {
+    let text = |i: usize| &code[tokens[i].0..tokens[i].1];
+    let kind = |i: usize| tokens.get(i).map(|token| token.2);
+    let mut i = at + 1;
+    match keyword {
+        "fn" | "struct" | "enum" | "union" | "trait" | "type" | "mod" | "const" => {}
+        "static" => {
+            while kind(i) == Some(TokenKind::Ident) && matches!(text(i), "mut" | "ref") {
+                i += 1;
+            }
+        }
+        "macro_rules" if kind(i) == Some(TokenKind::Bang) => i += 1,
+        _ => return,
+    }
+    match kind(i) {
+        Some(TokenKind::Ident) => bound.insert(text(i)),
+        Some(TokenKind::RawIdent) => bound.insert(&text(i)[2..]),
+        _ => return,
+    };
+    i += 1;
+    if kind(i) == Some(TokenKind::Lt) {
+        let mut depth = 0usize;
+        let mut opens_parameter = true;
+        while let Some(token) = kind(i) {
+            match token {
+                TokenKind::Lt => depth += 1,
+                TokenKind::Gt
+                    if tokens[i - 1].2 == TokenKind::Minus && tokens[i - 1].1 == tokens[i].0 => {}
+                TokenKind::Gt => depth -= 1,
+                TokenKind::Comma => opens_parameter = true,
+                TokenKind::Ident if depth == 1 && opens_parameter => {
+                    if text(i) != "const" {
+                        bound.insert(text(i));
+                        opens_parameter = false;
+                    }
+                }
+                _ => opens_parameter = false,
+            }
+            i += 1;
+            if depth == 0 {
+                break;
+            }
+        }
+    }
+    if keyword != "fn" || kind(i) != Some(TokenKind::OpenParen) {
+        return;
+    }
+    let mut depth = 0usize;
+    let mut in_pattern = true;
+    while let Some(token) = kind(i) {
+        match token {
+            TokenKind::OpenParen | TokenKind::OpenBracket | TokenKind::OpenBrace => depth += 1,
+            TokenKind::CloseParen | TokenKind::CloseBracket | TokenKind::CloseBrace => {
+                depth -= 1;
+                if depth == 0 {
+                    return;
+                }
+            }
+            TokenKind::Comma if depth == 1 => in_pattern = true,
+            TokenKind::Colon if depth == 1 => in_pattern = false,
+            TokenKind::Ident if in_pattern && binds(text(i)) => {
+                bound.insert(text(i));
+            }
+            _ => {}
+        }
+        i += 1;
+    }
 }
 
 /// A binding pattern of compiled code, by the keyword or token that opens it.

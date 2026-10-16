@@ -837,3 +837,56 @@ fn a_bitwise_or_in_a_doc_example_opens_no_closure() {
         ]
     );
 }
+
+#[test]
+fn names_a_doc_example_declares_are_local_to_its_block() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn run_test() {}\npub async fn root() {}\npub static RE: u8 = 0;\npub struct Ip;\npub mod kw {}\npub fn from_reader() {}\npub struct R;\npub struct T;\npub fn rdr() {}\n#[macro_export]\nmacro_rules! gone_mac {\n    () => {};\n}\npub const LIMIT: u8 = 0;\npub enum Mode {}\npub type Alias = u8;\npub trait Draw {}\npub union Bits {\n    bits_field: u8,\n}\npub fn only_called() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// # fn run_test() {}\n/// async fn root() {}\n/// lazy_static::lazy_static! { static ref RE: u8 = 0; }\n/// struct r#Ip;\n/// mod kw {}\n/// fn from_reader<R, T: Fn() -> u8>(rdr: R) -> T { run_test(); root(); RE; Ip; kw; rdr; loop {} }\n/// macro_rules! gone_mac { () => {} }\n/// const LIMIT: u8 = 0;\n/// enum Mode {}\n/// type Alias = u8;\n/// trait Draw {}\n/// union Bits { b: u8 }\n/// gone_mac!(); let _ = (LIMIT, Mode, Alias, Draw, Bits);\n/// ```\n///\n/// ```\n/// only_called(); run_test();\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize, usize)> =
+        found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
+    assert_eq!(
+        rows,
+        [
+            ("fixture::only_called".to_owned(), 18, 5),
+            ("fixture::run_test".to_owned(), 18, 20)
+        ]
+    );
+}
+
+#[test]
+fn a_doc_example_declaration_binds_no_bound_type_or_body_name() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub const N: usize = 0;\npub struct GoneInner;\npub trait GoneBound {}\npub fn gone_second() {}\npub fn gone_px() {}\npub struct gone_type;\npub fn gone_body() {}\npub struct gone_field;\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// fn first<const N: usize, T: Into<Wrap<u8, GoneInner>> + GoneBound>(gone_second: u8, Wrapper { inner: gone_px }: Wrapper, pair: (u8, gone_type)) {}\n/// fn other() { gone_body(N); }\n/// struct Pair(gone_field);\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize, usize)> =
+        found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
+    assert_eq!(
+        rows,
+        [
+            ("fixture::GoneInner".to_owned(), 2, 47),
+            ("fixture::GoneBound".to_owned(), 2, 61),
+            ("fixture::gone_type".to_owned(), 2, 137),
+            ("fixture::gone_body".to_owned(), 3, 18),
+            ("fixture::gone_field".to_owned(), 4, 17)
+        ]
+    );
+}

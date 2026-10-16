@@ -34,4 +34,6 @@ exclude_re = [
     'src/text\.rs:\d+:54: replace - with / in toml',
     # The character before `[` is never a quote.
     'src/text\.rs:\d+:27: replace \+ with [-*] in requested_features',
+    # `macro_rules` is followed by `!` wherever it declares a macro.
+    'src/text\.rs:\d+:26: replace match guard kind\(i\) == Some\(TokenKind::Bang\) with true in declaration',
 ]
