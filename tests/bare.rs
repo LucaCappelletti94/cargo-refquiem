@@ -911,3 +911,28 @@ fn a_name_of_a_head_feature_binary_example_or_package_is_live() {
     let rows: Vec<String> = found(&repo).into_iter().map(|m| m.5).collect();
     assert_eq!(rows, ["gone_fn"]);
 }
+
+#[test]
+fn a_path_segment_inside_a_doc_example_pattern_binds_nothing() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn gone_tail() {}\npub fn gone_head() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// let (m::gone_tail(a), c) = v;\n/// let (gone_head::Wrap(b), d) = v;\n/// gone_tail(gone_head);\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize, usize)> =
+        found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
+    assert_eq!(
+        rows,
+        [
+            ("fixture::gone_tail".to_owned(), 4, 5),
+            ("fixture::gone_head".to_owned(), 4, 15)
+        ]
+    );
+}

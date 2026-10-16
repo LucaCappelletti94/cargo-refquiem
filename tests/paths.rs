@@ -205,3 +205,33 @@ fn a_path_from_the_crate_root_of_a_code_block_names_the_example_itself() {
         ]
     );
 }
+
+#[test]
+fn a_path_from_a_generic_parameter_of_a_compiled_example_names_nothing() {
+    let repo = Repo::new();
+    let svc = "pub trait Svc {\n    type Future;\n    type Output;\n}\n";
+    repo.write(
+        "src/lib.rs",
+        &format!("{svc}pub struct S;\nimpl Svc for S {{\n    type Future = ();\n    type Output = ();\n}}\npub struct F;\nimpl Svc for F {{\n    type Future = ();\n    type Output = ();\n}}\n"),
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        &format!("{svc}/// ```\n/// fn run<I, S>(io: I, svc: S) where S::Future: Send {{}}\n/// impl<F> Executor<F> for Tokio where F::Output: Send {{}}\n/// ```\n///\n/// `S::Future` names the type.\n///\n/// ```\n/// let x: S::Future = todo();\n/// ```\npub struct Kept;\n"),
+    );
+    repo.commit("drop S and F");
+
+    let rows: Vec<(String, usize, usize, String)> = found(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.2, m.3, m.5))
+        .collect();
+    let row = |line, column| {
+        (
+            "fixture::S::Future".to_owned(),
+            line,
+            column,
+            "S::Future".to_owned(),
+        )
+    };
+    assert_eq!(rows, [row(10, 6), row(13, 12)]);
+}

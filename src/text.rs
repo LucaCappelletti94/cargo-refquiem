@@ -606,7 +606,8 @@ impl Block {
 }
 
 /// The identifier tokens of compiled `code` at `base`, outside its paths and attribute arguments
-/// and other than the names it binds itself.
+/// and other than the names it binds itself, whose paths starting at such a name are dropped
+/// from `out`.
 fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
     let mut tokens = Vec::new();
     let mut offset = 0;
@@ -622,6 +623,16 @@ fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>)
         offset += len;
     }
     let bound = bindings(code, &tokens);
+    // The block is finished, so only its own and earlier mentions are in `out` yet.
+    out.retain(|spelled| {
+        let local = spelled.named == Named::Path
+            && !spelled.leading_colon
+            && spelled
+                .segments
+                .first()
+                .is_some_and(|first| bound.contains(first.as_str()));
+        !(local && base <= spelled.start)
+    });
     let arguments = attribute_arguments(code, &tokens);
     let taken: Vec<(usize, usize)> = paths(code, 0, context)
         .iter()
@@ -692,6 +703,10 @@ fn attribute_arguments(code: &str, tokens: &[(usize, usize, TokenKind)]) -> Vec<
 /// non-trivia `tokens` as `(start, end, kind)`.
 fn bindings<'c>(code: &'c str, tokens: &[(usize, usize, TokenKind)]) -> HashSet<&'c str> {
     let text = |i: usize| &code[tokens[i].0..tokens[i].1];
+    let colon = |i: usize| tokens.get(i).map(|token| token.2) == Some(TokenKind::Colon);
+    // A segment of a path inside a pattern names something else and binds nothing.
+    let segment =
+        |i: usize| (colon(i + 1) && colon(i + 2)) || (i >= 2 && colon(i - 1) && colon(i - 2));
     let mut bound = HashSet::new();
     let mut i = 0;
     while i < tokens.len() {
@@ -733,7 +748,7 @@ fn bindings<'c>(code: &'c str, tokens: &[(usize, usize, TokenKind)]) -> HashSet<
                     depth = inner;
                 }
                 _ if depth == 0 && pattern.ends(kind, text(i)) => break,
-                TokenKind::Ident if binds(text(i)) => {
+                TokenKind::Ident if binds(text(i)) && !segment(i) => {
                     bound.insert(text(i));
                 }
                 _ => {}
@@ -752,7 +767,7 @@ fn binds(name: &str) -> bool {
 }
 
 /// Adds to `bound` the name, the generic parameters and, for `fn`, the parameter names of the
-/// item declaration opened by `keyword` at token `at`.
+/// item declaration opened by `keyword` at token `at`, and the generic parameters of an `impl`.
 fn declaration<'c>(
     code: &'c str,
     tokens: &[(usize, usize, TokenKind)],
@@ -764,7 +779,7 @@ fn declaration<'c>(
     let kind = |i: usize| tokens.get(i).map(|token| token.2);
     let mut i = at + 1;
     match keyword {
-        "fn" | "struct" | "enum" | "union" | "trait" | "type" | "mod" | "const" => {}
+        "fn" | "struct" | "enum" | "union" | "trait" | "type" | "mod" | "const" | "impl" => {}
         "static" => {
             while kind(i) == Some(TokenKind::Ident) && matches!(text(i), "mut" | "ref") {
                 i += 1;
@@ -773,12 +788,14 @@ fn declaration<'c>(
         "macro_rules" if kind(i) == Some(TokenKind::Bang) => i += 1,
         _ => return,
     }
-    match kind(i) {
-        Some(TokenKind::Ident) => bound.insert(text(i)),
-        Some(TokenKind::RawIdent) => bound.insert(&text(i)[2..]),
-        _ => return,
-    };
-    i += 1;
+    if keyword != "impl" {
+        match kind(i) {
+            Some(TokenKind::Ident) => bound.insert(text(i)),
+            Some(TokenKind::RawIdent) => bound.insert(&text(i)[2..]),
+            _ => return,
+        };
+        i += 1;
+    }
     if kind(i) == Some(TokenKind::Lt) {
         let mut depth = 0usize;
         let mut opens_parameter = true;
