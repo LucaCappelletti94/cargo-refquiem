@@ -767,3 +767,32 @@ fn a_reexported_dependency_item_keeps_its_members_alive_under_the_alias() {
     let rows: Vec<String> = found(&repo).into_iter().map(|m| m.5).collect();
     assert_eq!(rows, ["fixture::Request::gone"]);
 }
+
+#[test]
+fn a_bare_name_goes_to_a_workspace_item_before_a_dependency_item() {
+    let repo = Repo::new();
+    repo.vendor("able", "0.1.0", "pub struct Gadget;\n");
+    repo.vendor("able", "0.2.0", "");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"app\"]\n\n[dependencies]\nable = \"0.2\"\n",
+    );
+    let app = |dependency: &str| {
+        format!("[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n{dependency}")
+    };
+    repo.write("app/Cargo.toml", &app("\n[dependencies]\nable = \"0.1\"\n"));
+    repo.write("app/src/lib.rs", "");
+    repo.write("src/lib.rs", "pub struct Gadget;\n");
+    lock(&repo);
+    repo.commit("both have a Gadget");
+    repo.write("src/lib.rs", "");
+    repo.commit("fixture drops Gadget");
+    repo.write("app/Cargo.toml", &app(""));
+    lock(&repo);
+    // A member owning neither candidate leaves the choice to the workspace rule.
+    repo.write("app/README.md", "`Gadget`\n");
+    repo.commit("app drops the old able");
+
+    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.0).collect();
+    assert_eq!(rows, ["fixture::Gadget"]);
+}

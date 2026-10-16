@@ -39,4 +39,7 @@ exclude_re = [
     # Resuming at or before a doc attribute's last token re-reads its literal at the same place,
     # and mentions are deduplicated by place.
     'src/text\.rs:\d+:83: replace \+ with [-*] in rust',
+    # A dependency item is in no state, so its own removal is `None` and caching its entry's
+    # removal only saves time.
+    'src/scan\.rs:\d+:33: (replace match guard !workspace with (true|false)|delete !) in ranked',
 ]

@@ -515,3 +515,64 @@ fn files_inside_the_git_directory_are_never_read() {
     let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
     assert!(report.is_clean(), "{}", report.human());
 }
+
+#[test]
+fn a_bare_name_goes_to_the_latest_of_the_removed_items_it_ends() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod client {\n    pub trait Connect {}\n}\npub enum Method {\n    Connect,\n    Get,\n}\n",
+    );
+    repo.commit("both");
+    repo.write(
+        "src/lib.rs",
+        "pub mod client {\n    pub trait Connect {}\n}\npub enum Method {\n    Get,\n}\n",
+    );
+    repo.commit("drop the variant");
+    repo.write("src/lib.rs", "pub enum Method {\n    Get,\n}\n");
+    repo.write("README.md", "The `Connect` trait.\n");
+    repo.commit("drop the trait");
+
+    assert_eq!(removed(&repo.run()), ["fixture::client::Connect"]);
+}
+
+#[test]
+fn a_bare_name_goes_to_the_item_of_the_mentioning_crate_first() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"alpha\", \"beta\"]\n",
+    );
+    for member in ["alpha", "beta"] {
+        repo.write(
+            &format!("{member}/Cargo.toml"),
+            &format!("[package]\nname = \"{member}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+        );
+        repo.write(&format!("{member}/src/lib.rs"), "pub struct Shared;\n");
+    }
+    repo.commit("both share");
+    repo.write("beta/src/lib.rs", "/// `Shared`\npub struct Kept;\n");
+    repo.commit("beta drops Shared");
+    repo.write("alpha/src/lib.rs", "");
+    repo.write("beta/README.md", "`Shared`\n");
+    repo.commit("alpha drops Shared");
+
+    let groups: Vec<(String, Vec<String>)> = repo
+        .run()
+        .groups
+        .iter()
+        .map(|g| {
+            (
+                g.path.clone(),
+                g.mentions.iter().map(|m| m.file.clone()).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        groups,
+        [(
+            "beta::Shared".to_owned(),
+            vec!["beta/README.md".to_owned(), "beta/src/lib.rs".to_owned()]
+        )]
+    );
+}
