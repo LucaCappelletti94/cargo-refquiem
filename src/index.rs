@@ -33,6 +33,8 @@ pub(crate) struct Index {
     pub(crate) tables: HashMap<PathId, u8>,
     /// The item-position macros head invokes without expanding them, by name.
     pub(crate) unexpanded: HashSet<Sym>,
+    /// Every re-export with the source it stands for.
+    pub(crate) reexports: Reexports,
 }
 
 /// A `use` creating a path: the module it sits in, the imported path, the created name or
@@ -41,6 +43,10 @@ type UseDecl = (Vec<Sym>, Vec<Sym>, Option<Sym>);
 
 /// A lend: the module it sits in, the owner reaching the members and their source as written.
 type LendDecl = (Vec<Sym>, Vec<Sym>, Vec<Sym>);
+
+/// Re-exports: each path a mention may start with, mapped to the paths it stands for as
+/// written.
+pub(crate) type Reexports = HashMap<Vec<Sym>, Vec<Vec<Sym>>>;
 
 /// One file, or one macro expansion, read as one module of one crate, reusable across
 /// snapshots.
@@ -352,7 +358,7 @@ impl Indexer {
         let reached = self.reach(snapshot, stack, head, &outside, &mut index)?;
         let uses: Vec<&UseDecl> = reached.contributions().flat_map(|c| &c.uses).collect();
         let lends: Vec<&LendDecl> = reached.contributions().flat_map(|c| &c.lends).collect();
-        self.resolve_aliases(&mut index.paths, &uses, &lends, &crates);
+        index.reexports = self.resolve_aliases(&mut index.paths, &uses, &lends, &crates);
         if head {
             index.alive = macro_idents(&mut self.interner, &reached);
             index.unexpanded = reached
@@ -922,14 +928,15 @@ impl Indexer {
     }
 
     /// Adds re-export paths and, for sources inside the workspace, everything below them, then
-    /// the members a `Deref` target or a supertrait lends.
+    /// the members a `Deref` target or a supertrait lends. Returns every re-export with its
+    /// source.
     fn resolve_aliases(
         &mut self,
         paths: &mut HashSet<PathId>,
         uses: &[&UseDecl],
         lends: &[&LendDecl],
         crates: &[Sym],
-    ) {
+    ) -> Reexports {
         const ROUNDS: usize = 8;
         let mut origins = HashMap::new();
         let mut tree = self.tree(paths);
@@ -983,6 +990,14 @@ impl Indexer {
             }
             self.grow(&mut tree, &fresh);
         }
+        // Only a source outside the workspace can read as a live path the copies above lack.
+        let mut reexports = Reexports::new();
+        for (module, source, name) in uses {
+            let mut alias = module.clone();
+            alias.extend(*name);
+            reexports.entry(alias).or_default().push(source.clone());
+        }
+        reexports
     }
 
     fn resolve_use(

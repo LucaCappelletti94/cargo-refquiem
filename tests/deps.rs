@@ -737,3 +737,33 @@ fn cargo_add_names_every_crate_up_to_its_first_flag_or_punctuation() {
     let rows: Vec<(usize, usize)> = found(&repo).into_iter().map(|m| (m.2, m.3)).collect();
     assert_eq!(rows, [(1, 12), (1, 22), (3, 15)]);
 }
+
+#[test]
+fn a_reexported_dependency_item_keeps_its_members_alive_under_the_alias() {
+    let repo = Repo::new();
+    repo.vendor(
+        "helper",
+        "1.0.0",
+        "pub struct Request;\nimpl Request {\n    pub fn new() {}\n}\npub mod shapes {\n    pub struct Circle;\n    impl Circle {\n        pub fn area() {}\n    }\n}\n",
+    );
+    let manifest = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n";
+    repo.write("Cargo.toml", manifest);
+    repo.write(
+        "src/lib.rs",
+        "pub struct Request;\nimpl Request {\n    pub fn new() {}\n    pub fn gone() {}\n}\npub mod shapes {\n    pub struct Circle;\n    impl Circle {\n        pub fn area() {}\n    }\n}\n",
+    );
+    lock(&repo);
+    repo.commit("own request and shapes");
+    repo.write(
+        "src/lib.rs",
+        "pub use helper;\npub use helper::{Request};\npub mod shapes {\n    pub use helper::shapes::*;\n}\n",
+    );
+    repo.write(
+        "README.md",
+        "`fixture::Request::new`, `fixture::shapes::Circle::area` and `fixture::Request::gone`.\n",
+    );
+    repo.commit("re-export the helper's");
+
+    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.5).collect();
+    assert_eq!(rows, ["fixture::Request::gone"]);
+}

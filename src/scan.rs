@@ -9,7 +9,7 @@ use crate::cache::FileCache;
 use crate::config::{self, Config, Filter};
 use crate::deps::{self, Removal, Scratch};
 use crate::git::{self, Head, Snapshot, TreeSnapshot, WorkTreeSnapshot};
-use crate::index::{Index, Indexer};
+use crate::index::{Index, Indexer, Reexports};
 use crate::intern::{Interner, PathId, Sym};
 use crate::parse::SERDE_MARKER;
 use crate::stdlib::Vocabulary;
@@ -663,6 +663,8 @@ struct Matcher<'a> {
     entries: &'a Entries<'a>,
     /// The crate names of every workspace target in any indexed snapshot.
     crates: &'a HashSet<Sym>,
+    /// The re-exports of head with the sources they stand for.
+    reexports: &'a Reexports,
 }
 
 impl<'a> Matcher<'a> {
@@ -730,6 +732,7 @@ impl<'a> Matcher<'a> {
             vocabulary: Vocabulary::new(),
             entries,
             crates,
+            reexports: &head.reexports,
         }
     }
 
@@ -901,8 +904,11 @@ impl<'a> Matcher<'a> {
     }
 
     /// What the longest prefix of `path` that is alive in head or the standard library, or
-    /// removed, says about it.
+    /// removed, says about it, after a prefix re-exporting a live dependency path.
     fn match_removed(&self, path: &[&str]) -> Hit {
+        if self.reexports_alive(path) {
+            return Hit::Alive;
+        }
         for len in (2..=path.len()).rev() {
             let prefix = &path[..len];
             let joined = prefix.join("::");
@@ -924,6 +930,26 @@ impl<'a> Matcher<'a> {
             }
         }
         Hit::Unknown
+    }
+
+    /// Whether a prefix of `path` re-exports a source under which the rest of `path` is alive,
+    /// which the copies below re-exports miss for a source outside the workspace.
+    fn reexports_alive(&self, path: &[&str]) -> bool {
+        let Some(syms) = path
+            .iter()
+            .map(|name| self.interner.find_sym(name))
+            .collect::<Option<Vec<Sym>>>()
+        else {
+            return false;
+        };
+        (1..syms.len()).any(|len| {
+            self.reexports.get(&syms[..len]).is_some_and(|sources| {
+                sources.iter().any(|source| {
+                    let target: Vec<Sym> = source.iter().chain(&syms[len..]).copied().collect();
+                    self.alive.contains(target.as_slice())
+                })
+            })
+        })
     }
 }
 
