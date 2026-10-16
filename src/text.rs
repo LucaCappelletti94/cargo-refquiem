@@ -605,8 +605,8 @@ impl Block {
     }
 }
 
-/// The identifier tokens of compiled `code` at `base`, outside its paths and other than the
-/// names it binds itself.
+/// The identifier tokens of compiled `code` at `base`, outside its paths and attribute arguments
+/// and other than the names it binds itself.
 fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
     let mut tokens = Vec::new();
     let mut offset = 0;
@@ -622,21 +622,69 @@ fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>)
         offset += len;
     }
     let bound = bindings(code, &tokens);
+    let arguments = attribute_arguments(code, &tokens);
     let taken: Vec<(usize, usize)> = paths(code, 0, context)
         .iter()
         .map(|path| (path.start, path.end))
         .collect();
-    for &(start, end, kind) in &tokens {
+    for (&(start, end, kind), argument) in tokens.iter().zip(arguments) {
         let span = match kind {
             TokenKind::Ident => (start, end),
             TokenKind::RawIdent => (start + 2, end),
             _ => continue,
         };
         let free = taken.iter().all(|&(s, e)| span.1 <= s || e <= span.0);
-        if free && !bound.contains(&code[span.0..span.1]) {
+        if free && !argument && !bound.contains(&code[span.0..span.1]) {
             out.push(name(code, base, span, false, context));
         }
     }
+}
+
+/// Which of the non-trivia `tokens` of `code`, as `(start, end, kind)`, sit inside the arguments
+/// of an attribute, where words name the attribute's options rather than items, the list of a
+/// `derive(…)` excepted.
+fn attribute_arguments(code: &str, tokens: &[(usize, usize, TokenKind)]) -> Vec<bool> {
+    let kind = |i: usize| tokens.get(i).map(|token| token.2);
+    let mut inside = vec![false; tokens.len()];
+    let mut i = 0;
+    while let Some(token) = kind(i) {
+        let open = if kind(i + 1) == Some(TokenKind::Bang) {
+            i + 2
+        } else {
+            i + 1
+        };
+        if token != TokenKind::Pound || kind(open) != Some(TokenKind::OpenBracket) {
+            i += 1;
+            continue;
+        }
+        let mut depth = 0usize;
+        let mut derive = None;
+        i = open;
+        while let Some(token) = kind(i) {
+            match token {
+                TokenKind::OpenBracket | TokenKind::OpenParen | TokenKind::OpenBrace => depth += 1,
+                TokenKind::CloseBracket | TokenKind::CloseParen | TokenKind::CloseBrace => {
+                    depth -= 1;
+                    if derive == Some(depth) {
+                        derive = None;
+                    }
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                _ if depth < 2 || derive.is_some() => {}
+                TokenKind::Ident
+                    if &code[tokens[i].0..tokens[i].1] == "derive"
+                        && kind(i + 1) == Some(TokenKind::OpenParen) =>
+                {
+                    derive = Some(depth);
+                }
+                _ => inside[i] = true,
+            }
+            i += 1;
+        }
+    }
+    inside
 }
 
 /// The lowercase names of `let` and `for` patterns and of closure and declared `fn` parameters

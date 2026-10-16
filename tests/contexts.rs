@@ -644,3 +644,30 @@ fn a_doc_comment_runs_across_doc_attributes_plain_comments_and_attributes() {
         ]
     );
 }
+
+#[test]
+fn identifiers_in_attribute_arguments_of_a_compiled_example_are_not_names() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct VariadicArgs {\n    pub argument_count: u8,\n}\npub struct Container {\n    pub rename_all: u8,\n}\npub struct RemovedDerive;\npub struct GoneType;\npub fn gone_attr() {}\npub fn gone_inner() {}\npub fn gone_arg() {}\npub fn gone_lint() {}\npub fn gone_idx() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// #![allow(gone_inner)]\n/// #[variadic(argument_count)]\n/// #[serde(rename_all = \"camelCase\")]\n/// #[cfg_attr(test, derive(RemovedDerive), gone_arg)]\n/// #[cfg_attr(test, allow(gone_lint))]\n/// #[gone_attr]\n/// struct S { field: GoneType }\n/// let x = data[(gone_idx)];\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(usize, usize, String)> =
+        found(&repo).into_iter().map(|m| (m.2, m.3, m.5)).collect();
+    assert_eq!(
+        rows,
+        [
+            (8, 23, "GoneType".to_owned()),
+            (5, 29, "RemovedDerive".to_owned()),
+            (7, 7, "gone_attr".to_owned()),
+            (9, 19, "gone_idx".to_owned())
+        ]
+    );
+}
