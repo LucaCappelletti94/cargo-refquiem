@@ -1113,3 +1113,69 @@ fn a_declared_module_outranks_an_imported_function_of_its_name() {
 
     assert_eq!(removed(&run(&repo)), Vec::<String>::new());
 }
+
+#[test]
+fn a_glob_of_another_crate_copies_only_its_public_items() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub struct Inside;\npub struct Open;\n");
+    repo.write("tests/glob.rs", "pub use fixture::*;\n");
+    repo.write(
+        "README.md",
+        "`fixture::Inside`, `glob::Inside` and `glob::Open`.\n",
+    );
+    repo.commit("a glob of the library");
+    repo.write(
+        "src/lib.rs",
+        "pub struct Open;\nmod hidden {\n    pub struct Inside;\n}\n",
+    );
+    repo.commit("Inside goes private");
+
+    let report = run(&repo);
+    assert_eq!(removed(&report), ["fixture::Inside", "glob::Inside"]);
+    let named: Vec<&String> = report
+        .groups
+        .iter()
+        .flat_map(|g| g.suggestion.iter().map(|s| &s.path).chain(&g.candidates))
+        .collect();
+    assert_eq!(
+        named,
+        ["fixture::hidden::Inside", "fixture::hidden::Inside"]
+    );
+}
+
+#[test]
+fn a_glob_of_another_crate_keeps_a_public_name_a_private_module_shares() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn ready() {}\npub fn tool() {}\n");
+    repo.write("tests/glob.rs", "pub use fixture::*;\n");
+    repo.write("README.md", "`glob::ready` and `glob::tool`.\n");
+    repo.commit("public functions");
+    repo.write(
+        "src/lib.rs",
+        "mod ready {\n    pub fn ready() {}\n}\npub use self::ready::ready;\npub fn tool() {}\nmod tool {}\n",
+    );
+    repo.commit("private modules of the same names");
+
+    assert_eq!(removed(&run(&repo)), Vec::<String>::new());
+}
+
+#[test]
+fn a_glob_of_another_crate_drops_a_member_that_turns_private_behind_an_alias() {
+    let repo = Repo::new();
+    let lib = |vis: &str| {
+        format!(
+            "pub mod outer {{\n    pub struct Thing;\n    impl Thing {{\n        {vis}fn secret() {{}}\n    }}\n}}\npub use outer::Thing as Alias;\n"
+        )
+    };
+    repo.write("src/lib.rs", &lib("pub "));
+    repo.write("tests/glob.rs", "pub use fixture::*;\n");
+    repo.write(
+        "README.md",
+        "`fixture::Alias::secret` and `glob::Alias::secret`.\n",
+    );
+    repo.commit("a public member");
+    repo.write("src/lib.rs", &lib(""));
+    repo.commit("the member turns private");
+
+    assert_eq!(removed(&run(&repo)), ["glob::Alias::secret"]);
+}
