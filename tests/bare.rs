@@ -886,3 +886,28 @@ fn a_doc_example_declaration_binds_no_bound_type_or_body_name() {
         ]
     );
 }
+
+#[test]
+fn a_name_of_a_head_feature_binary_example_or_package_is_live() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod chacha {}\npub fn cli_tool() {}\npub fn demo_ex() {}\npub mod fixture {}\npub fn gone_fn() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[features]\nchacha = []\n",
+    );
+    repo.write("src/lib.rs", "");
+    repo.write("src/bin/cli_tool.rs", "fn main() {}\n");
+    repo.write("examples/demo_ex.rs", "fn main() {}\n");
+    repo.write(
+        "README.md",
+        "`chacha`, `cli_tool`, `demo_ex`, `fixture` and `gone_fn`.\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.5).collect();
+    assert_eq!(rows, ["gone_fn"]);
+}

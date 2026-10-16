@@ -682,7 +682,11 @@ impl<'a> Matcher<'a> {
         for &id in head.paths.iter().chain(&dependencies.paths) {
             let segments = interner.segments(id);
             alive.extend(suffixes(segments).map(Box::from));
-            if !interner.kind(id).is_manifest_entry() {
+            let kind = interner.kind(id);
+            if kind == ItemKind::Feature {
+                // Binaries, examples and packages claim theirs through their crate roots.
+                names.insert(segments[2]);
+            } else if !kind.is_manifest_entry() {
                 names.extend(segments.last().copied());
             }
         }
