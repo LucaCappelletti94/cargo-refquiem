@@ -171,3 +171,37 @@ fn a_path_with_a_turbofish_between_segments_is_found() {
         ]
     );
 }
+
+#[test]
+fn a_path_from_the_crate_root_of_a_code_block_names_the_example_itself() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub mod gone {\n    pub struct Thing;\n}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// `crate::gone::Thing`\n///\n/// ```\n/// crate::gone::Thing;\n/// fixture::gone::Thing;\n/// ```\n///\n/// ```ignore\n/// self::gone::Thing;\n/// ```\npub struct Kept;\n",
+    );
+    repo.write("README.md", "```rust\ncrate::gone::Thing;\n```\n");
+    repo.commit("drop gone");
+
+    let rows: Vec<(String, String, usize, usize, String)> = found(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.1, m.2, m.3, m.5))
+        .collect();
+    let row = |line, column, text: &str| {
+        (
+            "fixture::gone::Thing".to_owned(),
+            "src/lib.rs".to_owned(),
+            line,
+            column,
+            text.to_owned(),
+        )
+    };
+    assert_eq!(
+        rows,
+        [
+            row(1, 6, "crate::gone::Thing"),
+            row(5, 5, "fixture::gone::Thing")
+        ]
+    );
+}

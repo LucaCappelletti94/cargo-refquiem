@@ -878,6 +878,10 @@ impl<'a> Matcher<'a> {
             // A string is data, not code, so `crate`, `self` and `super` have nothing to refer to.
             return Vec::new();
         }
+        if matches!(path.context.kind, Kind::CodeBlock { .. }) {
+            // Rustdoc compiles every example as a crate of its own.
+            return Vec::new();
+        }
         if first == "crate" {
             let crates = match (in_rust, module) {
                 (true, Some(module)) => vec![self.interner.name(module[0])],
