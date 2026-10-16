@@ -51,7 +51,7 @@ fn mention(
 }
 
 #[test]
-fn a_removed_dependency_is_found_in_paths_links_badges_and_toml_keys() {
+fn a_removed_dependency_is_found_in_paths_and_toml_keys_and_not_in_links_or_badges() {
     let repo = Repo::new();
     repo.vendor("structopt", "0.3.0", "");
     repo.vendor("clap", "4.0.0", "");
@@ -89,33 +89,9 @@ clap = \"4\"
                 "structopt",
                 dependency,
                 "README.md",
-                1,
-                12,
-                "https://img.shields.io/crates/v/structopt.svg"
-            ),
-            mention(
-                "structopt",
-                dependency,
-                "README.md",
-                1,
-                60,
-                "https://crates.io/crates/structopt"
-            ),
-            mention(
-                "structopt",
-                dependency,
-                "README.md",
                 3,
                 6,
                 "structopt::StructOpt"
-            ),
-            mention(
-                "structopt",
-                dependency,
-                "README.md",
-                4,
-                6,
-                "https://docs.rs/structopt"
             ),
             mention("structopt", dependency, "README.md", 8, 1, "structopt"),
         ]
@@ -145,10 +121,7 @@ fn a_renamed_dependency_is_stale_under_its_key_and_its_package_name() {
     );
     repo.commit("renamed clap");
     repo.write("Cargo.toml", PACKAGE);
-    repo.write(
-        "README.md",
-        "`cli::Parser` from https://crates.io/crates/clap\n",
-    );
+    repo.write("README.md", "`cli::Parser`, added with `cargo add clap`.\n");
     repo.commit("drop clap");
 
     let names: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
@@ -156,10 +129,7 @@ fn a_renamed_dependency_is_stale_under_its_key_and_its_package_name() {
         names,
         [
             ("cli".to_owned(), "cli::Parser".to_owned()),
-            (
-                "clap".to_owned(),
-                "https://crates.io/crates/clap".to_owned()
-            ),
+            ("clap".to_owned(), "clap".to_owned()),
         ]
     );
 }
@@ -314,7 +284,7 @@ fn removed_binaries_and_examples_are_found_in_cargo_commands() {
 }
 
 #[test]
-fn a_renamed_package_leaves_its_old_crate_links_stale() {
+fn a_renamed_package_leaves_its_old_cargo_flags_stale() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "");
     repo.commit("fixture");
@@ -324,13 +294,13 @@ fn a_renamed_package_leaves_its_old_crate_links_stale() {
     );
     repo.write(
         "README.md",
-        "https://crates.io/crates/fixture and https://crates.io/crates/fixture-next\n",
+        "`cargo test -p fixture` and `cargo test -p fixture-next`\n",
     );
     repo.commit("rename package");
 
     let names: Vec<(String, ItemKind, usize)> =
         found(&repo).into_iter().map(|m| (m.0, m.1, m.4)).collect();
-    assert_eq!(names, [("fixture".to_owned(), ItemKind::Package, 1)]);
+    assert_eq!(names, [("fixture".to_owned(), ItemKind::Package, 16)]);
 }
 
 #[test]
@@ -648,41 +618,24 @@ fn a_recursive_member_glob_reaches_nested_members_and_skips_target() {
             &format!("{dir}/Cargo.toml"),
             &format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
         );
+        repo.write(&format!("{dir}/src/lib.rs"), "");
     }
     repo.commit("nested members");
-    for dir in ["nested/a/b", "nested/zzz", "nested/target/x"] {
-        std::fs::remove_file(repo.path().join(format!("{dir}/Cargo.toml"))).unwrap();
-    }
-    repo.write(
-        "README.md",
-        "[deep](https://crates.io/crates/deep)\n\
-         [shallow](https://crates.io/crates/shallow)\n\
-         [pruned](https://crates.io/crates/pruned)\n",
-    );
-    repo.commit("drop the nested members");
+    let options = refquiem::Options::new(repo.path().to_path_buf());
 
-    let link = ItemKind::Package;
-    assert_eq!(
-        found(&repo),
-        [
-            mention(
-                "deep",
-                link,
-                "README.md",
-                1,
-                8,
-                "https://crates.io/crates/deep"
-            ),
-            mention(
-                "shallow",
-                link,
-                "README.md",
-                2,
-                11,
-                "https://crates.io/crates/shallow"
-            ),
-        ]
-    );
+    // An unreadable file fails the scan at head only inside a workspace member.
+    repo.write("nested/target/x/src/lib.rs", "pub fn (\n");
+    assert!(refquiem::run(&options).is_ok());
+    for dir in ["nested/a/b", "nested/zzz"] {
+        let file = format!("{dir}/src/lib.rs");
+        repo.write(&file, "pub fn (\n");
+        let error = refquiem::run(&options).unwrap_err();
+        assert!(
+            matches!(&error, refquiem::Error::Parse { path, .. } if *path == file),
+            "{dir}: {error}"
+        );
+        repo.write(&file, "");
+    }
 }
 
 #[test]

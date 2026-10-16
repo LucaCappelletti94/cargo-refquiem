@@ -239,38 +239,6 @@ fn a_bare_name_in_a_data_example_names_only_serialized_spellings() {
 }
 
 #[test]
-fn a_bare_name_names_removed_entries_only_outside_data_examples() {
-    let repo = Repo::new();
-    repo.write(
-        "vendor/helper/Cargo.toml",
-        "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    repo.write("vendor/helper/src/lib.rs", "pub struct Thing;\n");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
-    );
-    repo.write("src/lib.rs", "");
-    lock(&repo);
-    repo.commit("with helper");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    lock(&repo);
-    std::fs::remove_dir_all(repo.path().join("vendor/helper")).unwrap();
-    repo.write(
-        "README.md",
-        "The `helper` crate.\n\n```json\n{\"helper\": 1}\n```\n",
-    );
-    repo.commit("drop helper");
-
-    let rows: Vec<(String, String, usize)> =
-        found(&repo).into_iter().map(|m| (m.0, m.1, m.2)).collect();
-    assert_eq!(rows, [("helper".to_owned(), "README.md".to_owned(), 1)]);
-}
-
-#[test]
 fn a_rustdoc_page_link_to_a_single_item_names_nothing() {
     let repo = Repo::new();
     repo.vendor("Tool", "1.0.0", "pub struct Tool;\n");
@@ -458,7 +426,7 @@ fn a_removed_entry_is_labeled_by_the_package_that_owned_it() {
     lock(&repo);
     repo.write(
         "widget/README.md",
-        "The `helper` crate and `helper::Thing`.\n",
+        "Run `cargo add helper` for `helper::Thing`.\n",
     );
     repo.commit("drop helper");
 
@@ -565,7 +533,7 @@ fn a_hyphenated_spelling_matches_a_name_with_underscores() {
         "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
     lock(&repo);
-    repo.write("README.md", "The `helper-lib` crate.\n");
+    repo.write("README.md", "Run `cargo add helper-lib`.\n");
     repo.commit("drop helper_lib");
 
     let rows: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
@@ -710,34 +678,62 @@ fn a_workspace_in_a_subdirectory_is_exported_at_the_export_root() {
 }
 
 #[test]
-fn a_removed_dependency_named_alone_is_reported_as_the_dependency() {
+fn a_removed_crate_name_counts_only_where_it_acts_as_a_dependency() {
     let repo = Repo::new();
+    repo.vendor("tower", "0.4.0", "pub struct Service;\n");
+    let manifest = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
+        &format!("{manifest}\n[dependencies]\ntower = \"0.4\"\n"),
     );
-    repo.write(
-        "vendor/helper/Cargo.toml",
-        "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    repo.write("vendor/helper/src/lib.rs", "pub struct Thing;\n");
     repo.write("src/lib.rs", "");
     lock(&repo);
-    repo.commit("with helper");
+    repo.commit("with tower");
+    repo.write("Cargo.toml", manifest);
+    lock(&repo);
+    repo.write(
+        "README.md",
+        "[docs](https://docs.rs/tower), the `tower` crate, `cargo add tower`, `cargo update -p tower`.\n[page](https://docs.rs/tower/0.4.0/tower/fn.gone.html)\n\n```toml\n[dependencies]\ntower = \"0.4\"\n```\n",
+    );
+    repo.commit("drop tower");
+
+    let rows: Vec<(String, usize, usize, String)> = found(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.2, m.3, m.5))
+        .collect();
+    let row = |line, column| ("tower".to_owned(), line, column, "tower".to_owned());
+    let page = (
+        "tower".to_owned(),
+        2,
+        8,
+        "https://docs.rs/tower/0.4.0/tower/fn.gone.html".to_owned(),
+    );
+    assert_eq!(rows, [row(1, 62), row(1, 87), page, row(6, 1)]);
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let kinds: Vec<ItemKind> = report.groups.iter().map(|g| g.kind).collect();
+    assert_eq!(kinds, [ItemKind::Dependency]);
+}
+
+#[test]
+fn cargo_add_names_every_crate_up_to_its_first_flag_or_punctuation() {
+    let repo = Repo::new();
+    repo.vendor("tower", "0.4.0", "pub struct Service;\n");
+    let manifest = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        &format!("{manifest}\n[dependencies]\ntower = \"0.4\"\n"),
     );
+    repo.write("src/lib.rs", "");
     lock(&repo);
-    std::fs::remove_dir_all(repo.path().join("vendor/helper")).unwrap();
-    repo.write("README.md", "`helper`\n");
-    repo.commit("drop helper");
+    repo.commit("with tower");
+    repo.write("Cargo.toml", manifest);
+    lock(&repo);
+    repo.write(
+        "README.md",
+        "`cargo add tower@0.4 tower -F x tower`\n\nRun cargo add tower, then tower.\n\n`cargo address tower`\n",
+    );
+    repo.commit("drop tower");
 
-    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
-    let groups: Vec<(&str, ItemKind)> = report
-        .groups
-        .iter()
-        .map(|g| (g.path.as_str(), g.kind))
-        .collect();
-    assert_eq!(groups, [("helper", ItemKind::Dependency)]);
+    let rows: Vec<(usize, usize)> = found(&repo).into_iter().map(|m| (m.2, m.3)).collect();
+    assert_eq!(rows, [(1, 12), (1, 22), (3, 15)]);
 }

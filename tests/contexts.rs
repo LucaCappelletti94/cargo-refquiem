@@ -350,23 +350,11 @@ fn a_doc_comment_run_stops_at_the_next_attribute() {
 #[test]
 fn string_literals_inside_hash_attributes_are_macro_arguments() {
     let repo = Repo::new();
-    for name in ["gone_a", "gone_b", "gone_c", "gone_d"] {
-        repo.vendor(name, "0.3.0", "");
-    }
     repo.write(
-        "Cargo.toml",
-        &format!(
-            "{MANIFEST}\n\
-             [dependencies]\n\
-             gone_a = \"0.3\"\n\
-             gone_b = \"0.3\"\n\
-             gone_c = \"0.3\"\n\
-             gone_d = \"0.3\"\n"
-        ),
+        "src/lib.rs",
+        "pub fn gone_a() {}\npub fn gone_b() {}\npub fn gone_c() {}\npub fn gone_d() {}\n",
     );
-    repo.write("src/lib.rs", "");
     repo.commit("start");
-    repo.write("Cargo.toml", MANIFEST);
     repo.write(
         "src/lib.rs",
         "#![doc = \"gone_a\"]\n\
@@ -386,7 +374,7 @@ fn string_literals_inside_hash_attributes_are_macro_arguments() {
         found(&repo),
         [
             (
-                "gone_b".to_owned(),
+                "fixture::gone_b".to_owned(),
                 "src/lib.rs".to_owned(),
                 4,
                 19,
@@ -394,7 +382,7 @@ fn string_literals_inside_hash_attributes_are_macro_arguments() {
                 "gone_b".to_owned()
             ),
             (
-                "gone_c".to_owned(),
+                "fixture::gone_c".to_owned(),
                 "src/lib.rs".to_owned(),
                 6,
                 25,

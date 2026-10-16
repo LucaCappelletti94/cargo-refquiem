@@ -753,40 +753,24 @@ impl<'a> Matcher<'a> {
             }
             Named::Binary(name) => self.entries.stale(&[ItemKind::Binary], name, scope),
             Named::Example(name) => self.entries.stale(&[ItemKind::Example], name, scope),
-            Named::Name { word, data } => self.stale_name(word, *data, path.context, scope),
+            Named::Name { word, data } => self.stale_name(word, *data, path.context),
         }
     }
 
-    /// The removed item, serialized spelling or crate the bare name `word` names, unless
-    /// something live or a vocabulary of `context` claims the name. A word in a data example
-    /// only names serialized spellings.
-    fn stale_name(
-        &self,
-        word: &str,
-        data: bool,
-        context: Context,
-        scope: Option<&str>,
-    ) -> Option<PathId> {
-        let sym = self.interner.find_sym(word);
+    /// The removed item or serialized spelling the bare name `word` names, unless something
+    /// live or a vocabulary of `context` claims the name. A word in a data example only names
+    /// serialized spellings.
+    fn stale_name(&self, word: &str, data: bool, context: Context) -> Option<PathId> {
+        let sym = self.interner.find_sym(word)?;
         let spelling_only = data || word.contains('-');
-        let item = sym.and_then(|sym| {
-            let name = if spelling_only {
-                None
-            } else {
-                self.removed_names.get(&sym)
-            };
-            name.or_else(|| self.removed_spellings.get(&sym)).copied()
-        });
-        let found = match item {
-            Some(item) => item,
-            None if data => return None,
-            None => {
-                let kinds = [ItemKind::Package, ItemKind::Dependency];
-                self.entries.stale(&kinds, word, scope)?
-            }
+        let name = if spelling_only {
+            None
+        } else {
+            self.removed_names.get(&sym)
         };
-        let claimed = sym
-            .is_some_and(|sym| self.names.contains(&sym) || self.macro_idents.contains(&sym))
+        let found = name.or_else(|| self.removed_spellings.get(&sym)).copied()?;
+        let claimed = self.names.contains(&sym)
+            || self.macro_idents.contains(&sym)
             || self.std.iter().any(|layer| layer.has_name(word))
             || (context.kind == Kind::Text && self.vocabulary.claims(word));
         (!claimed).then_some(found)
