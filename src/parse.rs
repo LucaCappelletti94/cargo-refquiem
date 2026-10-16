@@ -1,5 +1,7 @@
 //! What one Rust source file declares, independent of where it sits in a crate.
 
+use std::collections::HashSet;
+
 use proc_macro2::{TokenStream, TokenTree};
 use serde::{Deserialize, Serialize};
 use syn::{Attribute, Fields, ImplItem, Item, TraitItem, Type, UseTree, Visibility};
@@ -32,6 +34,27 @@ pub(crate) struct FileItems {
     pub(crate) derefs: Vec<DerefImpl>,
     /// The parameter names of every function, method and trait method, deduplicated.
     pub(crate) params: Vec<String>,
+}
+
+impl FileItems {
+    /// Moves every declaration into the inline modules `prefix`.
+    pub(crate) fn nest(&mut self, prefix: &[String]) {
+        let nest = |module: &mut Vec<String>| {
+            module.splice(0..0, prefix.iter().cloned());
+        };
+        self.items.iter_mut().for_each(|d| nest(&mut d.path));
+        self.impls.iter_mut().for_each(|i| nest(&mut i.module));
+        self.uses.iter_mut().for_each(|u| nest(&mut u.module));
+        self.mods.iter_mut().for_each(|m| nest(&mut m.module));
+        self.includes.iter_mut().for_each(|i| nest(&mut i.module));
+        self.invocations
+            .iter_mut()
+            .for_each(|i| nest(&mut i.module));
+        self.macro_rules
+            .iter_mut()
+            .for_each(|r| nest(&mut r.module));
+        self.derefs.iter_mut().for_each(|d| nest(&mut d.module));
+    }
 }
 
 /// A named item.
@@ -91,7 +114,10 @@ pub(crate) struct Invocation {
     pub(crate) module: Vec<String>,
     /// The macro's name, the last segment of its path.
     pub(crate) name: String,
+    /// The identifiers inside, kept when the tokens are not.
     pub(crate) idents: Vec<String>,
+    /// The tokens as text, kept for item-position invocations, which may be expanded.
+    pub(crate) tokens: Option<String>,
 }
 
 /// A `macro_rules!` definition.
@@ -100,6 +126,8 @@ pub(crate) struct MacroRules {
     pub(crate) module: Vec<String>,
     pub(crate) name: String,
     pub(crate) idents: Vec<String>,
+    /// The rules as text.
+    pub(crate) body: String,
     pub(crate) exported: bool,
 }
 
@@ -374,7 +402,7 @@ impl Collector<'_> {
                 syn::ForeignItem::Type(item) => {
                     self.decl(&item.ident.to_string(), ItemKind::TypeAlias, &item.vis);
                 }
-                syn::ForeignItem::Macro(item) => self.invocation(&item.mac),
+                syn::ForeignItem::Macro(item) => self.invocation(&item.mac, false),
                 _ => {}
             }
         }
@@ -389,6 +417,7 @@ impl Collector<'_> {
                 module: self.module.clone(),
                 name,
                 idents: idents(&item.mac.tokens),
+                body: item.mac.tokens.to_string(),
                 exported,
             });
         } else if let Some(path) = include_path(&item.mac) {
@@ -397,7 +426,7 @@ impl Collector<'_> {
                 path,
             });
         } else {
-            self.invocation(&item.mac);
+            self.invocation(&item.mac, true);
         }
     }
 
@@ -441,7 +470,7 @@ impl Collector<'_> {
                 }
                 TraitItem::Type(t) => (t.ident.to_string(), ItemKind::AssociatedType),
                 TraitItem::Macro(m) => {
-                    self.invocation(&m.mac);
+                    self.invocation(&m.mac, false);
                     continue;
                 }
                 _ => continue,
@@ -458,7 +487,7 @@ impl Collector<'_> {
     fn impl_block(&mut self, item: &syn::ItemImpl) {
         for impl_item in &item.items {
             match impl_item {
-                ImplItem::Macro(m) => self.invocation(&m.mac),
+                ImplItem::Macro(m) => self.invocation(&m.mac, false),
                 ImplItem::Fn(f) => self.params(&f.sig),
                 _ => {}
             }
@@ -595,14 +624,19 @@ impl Collector<'_> {
         }
     }
 
-    fn invocation(&mut self, mac: &syn::Macro) {
+    fn invocation(&mut self, mac: &syn::Macro, item_position: bool) {
         let Some(last) = mac.path.segments.last() else {
             return;
         };
         self.out.invocations.push(Invocation {
             module: self.module.clone(),
             name: strip_raw(&last.ident.to_string()).to_owned(),
-            idents: idents(&mac.tokens),
+            idents: if item_position {
+                Vec::new()
+            } else {
+                idents(&mac.tokens)
+            },
+            tokens: item_position.then(|| mac.tokens.to_string()),
         });
     }
 }
@@ -674,16 +708,27 @@ fn include_path(mac: &syn::Macro) -> Option<String> {
     Some(literal.value())
 }
 
+/// Every identifier in the tokens `text`, deduplicated.
+pub(crate) fn text_idents(text: &str) -> Vec<String> {
+    let found = text
+        .parse::<TokenStream>()
+        .map(|tokens| idents(&tokens))
+        .unwrap_or_default();
+    proc_macro2::extra::invalidate_current_thread_spans();
+    found
+}
+
 /// Every identifier in `tokens`, deduplicated.
 fn idents(tokens: &TokenStream) -> Vec<String> {
     let mut out = Vec::new();
+    let mut seen = HashSet::new();
     let mut stack = vec![tokens.clone()];
     while let Some(stream) = stack.pop() {
         for tree in stream {
             match tree {
                 TokenTree::Ident(ident) => {
                     let name = strip_raw(&ident.to_string()).to_owned();
-                    if !out.contains(&name) {
+                    if seen.insert(name.clone()) {
                         out.push(name);
                     }
                 }

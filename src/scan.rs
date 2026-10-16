@@ -73,7 +73,6 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let mut indexer = Indexer::new(FileCache::load(&layout.cache_dir));
     let (commits, head) = git::range(&repo, &range)?;
     let head_snapshot = head_snapshot(&repo, &layout, &commits, &head);
-    let head_index = indexer.index(&*head_snapshot, &layout.workspace, true)?;
     let scratch = Scratch {
         dir: &layout.cache_dir,
         workspace_dir: &workspace_dir,
@@ -81,6 +80,9 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         workspace: &layout.workspace,
     };
     let dependencies = deps::head(&mut indexer, &*head_snapshot, &scratch)?;
+    indexer.use_dependency_macros(&dependencies.macro_rules);
+    let head_index = indexer.index(&*head_snapshot, &layout.workspace, true)?;
+    indexer.use_head_macros(&head_index);
 
     let (slots, state_of) = index_range(&mut indexer, &repo, &commits, &layout, &head_index)?;
     let states: Vec<&State> = state_of.iter().map(|&slot| &slots[slot]).collect();

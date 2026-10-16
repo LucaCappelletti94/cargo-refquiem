@@ -10,8 +10,8 @@ use crate::cache::FileCache;
 use crate::git::Snapshot;
 use crate::intern::{Interner, PathId, Sym};
 use crate::manifest::{self, Member, TargetKind, join};
-use crate::parse::FileItems;
-use crate::{Error, ItemKind, entry};
+use crate::parse::{self, FileItems};
+use crate::{Error, ItemKind, entry, expand};
 
 /// The paths of one snapshot.
 #[derive(Default)]
@@ -31,6 +31,8 @@ pub(crate) struct Index {
     pub(crate) signatures: HashMap<PathId, Rc<str>>,
     /// The dependency tables of every dependency entry, as [`manifest::NORMAL`] bits.
     pub(crate) tables: HashMap<PathId, u8>,
+    /// The item-position macros head invokes without expanding them, by name.
+    pub(crate) unexpanded: HashSet<Sym>,
 }
 
 /// A `use` creating a path: the module it sits in, the imported path, the created name or
@@ -40,20 +42,101 @@ type UseDecl = (Vec<Sym>, Vec<Sym>, Option<Sym>);
 /// A `Deref` impl: the module it sits in, the dereferencing type and the target as written.
 type DerefDecl = (Vec<Sym>, Vec<Sym>, Vec<Sym>);
 
-/// One file read as one module of one crate, reusable across snapshots.
+/// One file, or one macro expansion, read as one module of one crate, reusable across
+/// snapshots.
 struct Contribution {
     paths: Vec<PathId>,
     /// Modules declared without `pub`, recorded when only public items count.
     private_modules: Vec<PathId>,
     visits: Vec<Rc<Visit>>,
     uses: Vec<UseDecl>,
-    invocations: Vec<(PathId, Sym, Vec<Sym>)>,
-    macro_rules: Vec<(Sym, Vec<Sym>)>,
+    calls: Vec<Call>,
+    macro_rules: Vec<Rules>,
     derefs: Vec<DerefDecl>,
     params: Vec<Sym>,
     signatures: Vec<(PathId, Rc<str>)>,
     failure: Option<String>,
 }
+
+/// A macro invocation at item or associated-item position.
+struct Call {
+    module: PathId,
+    name: Sym,
+    idents: Vec<Sym>,
+    /// For an item-position invocation, its enclosing inline modules and its tokens as text.
+    expandable: Option<(Rc<[String]>, Rc<str>)>,
+}
+
+/// A `macro_rules!` definition.
+struct Rules {
+    /// The module it is defined in.
+    module: PathId,
+    name: Sym,
+    idents: Vec<Sym>,
+    body: Rc<str>,
+    exported: bool,
+}
+
+/// A `macro_rules!` body with the crate `$crate` names, `None` for the crate being indexed.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub(crate) struct Definition {
+    body: Rc<str>,
+    home: Option<Sym>,
+}
+
+/// A file or expansion `Indexer::reach` read.
+#[derive(Clone)]
+struct Entry {
+    /// The visit it was read for.
+    visit: Rc<Visit>,
+    contribution: Rc<Contribution>,
+    /// How many expansions deep it lies.
+    depth: usize,
+}
+
+/// What `Indexer::reach` read.
+#[derive(Default)]
+struct Reached {
+    entries: Vec<Entry>,
+    /// The invocations expanded by a `macro_rules!` definition, by contribution and index.
+    expanded: HashSet<(*const Contribution, usize)>,
+    /// The invocations of macros without a known definition, already read as items.
+    parsed: HashSet<(*const Contribution, usize)>,
+    /// The `macro_rules!` definitions of the entries before `ruled` with their modules, by
+    /// crate and name.
+    rules: HashMap<(Sym, Sym), Vec<(PathId, Definition)>>,
+    ruled: usize,
+    /// How many entries have had their invocations looked at.
+    examined: usize,
+    /// Invocations without a known definition, by entry and invocation index.
+    deferred: Vec<(usize, usize)>,
+    /// The expansions among the entries, which identical invocations share.
+    expansions: HashSet<*const Contribution>,
+}
+
+impl Reached {
+    fn contributions(&self) -> impl Iterator<Item = &Rc<Contribution>> {
+        self.entries.iter().map(|entry| &entry.contribution)
+    }
+
+    /// The invocations of every entry that no `macro_rules!` definition expanded.
+    fn unexpanded(&self) -> impl Iterator<Item = &Call> {
+        self.contributions().flat_map(move |contribution| {
+            contribution
+                .calls
+                .iter()
+                .enumerate()
+                .filter(move |(k, _)| !self.expanded.contains(&(Rc::as_ptr(contribution), *k)))
+                .map(|(_, call)| call)
+        })
+    }
+}
+
+/// How deep expansions may produce further expansions, as rustc's default recursion limit.
+const RECURSION_LIMIT: usize = 128;
+
+/// An expansion's visit, enclosing inline modules, macro definition and invocation tokens.
+type ExpansionKey = (Rc<Visit>, Rc<[String]>, Option<Definition>, Rc<str>);
 
 /// A file to read as a module.
 #[derive(PartialEq, Eq, Hash)]
@@ -77,6 +160,8 @@ pub(crate) struct Library {
     derefs: Vec<DerefDecl>,
     /// Identifiers its item-position macros may turn into items, in any module.
     pub(crate) macro_idents: HashSet<Sym>,
+    /// Its `#[macro_export]` macros by name.
+    pub(crate) macro_rules: Vec<(Sym, Definition)>,
 }
 
 impl Library {
@@ -90,17 +175,22 @@ impl Library {
 }
 
 /// The identifiers the item-position macro invocations of each module of `reached` may turn
-/// into items, with the `macro_rules!` bodies they call.
-fn macro_idents(reached: &[Rc<Contribution>]) -> HashMap<PathId, HashSet<Sym>> {
+/// into items, with the `macro_rules!` bodies they call. Expanded invocations contribute
+/// their items instead.
+fn macro_idents(interner: &mut Interner, reached: &Reached) -> HashMap<PathId, HashSet<Sym>> {
     let mut bodies: HashMap<Sym, Vec<Sym>> = HashMap::new();
-    for (name, idents) in reached.iter().flat_map(|c| &c.macro_rules) {
-        bodies.entry(*name).or_default().extend(idents);
+    for rules in reached.contributions().flat_map(|c| &c.macro_rules) {
+        bodies.entry(rules.name).or_default().extend(&rules.idents);
     }
     let mut alive: HashMap<PathId, HashSet<Sym>> = HashMap::new();
-    for (module, name, idents) in reached.iter().flat_map(|c| &c.invocations) {
-        let module = alive.entry(*module).or_default();
-        module.extend(idents);
-        if let Some(body) = bodies.get(name) {
+    for call in reached.unexpanded() {
+        let module = alive.entry(call.module).or_default();
+        module.extend(&call.idents);
+        if let Some((_, tokens)) = &call.expandable {
+            let idents = parse::text_idents(tokens);
+            module.extend(idents.iter().map(|name| interner.sym(name)));
+        }
+        if let Some(body) = bodies.get(&call.name) {
             module.extend(body);
         }
     }
@@ -112,6 +202,16 @@ pub(crate) struct Indexer {
     pub(crate) interner: Interner,
     cache: FileCache,
     memo: HashMap<(Rc<Visit>, ObjectId), Rc<Contribution>>,
+    /// Expansions already read into a module, `None` when the invocation did not expand to
+    /// items.
+    expansions: HashMap<ExpansionKey, Option<Rc<Contribution>>>,
+    expander: expand::Expander,
+    /// The `#[macro_export]` macros of head's dependencies by name, expanded wherever the
+    /// indexed crate defines no macro of that name.
+    dependency_macros: HashMap<Sym, Rc<Vec<Definition>>>,
+    /// The item-position macros head invokes without expanding them, by name, which workspace
+    /// history leaves unexpanded too, as anything they produced there head may still produce.
+    head_unexpanded: HashSet<Sym>,
     /// The package names every member directory had in any indexed snapshot.
     pub(crate) members: BTreeMap<String, BTreeSet<String>>,
     /// The crate names of every workspace target in any indexed snapshot.
@@ -124,9 +224,30 @@ impl Indexer {
             interner: Interner::default(),
             cache,
             memo: HashMap::new(),
+            expansions: HashMap::new(),
+            expander: expand::Expander::default(),
+            dependency_macros: HashMap::new(),
+            head_unexpanded: HashSet::new(),
             members: BTreeMap::new(),
             crates: HashSet::new(),
         }
+    }
+
+    /// Makes the `#[macro_export]` macros `rules` of head's dependencies expandable in every
+    /// later index.
+    pub(crate) fn use_dependency_macros(&mut self, rules: &[(Sym, Definition)]) {
+        for (name, definition) in rules {
+            let definitions = Rc::make_mut(self.dependency_macros.entry(*name).or_default());
+            if !definitions.contains(definition) {
+                definitions.push(definition.clone());
+            }
+        }
+    }
+
+    /// Leaves the macros `head` invokes without expanding them unexpanded in every later
+    /// workspace index.
+    pub(crate) fn use_head_macros(&mut self, head: &Index) {
+        self.head_unexpanded.clone_from(&head.unexpanded);
     }
 
     /// Interns the manifest entries of `member` into `index`.
@@ -214,20 +335,26 @@ impl Indexer {
         }
 
         let reached = self.reach(snapshot, stack, head, &mut index)?;
-        let uses: Vec<&UseDecl> = reached.iter().flat_map(|c| &c.uses).collect();
-        let derefs: Vec<&DerefDecl> = reached.iter().flat_map(|c| &c.derefs).collect();
+        let uses: Vec<&UseDecl> = reached.contributions().flat_map(|c| &c.uses).collect();
+        let derefs: Vec<&DerefDecl> = reached.contributions().flat_map(|c| &c.derefs).collect();
         self.resolve_aliases(&mut index.paths, &uses, &derefs, &crates);
         if head {
-            index.alive = macro_idents(&reached);
+            index.alive = macro_idents(&mut self.interner, &reached);
+            index.unexpanded = reached
+                .unexpanded()
+                .filter(|call| call.expandable.is_some())
+                .map(|call| call.name)
+                .collect();
             index.params = reached
-                .iter()
+                .contributions()
                 .flat_map(|c| c.params.iter().copied())
                 .collect();
         }
         Ok(index)
     }
 
-    /// Reads every file reachable from `stack` into `index`, returning their contributions.
+    /// Reads every file reachable from `stack` into `index`, with the items its item-position
+    /// macro invocations expand to, returning their contributions.
     ///
     /// At `head`, an unreadable Rust file is an error. Elsewhere it leaves the index incomplete.
     fn reach(
@@ -236,42 +363,213 @@ impl Indexer {
         mut stack: Vec<Rc<Visit>>,
         head: bool,
         index: &mut Index,
-    ) -> Result<Vec<Rc<Contribution>>, Error> {
+    ) -> Result<Reached, Error> {
         let mut seen = HashSet::new();
-        let mut reached = Vec::new();
-        while let Some(visit) = stack.pop() {
-            if !seen.insert(Rc::clone(&visit)) {
-                continue;
+        let mut reached = Reached::default();
+        loop {
+            while let Some(visit) = stack.pop() {
+                if !seen.insert(Rc::clone(&visit)) {
+                    continue;
+                }
+                let Some(id) = snapshot.blob(&visit.file)? else {
+                    continue;
+                };
+                let contribution = self.contribution(snapshot, &visit, id)?;
+                if let Some(message) = &contribution.failure {
+                    if head {
+                        return Err(Error::Parse {
+                            path: visit.file.clone(),
+                            message: message.clone(),
+                        });
+                    }
+                    index.complete = false;
+                    continue;
+                }
+                if head && !index.file_modules.contains_key(&visit.file) {
+                    let module = self.interner.segments(visit.module).to_vec();
+                    index.file_modules.insert(visit.file.clone(), module);
+                }
+                absorb(&contribution, index, &mut stack);
+                reached.entries.push(Entry {
+                    visit,
+                    contribution,
+                    depth: 0,
+                });
             }
-            let Some(id) = snapshot.blob(&visit.file)? else {
+            if !self.expand_calls(&mut reached, index, &mut stack) {
+                return Ok(reached);
+            }
+        }
+    }
+
+    /// Expands the item-position invocations of `reached` whose `macro_rules!` definition in
+    /// the same crate, or among head's dependencies, is known. When none expands, reads the
+    /// invocations of macros without a definition as items. Returns whether anything was added.
+    fn expand_calls(
+        &mut self,
+        reached: &mut Reached,
+        index: &mut Index,
+        stack: &mut Vec<Rc<Visit>>,
+    ) -> bool {
+        let mut new_rules = false;
+        for entry in &reached.entries[reached.ruled..] {
+            let krate = self.interner.segments(entry.visit.module)[0];
+            for rule in &entry.contribution.macro_rules {
+                let definition = Definition {
+                    body: rule.body.clone(),
+                    home: None,
+                };
+                let definitions = reached.rules.entry((krate, rule.name)).or_default();
+                if !definitions.contains(&(rule.module, definition.clone())) {
+                    definitions.push((rule.module, definition));
+                    new_rules = true;
+                }
+            }
+        }
+        reached.ruled = reached.entries.len();
+        let mut work: Vec<(usize, usize)> = Vec::new();
+        for (i, entry) in reached.entries.iter().enumerate().skip(reached.examined) {
+            let expandable = entry.contribution.calls.iter().enumerate();
+            work.extend(
+                expandable
+                    .filter(|(_, c)| c.expandable.is_some())
+                    .map(|(k, _)| (i, k)),
+            );
+        }
+        reached.examined = reached.entries.len();
+        if new_rules {
+            work.append(&mut reached.deferred);
+        }
+        let mut grew = false;
+        for (i, k) in work {
+            let entry = &reached.entries[i];
+            let krate = self.interner.segments(entry.visit.module)[0];
+            let call = &entry.contribution.calls[k];
+            let unexpandable =
+                !entry.visit.public_only && self.head_unexpanded.contains(&call.name);
+            let definitions = match reached.rules.get(&(krate, call.name)) {
+                _ if unexpandable => None,
+                Some(local) => Some(Rc::new(self.visible(local, call.module))),
+                None => self.dependency_macros.get(&call.name).cloned(),
+            };
+            match definitions {
+                Some(definitions) => {
+                    let found = definitions.iter().map(Some);
+                    grew |= self.expand_call(reached, i, k, found, index, stack);
+                }
+                None => reached.deferred.push((i, k)),
+            }
+        }
+        if !grew {
+            for (i, k) in reached.deferred.clone() {
+                let key = (Rc::as_ptr(&reached.entries[i].contribution), k);
+                if reached.parsed.insert(key) {
+                    grew |= self.expand_call(reached, i, k, [None], index, stack);
+                }
+            }
+        }
+        grew
+    }
+
+    /// The definitions among `all` an invocation in `module` sees, those of the nearest
+    /// enclosing module that has any, else all of them, as `#[macro_use]` lends them anywhere.
+    fn visible(&self, all: &[(PathId, Definition)], module: PathId) -> Vec<Definition> {
+        let segments = self.interner.segments(module);
+        for len in (1..=segments.len()).rev() {
+            let Some(enclosing) = self.interner.find_path(&segments[..len]) else {
                 continue;
             };
-            let contribution = self.contribution(snapshot, &visit, id)?;
-            if let Some(message) = &contribution.failure {
-                if head {
-                    return Err(Error::Parse {
-                        path: visit.file.clone(),
-                        message: message.clone(),
-                    });
-                }
-                index.complete = false;
+            let found: Vec<Definition> = all
+                .iter()
+                .filter(|(defined_in, _)| *defined_in == enclosing)
+                .map(|(_, definition)| definition.clone())
+                .collect();
+            if !found.is_empty() {
+                return found;
+            }
+        }
+        all.iter()
+            .map(|(_, definition)| definition.clone())
+            .collect()
+    }
+
+    /// Adds what invocation `k` of entry `i` expands to under each of `definitions`, `None`
+    /// reading its tokens as items. Returns whether anything was added.
+    fn expand_call<'d>(
+        &mut self,
+        reached: &mut Reached,
+        i: usize,
+        k: usize,
+        definitions: impl IntoIterator<Item = Option<&'d Definition>>,
+        index: &mut Index,
+        stack: &mut Vec<Rc<Visit>>,
+    ) -> bool {
+        let entry = reached.entries[i].clone();
+        let call = &entry.contribution.calls[k];
+        let Some((inline, tokens)) = &call.expandable else {
+            return false;
+        };
+        if entry.depth >= RECURSION_LIMIT {
+            return false;
+        }
+        let mut grew = false;
+        for definition in definitions {
+            let Some(expansion) = self.expansion(&entry.visit, inline, definition, tokens) else {
+                continue;
+            };
+            if definition.is_some() {
+                reached
+                    .expanded
+                    .insert((Rc::as_ptr(&entry.contribution), k));
+            }
+            if !reached.expansions.insert(Rc::as_ptr(&expansion)) {
                 continue;
             }
-            index.paths.extend(contribution.paths.iter().copied());
-            index.signatures.extend(
-                contribution
-                    .signatures
-                    .iter()
-                    .map(|(id, signature)| (*id, Rc::clone(signature))),
-            );
-            if head && !index.file_modules.contains_key(&visit.file) {
-                let module = self.interner.segments(visit.module).to_vec();
-                index.file_modules.insert(visit.file.clone(), module);
-            }
-            stack.extend(contribution.visits.iter().map(Rc::clone));
-            reached.push(contribution);
+            absorb(&expansion, index, stack);
+            reached.entries.push(Entry {
+                visit: Rc::clone(&entry.visit),
+                contribution: expansion,
+                depth: entry.depth + 1,
+            });
+            grew = true;
         }
-        Ok(reached)
+        grew
+    }
+
+    /// The items `tokens` expand to under `definition`, or read as items without one, nested
+    /// in the inline modules `inline` of `visit`'s file.
+    fn expansion(
+        &mut self,
+        visit: &Rc<Visit>,
+        inline: &Rc<[String]>,
+        definition: Option<&Definition>,
+        tokens: &Rc<str>,
+    ) -> Option<Rc<Contribution>> {
+        let key = (
+            Rc::clone(visit),
+            Rc::clone(inline),
+            definition.cloned(),
+            Rc::clone(tokens),
+        );
+        if let Some(known) = self.expansions.get(&key) {
+            return known.clone();
+        }
+        let text = match definition {
+            Some(definition) => {
+                let home = definition
+                    .home
+                    .map_or("crate", |home| self.interner.name(home));
+                self.expander.expand(&definition.body, tokens, home)
+            }
+            None => Some(tokens.to_string()),
+        };
+        let items = text.and_then(|text| parse::parse(&text).ok());
+        let built = items.map(|mut items| {
+            items.nest(inline);
+            Rc::new(self.build(visit, &items))
+        });
+        self.expansions.insert(key, built.clone());
+        built
     }
 
     /// The public items of the library whose root file is `root` in `snapshot`, rooted at
@@ -295,18 +593,33 @@ impl Indexer {
         });
         let reached = self.reach(snapshot, vec![visit], false, &mut index)?;
         Ok(Library {
-            macro_idents: macro_idents(&reached).into_values().flatten().collect(),
+            macro_idents: macro_idents(&mut self.interner, &reached)
+                .into_values()
+                .flatten()
+                .collect(),
+            macro_rules: reached
+                .contributions()
+                .flat_map(|c| &c.macro_rules)
+                .filter(|rules| rules.exported)
+                .map(|rules| {
+                    let definition = Definition {
+                        body: rules.body.clone(),
+                        home: Some(crate_sym),
+                    };
+                    (rules.name, definition)
+                })
+                .collect(),
             paths: index.paths,
             private_modules: reached
-                .iter()
+                .contributions()
                 .flat_map(|c| c.private_modules.iter().copied())
                 .collect(),
             uses: reached
-                .iter()
+                .contributions()
                 .flat_map(|c| c.uses.iter().cloned())
                 .collect(),
             derefs: reached
-                .iter()
+                .contributions()
                 .flat_map(|c| c.derefs.iter().cloned())
                 .collect(),
         })
@@ -364,7 +677,7 @@ impl Indexer {
                 private_modules: Vec::new(),
                 visits: Vec::new(),
                 uses: Vec::new(),
-                invocations: Vec::new(),
+                calls: Vec::new(),
                 macro_rules: Vec::new(),
                 derefs: Vec::new(),
                 params: Vec::new(),
@@ -434,20 +747,8 @@ impl Indexer {
                 (self.within(&module, &u.module), self.syms(&u.source), name)
             })
             .collect();
-        let invocations = items
-            .invocations
-            .iter()
-            .map(|inv| {
-                let within = self.within(&module, &inv.module);
-                let module = self.interner.path(&within, ItemKind::Module);
-                (module, self.interner.sym(&inv.name), self.syms(&inv.idents))
-            })
-            .collect();
-        let macro_rules = items
-            .macro_rules
-            .iter()
-            .map(|rules| (self.interner.sym(&rules.name), self.syms(&rules.idents)))
-            .collect();
+        let calls = self.calls(&module, items);
+        let macro_rules = self.rules(&module, items);
         let derefs = items
             .derefs
             .iter()
@@ -461,13 +762,51 @@ impl Indexer {
             private_modules,
             visits,
             uses,
-            invocations,
+            calls,
             macro_rules,
             derefs,
             params: self.syms(&items.params),
             signatures,
             failure: None,
         }
+    }
+
+    /// The macro invocations of `items`, read as the module `module`.
+    fn calls(&mut self, module: &[Sym], items: &FileItems) -> Vec<Call> {
+        items
+            .invocations
+            .iter()
+            .map(|inv| {
+                let within = self.within(module, &inv.module);
+                Call {
+                    module: self.interner.path(&within, ItemKind::Module),
+                    name: self.interner.sym(&inv.name),
+                    idents: self.syms(&inv.idents),
+                    expandable: inv
+                        .tokens
+                        .as_deref()
+                        .map(|tokens| (Rc::from(inv.module.as_slice()), Rc::from(tokens))),
+                }
+            })
+            .collect()
+    }
+
+    /// The `macro_rules!` definitions of `items`, read as the module `module`.
+    fn rules(&mut self, module: &[Sym], items: &FileItems) -> Vec<Rules> {
+        items
+            .macro_rules
+            .iter()
+            .map(|rules| {
+                let within = self.within(module, &rules.module);
+                Rules {
+                    module: self.interner.path(&within, ItemKind::Module),
+                    name: self.interner.sym(&rules.name),
+                    idents: self.syms(&rules.idents),
+                    body: Rc::from(rules.body.as_str()),
+                    exported: rules.exported,
+                }
+            })
+            .collect()
     }
 
     /// The files `mod` declarations and `include!` invocations of `items` pull into the crate.
@@ -573,9 +912,10 @@ impl Indexer {
     ) {
         const ROUNDS: usize = 8;
         let mut origins = HashMap::new();
+        let mut tree = self.tree(paths);
         for _ in 0..ROUNDS {
             let before = paths.len();
-            let children = self.children(paths);
+            let mut fresh = Vec::new();
             for (module, source, name) in uses {
                 let target = self
                     .resolve_use(module, source, crates, paths)
@@ -585,14 +925,18 @@ impl Indexer {
                     let mut alias = module.clone();
                     alias.push(*name);
                     let id = self.interner.path(&alias, ItemKind::Reexport);
-                    paths.insert(id);
+                    if paths.insert(id) {
+                        fresh.push(id);
+                    }
                     if let Some(target) = target {
                         let stands_for = origin(&origins, target);
                         origins.entry(id).or_insert(stands_for);
-                        self.copy_below(target, alias, &children, paths, &mut origins);
+                        let copy = (target, alias);
+                        self.copy_below(copy, &tree, paths, &mut origins, &mut fresh);
                     }
                 } else if let Some(target) = target {
-                    self.copy_below(target, module.clone(), &children, paths, &mut origins);
+                    let copy = (target, module.clone());
+                    self.copy_below(copy, &tree, paths, &mut origins, &mut fresh);
                 }
             }
             for (module, self_ty, target) in derefs {
@@ -610,12 +954,14 @@ impl Indexer {
                 if let Some(target) = target
                     && owner_known
                 {
-                    self.copy_below(target, owner, &children, paths, &mut origins);
+                    let copy = (target, owner);
+                    self.copy_below(copy, &tree, paths, &mut origins, &mut fresh);
                 }
             }
             if paths.len() == before {
                 break;
             }
+            self.grow(&mut tree, &fresh);
         }
     }
 
@@ -649,14 +995,15 @@ impl Indexer {
     /// Re-roots every path strictly below `from` under `to`, never through a module the copy
     /// already passes, so that re-exports forming a cycle stay finite.
     ///
-    /// `origins` maps every alias and copied path to the declared path it stands for.
+    /// `origins` maps every alias and copied path to the declared path it stands for, and
+    /// `fresh` collects the paths the copy adds.
     fn copy_below(
         &mut self,
-        from: PathId,
-        to: Vec<Sym>,
-        children: &HashMap<PathId, Vec<PathId>>,
+        (from, to): (PathId, Vec<Sym>),
+        tree: &Tree,
         paths: &mut HashSet<PathId>,
         origins: &mut HashMap<PathId, PathId>,
+        fresh: &mut Vec<PathId>,
     ) {
         let chain: Vec<PathId> = (1..=to.len())
             .filter_map(|len| self.interner.find_path(&to[..len]))
@@ -668,7 +1015,7 @@ impl Indexer {
             if !guard.insert(source) {
                 continue;
             }
-            for &child in children.get(&source).into_iter().flatten() {
+            for &child in tree.children.get(&source).into_iter().flatten() {
                 let last = *self
                     .interner
                     .segments(child)
@@ -678,7 +1025,9 @@ impl Indexer {
                 path.push(last);
                 let kind = self.interner.kind(child);
                 let id = self.interner.path(&path, kind);
-                paths.insert(id);
+                if paths.insert(id) {
+                    fresh.push(id);
+                }
                 let child_origin = origin(origins, child);
                 origins.entry(id).or_insert(child_origin);
                 if !chain.contains(&child_origin) {
@@ -690,24 +1039,63 @@ impl Indexer {
         }
     }
 
-    fn children(&self, paths: &HashSet<PathId>) -> HashMap<PathId, Vec<PathId>> {
-        let mut children: HashMap<PathId, Vec<PathId>> = HashMap::new();
+    /// The parent and child links among `paths`.
+    fn tree(&self, paths: &HashSet<PathId>) -> Tree {
+        let mut tree = Tree::default();
         for &id in paths {
-            let segments = self.interner.segments(id);
-            if segments.len() < 2 {
-                continue;
-            }
-            if let Some(parent) = self.interner.find_path(&segments[..segments.len() - 1])
-                && paths.contains(&parent)
-            {
-                children.entry(parent).or_default().push(id);
-            }
+            self.link(&mut tree, id);
         }
-        for list in children.values_mut() {
+        for list in tree.children.values_mut() {
             list.sort_unstable();
         }
-        children
+        tree
     }
+
+    /// Adds the paths `fresh` to `tree`, adopting the paths whose parent one of them is and
+    /// was not interned before.
+    fn grow(&self, tree: &mut Tree, fresh: &[PathId]) {
+        let mut touched = HashSet::new();
+        for &id in fresh {
+            if let Some(parent) = self.link(tree, id) {
+                touched.insert(parent);
+            }
+            if let Some(adopted) = tree.orphans.remove(self.interner.segments(id)) {
+                tree.children.entry(id).or_default().extend(adopted);
+                touched.insert(id);
+            }
+        }
+        for parent in touched {
+            if let Some(list) = tree.children.get_mut(&parent) {
+                list.sort_unstable();
+            }
+        }
+    }
+
+    /// Files `id` under its parent in `tree`, or among the orphans while the parent is not
+    /// interned. A parent outside the set keeps its children unused until it joins. Returns
+    /// the parent it was filed under.
+    fn link(&self, tree: &mut Tree, id: PathId) -> Option<PathId> {
+        let segments = self.interner.segments(id);
+        let (_, parent) = segments.split_last()?;
+        if parent.is_empty() {
+            return None;
+        }
+        if let Some(found) = self.interner.find_path(parent) {
+            tree.children.entry(found).or_default().push(id);
+            return Some(found);
+        }
+        tree.orphans.entry(parent.into()).or_default().push(id);
+        None
+    }
+}
+
+/// The parent and child links among a set of paths.
+#[derive(Default)]
+struct Tree {
+    /// The children of every path, sorted.
+    children: HashMap<PathId, Vec<PathId>>,
+    /// The paths whose parent was not interned yet, by the parent's segments.
+    orphans: HashMap<Box<[Sym]>, Vec<PathId>>,
 }
 
 /// The declared path `id` stands for, given the alias and copy `origins`.
@@ -730,4 +1118,16 @@ fn owned_dir(file: &str, mod_rs: bool, inline: &[String]) -> String {
 
 fn parent(file: &str) -> &str {
     file.rsplit_once('/').map_or("", |(dir, _)| dir)
+}
+
+/// Adds the paths, signatures and files of `contribution` to `index` and `stack`.
+fn absorb(contribution: &Contribution, index: &mut Index, stack: &mut Vec<Rc<Visit>>) {
+    index.paths.extend(contribution.paths.iter().copied());
+    index.signatures.extend(
+        contribution
+            .signatures
+            .iter()
+            .map(|(id, signature)| (*id, Rc::clone(signature))),
+    );
+    stack.extend(contribution.visits.iter().map(Rc::clone));
 }

@@ -343,17 +343,45 @@ fn an_item_a_head_macro_still_generates_is_not_reported() {
 }
 
 #[test]
-fn a_field_of_a_struct_its_name_a_head_macro_still_generates_is_not_reported() {
+fn a_field_of_a_struct_an_unknown_head_macro_may_generate_is_not_reported() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "pub struct A {\n    pub B: u8,\n}\n");
     repo.commit("start");
     repo.write(
         "src/lib.rs",
-        "macro_rules! gen {\n    ($n:ident) => {\n        pub struct $n;\n    };\n}\ngen!(A);\npub struct A {\n}\n/// Was `crate::A::B`.\npub fn kept() {}\n",
+        "gen!(A);\npub struct A {\n}\n/// Was `crate::A::B`.\npub fn kept() {}\n",
     );
     repo.commit("drop B");
 
     assert_eq!(found(&repo), []);
+}
+
+#[test]
+fn a_module_a_dependency_macro_declares_is_indexed() {
+    let repo = Repo::new();
+    repo.vendor(
+        "helper",
+        "1.0.0",
+        "#[macro_export]\nmacro_rules! declare {\n    ($name:ident) => {\n        pub mod $name;\n    };\n}\n",
+    );
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n",
+    );
+    repo.write(
+        "src/lib.rs",
+        "pub mod old {\n    pub struct Mutex;\n}\n\nhelper::declare!(sync);\n",
+    );
+    lock(&repo);
+    repo.write("src/sync.rs", "pub struct Mutex;\npub struct Gone;\n");
+    repo.commit("declared module");
+    repo.write("src/lib.rs", "helper::declare!(sync);\n");
+    repo.write("src/sync.rs", "pub struct Mutex;\n");
+    repo.write("README.md", "`Mutex` and `fixture::sync::Gone`\n");
+    repo.commit("drop old and Gone");
+
+    let paths: Vec<String> = found(&repo).into_iter().map(|row| row.0).collect();
+    assert_eq!(paths, ["fixture::sync::Gone"]);
 }
 
 #[test]

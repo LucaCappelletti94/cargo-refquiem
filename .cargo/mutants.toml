@@ -9,7 +9,11 @@ exclude_re = [
     # At head `deps::head` reads the same manifests and fails on the same error.
     'replace match guard !head with true in Indexer::index',
     # Which module a file reached twice keeps is arbitrary.
-    'src/index\.rs:\d+:21: replace && with \|\| in Indexer::reach',
+    'src/index\.rs:\d+:25: replace && with \|\| in Indexer::reach',
+    # rustc rejects a `$` before a brace or bracket group in a `macro_rules!` matcher.
+    'replace match guard group.delimiter\(\) == Delimiter::Parenthesis with true in matchers',
+    # rustc rejects a separator of several tokens that are not one run of joined punctuation.
+    'src/expand\.rs:\d+:13: replace && with \|\| in kleene',
     # An empty or `.` glob segment only adds a round that matches the same directories.
     'src/manifest\.rs:\d+:64: replace && with \|\| in expand',
     # The git object cache size only changes speed.

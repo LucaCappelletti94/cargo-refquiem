@@ -338,6 +338,314 @@ fn a_path_returning_through_aliases_to_a_module_it_passed_is_not_indexed() {
     assert_eq!(mentioned, ["fixture::tour::c0::next::step"]);
 }
 
+const CFG_MACROS: &str = "macro_rules! cfg_sync {\n    ($($item:item)*) => {\n        $(\n            #[cfg(feature = \"sync\")]\n            $item\n        )*\n    };\n}\n\nmacro_rules! feature {\n    (#![$meta:meta] $($item:item)*) => {\n        $(\n            #[cfg($meta)]\n            $item\n        )*\n    };\n}\n";
+
+#[test]
+fn modules_declared_inside_item_macros_are_indexed() {
+    let repo = Repo::new();
+    repo.write("src/macros.rs", CFG_MACROS);
+    repo.write(
+        "src/lib.rs",
+        "#[macro_use]\nmod macros;\n\npub mod old {\n    pub struct Mutex;\n    pub struct Layer;\n}\n\ncfg_sync! {\n    pub mod sync;\n}\n\nfeature! {\n    #![feature = \"fmt\"]\n    pub mod fmt;\n}\n",
+    );
+    repo.write("src/sync.rs", "pub struct Mutex;\npub struct Gone;\n");
+    repo.write("src/fmt.rs", "pub struct Layer;\n");
+    repo.commit("macro modules");
+    repo.write(
+        "src/lib.rs",
+        "#[macro_use]\nmod macros;\n\ncfg_sync! {\n    pub mod sync;\n}\n\nfeature! {\n    #![feature = \"fmt\"]\n    pub mod fmt;\n}\n",
+    );
+    repo.write("src/sync.rs", "pub struct Mutex;\n");
+    repo.write(
+        "README.md",
+        "`Mutex`, `sync::Mutex`, `fmt::Layer` and `fixture::sync::Gone`\n",
+    );
+    repo.commit("drop old and Gone");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::sync::Gone"]);
+}
+
+#[test]
+fn items_a_macro_assembles_from_its_arguments_are_indexed() {
+    let repo = Repo::new();
+    repo.write(
+        "src/macros.rs",
+        "macro_rules! ast_struct {\n    (\n        $(#[$attr:meta])*\n        $pub:ident $struct:ident $name:ident #full $body:tt\n    ) => {\n        check_keyword_matches!(pub $pub);\n        $(#[$attr])* $pub $struct $name $body\n    };\n}\n\nmacro_rules! check_keyword_matches {\n    (pub pub) => {};\n}\n",
+    );
+    repo.write("src/lib.rs", "#[macro_use]\nmod macros;\npub mod expr;\n");
+    repo.write(
+        "src/expr.rs",
+        "ast_struct! {\n    /// An array.\n    pub struct ExprArray #full {\n        pub elems: Vec<u8>,\n        pub gone: u8,\n    }\n}\n",
+    );
+    repo.commit("ast");
+    repo.write(
+        "src/expr.rs",
+        "ast_struct! {\n    /// An array.\n    pub struct ExprArray #full {\n        pub elems: Vec<u8>,\n    }\n}\n",
+    );
+    repo.write("README.md", "`ExprArray::elems` and `ExprArray::gone`\n");
+    repo.commit("drop gone");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::expr::ExprArray::gone"]);
+}
+
+#[test]
+fn a_macro_without_arguments_declares_the_items_of_its_body() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod legacy {\n    pub mod de {\n        pub trait Deserialize {}\n    }\n}\n\nmacro_rules! crate_root {\n    () => {\n        pub mod de;\n        pub use self::de::Deserialize;\n    };\n}\n\ncrate_root!();\n",
+    );
+    repo.write("src/de.rs", "pub trait Deserialize {}\npub fn gone() {}\n");
+    repo.commit("crate root");
+    repo.write(
+        "src/lib.rs",
+        "macro_rules! crate_root {\n    () => {\n        pub mod de;\n        pub use self::de::Deserialize;\n    };\n}\n\ncrate_root!();\n",
+    );
+    repo.write("src/de.rs", "pub trait Deserialize {}\n");
+    repo.write(
+        "README.md",
+        "`de::Deserialize`, `fixture::Deserialize` and `fixture::de::gone`\n",
+    );
+    repo.commit("drop legacy and gone");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::de::gone"]);
+}
+
+#[test]
+fn a_glob_out_of_a_macro_generated_module_reexports_its_source() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod helper_types {\n    pub struct Eq;\n    pub struct Gone;\n}\n\npub mod dsl {\n    pub use crate::helper_types::*;\n}\n",
+    );
+    repo.commit("plain glob");
+    repo.write(
+        "src/lib.rs",
+        "macro_rules! make_proxy_mod {\n    ($name:ident, $path:path) => {\n        #[doc(hidden)]\n        pub mod $name {\n            pub use $path::*;\n        }\n    };\n}\n\npub mod helper_types {\n    pub struct Eq;\n}\n\npub mod dsl {\n    make_proxy_mod!(helper_types_proxy, crate::helper_types);\n    pub use self::helper_types_proxy::*;\n}\n",
+    );
+    repo.write("README.md", "`dsl::Eq` and `fixture::dsl::Gone`\n");
+    repo.commit("proxy module");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::dsl::Gone"]);
+}
+
+const MAKE: &str = "macro_rules! make {\n    (unit $name:ident) => {\n        pub struct $name;\n    };\n    ($vis:vis enum $name:ident { $($variant:ident),* $(,)? } $(alias $alias:ident)?) => {\n        $vis enum $name { $($variant),* }\n        $(pub use self::$name as $alias;)?\n    };\n    ($($module:ident { $($item:ident),* });+ ;) => {\n        $(pub mod $module { $(pub struct $item;)* })+\n    };\n}\n";
+
+#[test]
+fn a_macro_expands_by_its_first_matching_rule_and_every_repetition() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        &format!(
+            "{MAKE}make!(unit Lone);\nmake!(pub enum Color {{ Red, Green, Blue }} alias Colour);\nmake!(shapes {{ Circle, Square, Triangle }}; sizes {{ Big, Small }};);\n"
+        ),
+    );
+    repo.commit("made");
+    repo.write(
+        "src/lib.rs",
+        &format!(
+            "{MAKE}make!(unit Lone);\nmake!(pub enum Color {{ Red, Green, }});\nmake!(shapes {{ Circle, Square }}; sizes {{ Big }};);\n"
+        ),
+    );
+    repo.write(
+        "README.md",
+        "`fixture::Lone`, `fixture::Color::Red`, `fixture::shapes::Circle`, `fixture::sizes::Big`, `fixture::Color::Blue`, `fixture::Colour`, `fixture::shapes::Triangle` and `fixture::sizes::Small`\n",
+    );
+    repo.commit("trimmed");
+
+    assert_eq!(
+        removed(&run(&repo)),
+        [
+            "fixture::Color::Blue",
+            "fixture::Colour",
+            "fixture::shapes::Triangle",
+            "fixture::sizes::Small"
+        ]
+    );
+}
+
+#[test]
+fn a_macro_invoking_itself_expands_each_level() {
+    let repo = Repo::new();
+    let each = "macro_rules! each {\n    () => {};\n    ($head:ident $($rest:ident)*) => {\n        pub struct $head;\n        each!($($rest)*);\n    };\n}\n";
+    repo.write("src/lib.rs", &format!("{each}each!(A B C);\n"));
+    repo.commit("three");
+    repo.write("src/lib.rs", &format!("{each}each!(A B);\n"));
+    repo.write("README.md", "`fixture::B` and `fixture::C`\n");
+    repo.commit("two");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::C"]);
+}
+
+#[test]
+fn every_definition_of_a_macro_name_is_expanded() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod old {\n    pub struct AlphaOne;\n    pub struct BetaTwo;\n}\n",
+    );
+    repo.commit("plain");
+    repo.write(
+        "src/lib.rs",
+        "#[cfg(feature = \"a\")]\nmacro_rules! decl {\n    () => {\n        pub struct AlphaOne;\n    };\n}\n\n#[cfg(not(feature = \"a\"))]\nmacro_rules! decl {\n    () => {\n        pub struct BetaTwo;\n    };\n}\n\ndecl!();\n",
+    );
+    repo.write("README.md", "`AlphaOne` and `BetaTwo`\n");
+    repo.commit("per cfg");
+
+    assert_eq!(removed(&run(&repo)), [] as [&str; 0]);
+}
+
+#[test]
+fn a_macro_defined_in_a_module_shadows_same_named_macros_elsewhere() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod first {\n    macro_rules! impl_case {\n        () => {};\n        ($head:ident $($rest:ident)*) => {\n            pub struct $head;\n            impl_case!($($rest)*);\n        };\n    }\n    impl_case!(A B);\n}\n\npub mod second {\n    macro_rules! impl_case {\n        ($name:ident $($rest:ident)*) => {\n            pub mod $name {}\n        };\n    }\n    impl_case!(C D);\n}\n",
+    );
+    repo.commit("local macros");
+    repo.write("src/lib.rs", "pub mod first {}\npub mod second {}\n");
+    repo.write(
+        "README.md",
+        "`fixture::first::A`, `fixture::first::B`, `fixture::second::C`, `fixture::first::C`, `fixture::second::A` and `fixture::second::D`\n",
+    );
+    repo.commit("drop the calls");
+
+    assert_eq!(
+        removed(&run(&repo)),
+        [
+            "fixture::first::A",
+            "fixture::first::B",
+            "fixture::second::C"
+        ]
+    );
+}
+
+#[test]
+fn the_items_of_an_unknown_macro_are_read_from_its_tokens() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "unknown! {\n    pub struct Gone;\n    pub mod sub;\n}\n",
+    );
+    repo.write("src/sub.rs", "pub struct Deep;\n");
+    repo.commit("unknown");
+    repo.write("src/lib.rs", "unknown! {\n    pub mod sub;\n}\n");
+    repo.write("src/sub.rs", "");
+    repo.write("README.md", "`fixture::Gone` and `fixture::sub::Deep`\n");
+    repo.commit("drop Gone and Deep");
+
+    assert_eq!(
+        removed(&run(&repo)),
+        ["fixture::Gone", "fixture::sub::Deep"]
+    );
+}
+
+#[test]
+fn a_macro_expanding_to_nothing_keeps_no_name_alive() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub struct Gone;\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "macro_rules! noop {\n    ($($t:tt)*) => {};\n}\n\nnoop!(Gone);\n",
+    );
+    repo.write("README.md", "`fixture::Gone`\n");
+    repo.commit("drop Gone");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::Gone"]);
+}
+
+#[test]
+fn items_a_head_macro_may_still_generate_out_of_sight_are_not_removed() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "macro_rules! table {\n    ($name:ident) => {\n        pub mod $name {\n            pub struct table;\n            pub mod columns {\n                pub struct name;\n            }\n            pub use self::columns::*;\n        }\n    };\n}\n\nmacro_rules! gone_macro {\n    ($name:ident) => {\n        pub mod $name {\n            pub struct row;\n        }\n    };\n}\n\nmacro_rules! wrap {\n    ($($t:tt)*) => {\n        $($t)*\n    };\n}\n\npub mod tests {\n    table!(users);\n    gone_macro!(posts);\n    wrap! {\n        table!(orders);\n    }\n}\n",
+    );
+    repo.commit("macro_rules schemas");
+    repo.write("src/lib.rs", "pub mod schema {\n    table!(comments);\n}\n");
+    repo.write(
+        "README.md",
+        "`users::table`, `users::name`, `orders::table` and `posts::row`\n",
+    );
+    repo.commit("procedural table");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::tests::posts::row"]);
+}
+
+/// The removed paths of a crate whose first commit is `lib` and whose second deletes it while
+/// the README names `mentioned`.
+fn removed_after_deleting(lib: &str, mentioned: &[&str]) -> Vec<String> {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", lib);
+    repo.commit("expanded");
+    repo.write("src/lib.rs", "");
+    let readme: Vec<String> = mentioned.iter().map(|m| format!("`{m}`\n")).collect();
+    repo.write("README.md", &readme.concat());
+    repo.commit("deleted");
+    removed(&run(&repo))
+}
+
+#[test]
+fn each_fragment_takes_what_its_grammar_parses_and_rules_need_their_tokens() {
+    let lib = "macro_rules! kind {\n    (lifetime $l:lifetime) => { pub struct WasLifetime; };\n    (literal $l:literal) => { pub struct WasLiteral; };\n    (ty $t:ty) => { pub struct WasType; };\n    (expr $e:expr) => { pub struct WasExpr; };\n    (block $b:block) => { pub struct WasBlock; };\n    (stmt $s:stmt) => { pub struct WasStmt; };\n    (pat $p:pat) => { pub struct WasPat; };\n    (param $p:pat_param) => { pub struct WasParam; };\n    (lifetime $($t:tt)*) => { pub struct NotLifetime; };\n}\n\nkind!(lifetime 'a);\nkind!(literal -1);\nkind!(ty Vec<u8>);\nkind!(expr 1 + 2);\nkind!(block { 1 });\nkind!(stmt fn f() {});\nkind!(pat Some(_) | None);\nkind!(param x);\n\nmacro_rules! life {\n    ($l:lifetime) => { pub struct MinusIsLifetime; };\n    ($($t:tt)*) => { pub struct MinusIsNot; };\n}\n\nlife!(-x);\n\nmacro_rules! sep {\n    ($($x:ident),*) => { $(pub struct $x;)* };\n    ($($t:tt)*) => { pub struct Unseparated; };\n}\n\nsep!(A, B);\nsep!(C D E);\n";
+    let lib = format!(
+        "{lib}\nmacro_rules! speed {{\n    (\"fast\") => {{ pub struct Fast; }};\n    ($other:literal) => {{ pub struct Slow; }};\n}}\n\nspeed!(\"fast\");\n"
+    );
+    let names = [
+        "fixture::A",
+        "fixture::B",
+        "fixture::Fast",
+        "fixture::MinusIsNot",
+        "fixture::Unseparated",
+        "fixture::WasBlock",
+        "fixture::WasExpr",
+        "fixture::WasLifetime",
+        "fixture::WasLiteral",
+        "fixture::WasParam",
+        "fixture::WasPat",
+        "fixture::WasStmt",
+        "fixture::WasType",
+    ];
+    let mut mentioned = names.to_vec();
+    mentioned.extend([
+        "fixture::C",
+        "fixture::E",
+        "fixture::MinusIsLifetime",
+        "fixture::NotLifetime",
+        "fixture::Slow",
+    ]);
+
+    assert_eq!(removed_after_deleting(&lib, &mentioned), names);
+}
+
+#[test]
+fn transcription_repeats_substitutes_and_spells_crate() {
+    let lib = "macro_rules! groups {\n    ($($($x:ident)* ;)*) => { $($(pub struct $x;)*)* };\n}\ngroups!(F G ; H ;);\n\npub mod inner {\n    pub struct Thing;\n}\nmacro_rules! glob {\n    () => { pub(crate) use $crate::inner::*; };\n}\nglob!();\n\nmacro_rules! outer {\n    ($name:ident) => {\n        macro_rules! nested {\n            ($x:ident) => { pub struct $x; };\n        }\n        nested!($name);\n    };\n}\nouter!(Made);\n\nmacro_rules! pair {\n    ($($a:ident)* ; $($b:ident)*) => { $(pub struct $a;)* $(pub fn $b() -> a {})* };\n}\npair!(P Q ; r);\n\nmacro_rules! zip {\n    ($($a:ident)* ; $($b:ident)*) => { $(pub struct $b; pub struct $a;)* };\n}\nzip!(Odd Even ; Third);\n";
+    let names = [
+        "fixture::F",
+        "fixture::G",
+        "fixture::H",
+        "fixture::Made",
+        "fixture::P",
+        "fixture::Q",
+        "fixture::Thing",
+        "fixture::r",
+    ];
+    let mut mentioned = names.to_vec();
+    mentioned.extend(["fixture::Odd", "fixture::Third"]);
+
+    assert_eq!(removed_after_deleting(lib, &mentioned), names);
+}
+
+#[test]
+fn a_separator_may_span_several_punctuation_marks() {
+    let lib = "pub mod a {\n    pub mod b {\n        pub struct Deep;\n    }\n}\n\nmacro_rules! import {\n    ($($segment:ident)::+ ; $($name:ident)=>*) => {\n        pub use $($segment)::+;\n        $(pub struct $name;)*\n    };\n}\n\nimport!(a::b::Deep ; One => Two);\n";
+    let names = ["fixture::Deep", "fixture::One", "fixture::Two"];
+
+    assert_eq!(removed_after_deleting(lib, &names), names);
+}
+
 #[test]
 fn a_rename_drops_underscore_aliases_and_keeps_its_source_name() {
     let repo = Repo::new();

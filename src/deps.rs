@@ -9,7 +9,7 @@ use gix::ObjectId;
 use toml::{Table, Value};
 
 use crate::git::{Snapshot, TreeSnapshot, WorkTreeSnapshot, relative};
-use crate::index::Indexer;
+use crate::index::{Definition, Indexer};
 use crate::intern::{PathId, Sym};
 use crate::manifest::{self, Dependency, Member, TargetKind, join};
 use crate::{Error, Skipped};
@@ -57,6 +57,8 @@ pub(crate) struct Layer {
     pub(crate) paths: HashSet<PathId>,
     /// Identifiers their item-position macros may turn into items.
     pub(crate) macro_idents: HashSet<Sym>,
+    /// Their `#[macro_export]` macros by name.
+    pub(crate) macro_rules: Vec<(Sym, Definition)>,
 }
 
 /// The items of removed dependencies.
@@ -335,6 +337,10 @@ fn libraries(
         macro_idents: found
             .iter()
             .flat_map(|library| library.macro_idents.iter().copied())
+            .collect(),
+        macro_rules: found
+            .iter()
+            .flat_map(|library| library.macro_rules.iter().cloned())
             .collect(),
         paths: indexer.public_paths(&found, &root_syms),
     })
