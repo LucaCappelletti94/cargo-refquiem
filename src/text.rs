@@ -707,6 +707,15 @@ fn bindings<'c>(code: &'c str, tokens: &[(usize, usize, TokenKind)]) -> HashSet<
     // A segment of a path inside a pattern names something else and binds nothing.
     let segment =
         |i: usize| (colon(i + 1) && colon(i + 2)) || (i >= 2 && colon(i - 1) && colon(i - 2));
+    // The `for` of an impl header, after its trait, or of a `for<'a>` bound opens no loop.
+    let opens_loop = |i: usize| {
+        let after_type = i > 0
+            && matches!(
+                tokens[i - 1].2,
+                TokenKind::Ident | TokenKind::RawIdent | TokenKind::Gt
+            );
+        !after_type && tokens.get(i + 1).map(|token| token.2) != Some(TokenKind::Lt)
+    };
     let mut bound = HashSet::new();
     let mut i = 0;
     while i < tokens.len() {
@@ -723,7 +732,7 @@ fn bindings<'c>(code: &'c str, tokens: &[(usize, usize, TokenKind)]) -> HashSet<
                 || text(i - 1) == "move");
         let pattern = match (tokens[i].2, text(i)) {
             (TokenKind::Ident, "let") => Pattern::Let,
-            (TokenKind::Ident, "for") => Pattern::For,
+            (TokenKind::Ident, "for") if opens_loop(i) => Pattern::For,
             _ if opens_closure => Pattern::Closure,
             (TokenKind::Ident, keyword) => {
                 declaration(code, tokens, i, keyword, &mut bound);

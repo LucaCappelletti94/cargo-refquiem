@@ -936,3 +936,41 @@ fn a_path_segment_inside_a_doc_example_pattern_binds_nothing() {
         ]
     );
 }
+
+#[test]
+fn an_impl_header_for_leaves_later_declarations_bound() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct ST;\npub fn gone_item() {}\npub fn gone_call() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// impl Clone for Lower {\n///     fn clone(&self) -> Self {\n///         Lower\n///     }\n/// }\n/// impl<DB, ST> FromSql<ST, DB> for Lower {}\n/// for gone_item in list {\n///     gone_item;\n/// }\n/// gone_call();\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize, usize)> =
+        found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
+    assert_eq!(rows, [("fixture::gone_call".to_owned(), 11, 5)]);
+}
+
+#[test]
+fn a_for_bound_leaves_later_declarations_bound_and_a_leading_for_loop_binds() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn gone_x() {}\npub struct GoneLater;\npub fn gone_call() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// for gone_x in list {\n///     gone_x;\n/// }\n/// ```\n///\n/// ```\n/// fn apply<F>(f: F) where F: for<'a> Fn(&'a u8) {}\n/// struct GoneLater;\n/// let _ = GoneLater;\n/// gone_call();\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize, usize)> =
+        found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
+    assert_eq!(rows, [("fixture::gone_call".to_owned(), 11, 5)]);
+}
