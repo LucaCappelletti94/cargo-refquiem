@@ -556,3 +556,44 @@ fn rustdoc_fence_attributes_mark_the_block_compiled() {
         ]
     );
 }
+
+#[test]
+fn commented_out_code_is_skipped_unless_the_config_asks_for_it() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone_fn() {}\npub fn kept() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/* fixture::gone_fn();\n   let x = gone_fn(); */\n// let y = fixture::gone_fn();\n// gone_fn();\n\n// fn old() { fixture::gone_fn(); }\n\n// let total = fixture::gone_fn(\n//     1,\n// );\n\n// Prose names fixture::gone_fn here.\n/// Docs name `fixture::gone_fn`.\npub fn kept() {}\n",
+    );
+    repo.commit("drop gone_fn");
+    let rows = |repo: &Repo| -> Vec<(usize, usize, Source, String)> {
+        found(repo)
+            .into_iter()
+            .map(|m| (m.2, m.3, m.4.source, m.5))
+            .collect()
+    };
+    let row = |line, column, source, text: &str| (line, column, source, text.to_owned());
+    let path = "fixture::gone_fn";
+    let (comment, doc) = (Source::Comment, Source::DocComment);
+
+    assert_eq!(
+        rows(&repo),
+        [row(12, 16, comment, path), row(13, 16, doc, path)]
+    );
+
+    repo.write(".refquiem.toml", "scan-commented-code = true\n");
+    assert_eq!(
+        rows(&repo),
+        [
+            row(1, 4, comment, path),
+            row(2, 12, comment, "gone_fn"),
+            row(3, 12, comment, path),
+            row(4, 4, comment, "gone_fn"),
+            row(6, 15, comment, path),
+            row(8, 16, comment, path),
+            row(12, 16, comment, path),
+            row(13, 16, doc, path),
+        ]
+    );
+}

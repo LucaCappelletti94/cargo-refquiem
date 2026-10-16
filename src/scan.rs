@@ -538,7 +538,7 @@ fn find_mentions(
             });
         }
         let spelled: Vec<Spelled> = if is_rust {
-            text::rust(source)
+            text::rust(source, filter.scan_commented_code)
         } else {
             text::markdown_file(source)
         };

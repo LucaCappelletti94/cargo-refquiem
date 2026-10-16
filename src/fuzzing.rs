@@ -8,7 +8,7 @@
 #[must_use]
 pub fn mentions(source: &str, rust: bool) -> usize {
     let spelled = if rust {
-        crate::text::rust(source)
+        crate::text::rust(source, false)
     } else {
         crate::text::markdown_file(source)
     };

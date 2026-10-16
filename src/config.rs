@@ -28,6 +28,9 @@ pub(crate) struct Config {
     /// Whether generated files are scanned for mentions anyway.
     #[serde(default)]
     pub(crate) scan_generated: bool,
+    /// Whether comments holding nothing but Rust code are scanned for mentions anyway.
+    #[serde(default)]
+    pub(crate) scan_commented_code: bool,
     /// The revision a scan of the full history starts at instead.
     pub(crate) since: Option<String>,
 }
@@ -54,6 +57,8 @@ pub(crate) struct Filter {
     workspace: String,
     generated_markers: Vec<String>,
     scan_generated: bool,
+    /// Whether comments holding nothing but Rust code are scanned.
+    pub(crate) scan_commented_code: bool,
     /// The only member directory scanned, from the repository root.
     package_dir: Option<String>,
 }
@@ -79,6 +84,7 @@ impl Filter {
             workspace: workspace.to_owned(),
             generated_markers: config.generated_markers.clone(),
             scan_generated: config.scan_generated,
+            scan_commented_code: config.scan_commented_code,
             package_dir,
         })
     }

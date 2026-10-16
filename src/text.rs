@@ -97,8 +97,9 @@ const MEMBER_KINDS: [&str; 6] = [
 ];
 
 /// Every mention in a Rust source file: comments, doc comments read as Markdown, and string
-/// literals.
-pub(crate) fn rust(source: &str) -> Vec<Spelled> {
+/// literals. Plain comments holding nothing but Rust code are skipped unless
+/// `scan_commented_code`.
+pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Vec<Spelled> {
     let skip = ra_ap_rustc_lexer::strip_shebang(source).unwrap_or(0);
     let mut tokens = Vec::new();
     let mut offset = skip;
@@ -150,8 +151,29 @@ pub(crate) fn rust(source: &str) -> Vec<Spelled> {
                     &mut out,
                 );
             }
-            TokenKind::LineComment { doc_style: None } | TokenKind::BlockComment { .. } => {
-                scan(text, offset, comment(), &mut out);
+            TokenKind::LineComment { doc_style: None } => {
+                let mut lines = vec![(offset, len)];
+                while let (Some(&(gap, gap_len, TokenKind::Whitespace)), Some(&(o, l, next))) =
+                    (tokens.get(i + 1), tokens.get(i + 2))
+                    && next == (TokenKind::LineComment { doc_style: None })
+                    && source[gap..gap + gap_len].matches('\n').count() == 1
+                {
+                    lines.push((o, l));
+                    i += 2;
+                }
+                let body: Vec<&str> = lines.iter().map(|&(o, l)| &source[o + 2..o + l]).collect();
+                if scan_commented_code || !is_code(&body.join("\n")) {
+                    for (o, l) in lines {
+                        scan(&source[o..o + l], o, comment(), &mut out);
+                    }
+                }
+            }
+            TokenKind::BlockComment { .. } => {
+                let body = text.strip_prefix("/*").unwrap_or(text);
+                let body = body.strip_suffix("*/").unwrap_or(body);
+                if scan_commented_code || !is_code(body) {
+                    scan(text, offset, comment(), &mut out);
+                }
             }
             TokenKind::Literal {
                 kind:
@@ -179,6 +201,15 @@ pub(crate) fn rust(source: &str) -> Vec<Spelled> {
         i += 1;
     }
     out
+}
+
+/// Whether comment `body` is Rust code, items or the statements of a block, rather than prose.
+fn is_code(body: &str) -> bool {
+    if let Ok(file) = syn::parse_str::<syn::File>(body) {
+        return !file.items.is_empty();
+    }
+    syn::parse_str::<syn::Block>(&format!("{{{body}\n}}"))
+        .is_ok_and(|block| !block.stmts.is_empty())
 }
 
 /// Whether the tokens read so far sit inside an attribute, `#[...]` or `#![...]`.
