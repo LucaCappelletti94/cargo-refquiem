@@ -44,6 +44,29 @@ fn changelogs_are_not_scanned_by_default() {
 }
 
 #[test]
+fn release_history_files_are_not_scanned_by_default() {
+    let repo = removed_gone();
+    for file in [
+        "RELEASES.md",
+        "RELEASE-NOTES.md",
+        "RELEASE_NOTES.md",
+        "NEWS.md",
+        "HISTORY.md",
+        "CHANGES.md",
+        "docs/CHANGES.md",
+    ] {
+        repo.write(file, "Removed `fixture::Gone`.\n");
+    }
+    repo.write("README.md", "`fixture::Gone`\n");
+    repo.commit("drop Gone");
+
+    assert_eq!(
+        found(&Options::new(repo.path().to_path_buf())),
+        [("fixture::Gone".to_owned(), "README.md".to_owned())]
+    );
+}
+
+#[test]
 fn exclude_globs_add_to_the_defaults() {
     let repo = removed_gone();
     repo.write(".refquiem.toml", "exclude = [\"docs/legacy/\"]\n");
