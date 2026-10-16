@@ -975,3 +975,44 @@ fn a_dependency_glob_reexport_of_another_crate_keeps_its_items_alive() {
 
     assert_eq!(removed(&run(&repo)), Vec::<String>::new());
 }
+
+#[test]
+fn members_reached_through_a_trait_impl_or_a_supertrait_are_live() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct Ident;\nimpl Ident {\n    pub fn parse_any() {}\n}\npub trait RngCore {\n    fn next_u32(&mut self) -> u32;\n}\n",
+    );
+    repo.commit("inherent members");
+    repo.write(
+        "src/lib.rs",
+        "pub struct Ident;\npub trait IdentExt {\n    fn parse_any();\n}\nimpl IdentExt for Ident {\n    fn parse_any() {}\n}\npub trait Rng {\n    fn next_u32(&mut self) -> u32;\n}\npub trait RngCore: Rng {}\n",
+    );
+    repo.write("README.md", "`Ident::parse_any` and `RngCore::next_u32`.\n");
+    repo.commit("members through traits");
+
+    assert_eq!(removed(&run(&repo)), Vec::<String>::new());
+}
+
+#[test]
+fn a_removed_trait_impl_removes_its_members_from_the_type() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct Widget;\npub trait Render {\n    fn render(&self);\n}\nimpl Render for Widget {\n    fn render(&self) {}\n}\n",
+    );
+    repo.commit("widget renders");
+    repo.write(
+        "src/lib.rs",
+        "pub struct Widget;\npub trait Render {\n    fn render(&self);\n}\n",
+    );
+    repo.write("README.md", "`Widget::render`\n");
+    repo.commit("widget no longer renders");
+
+    let report = run(&repo);
+    assert_eq!(removed(&report), ["fixture::Widget::render"]);
+    assert_eq!(
+        kind_of(&report, "fixture::Widget::render"),
+        ItemKind::Method
+    );
+}

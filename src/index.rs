@@ -39,8 +39,8 @@ pub(crate) struct Index {
 /// `None` for a glob.
 type UseDecl = (Vec<Sym>, Vec<Sym>, Option<Sym>);
 
-/// A `Deref` impl: the module it sits in, the dereferencing type and the target as written.
-type DerefDecl = (Vec<Sym>, Vec<Sym>, Vec<Sym>);
+/// A lend: the module it sits in, the owner reaching the members and their source as written.
+type LendDecl = (Vec<Sym>, Vec<Sym>, Vec<Sym>);
 
 /// One file, or one macro expansion, read as one module of one crate, reusable across
 /// snapshots.
@@ -52,7 +52,7 @@ struct Contribution {
     uses: Vec<UseDecl>,
     calls: Vec<Call>,
     macro_rules: Vec<Rules>,
-    derefs: Vec<DerefDecl>,
+    lends: Vec<LendDecl>,
     params: Vec<Sym>,
     signatures: Vec<(PathId, Rc<str>)>,
     failure: Option<String>,
@@ -157,7 +157,7 @@ pub(crate) struct Library {
     paths: HashSet<PathId>,
     private_modules: Vec<PathId>,
     uses: Vec<UseDecl>,
-    derefs: Vec<DerefDecl>,
+    lends: Vec<LendDecl>,
     /// Identifiers its item-position macros may turn into items, in any module.
     pub(crate) macro_idents: HashSet<Sym>,
     /// Its `#[macro_export]` macros by name.
@@ -351,8 +351,8 @@ impl Indexer {
 
         let reached = self.reach(snapshot, stack, head, &outside, &mut index)?;
         let uses: Vec<&UseDecl> = reached.contributions().flat_map(|c| &c.uses).collect();
-        let derefs: Vec<&DerefDecl> = reached.contributions().flat_map(|c| &c.derefs).collect();
-        self.resolve_aliases(&mut index.paths, &uses, &derefs, &crates);
+        let lends: Vec<&LendDecl> = reached.contributions().flat_map(|c| &c.lends).collect();
+        self.resolve_aliases(&mut index.paths, &uses, &lends, &crates);
         if head {
             index.alive = macro_idents(&mut self.interner, &reached);
             index.unexpanded = reached
@@ -638,9 +638,9 @@ impl Indexer {
                 .contributions()
                 .flat_map(|c| c.uses.iter().cloned())
                 .collect(),
-            derefs: reached
+            lends: reached
                 .contributions()
-                .flat_map(|c| c.derefs.iter().cloned())
+                .flat_map(|c| c.lends.iter().cloned())
                 .collect(),
         })
     }
@@ -659,8 +659,8 @@ impl Indexer {
             .into_iter()
             .collect();
         let uses: Vec<&UseDecl> = libraries.iter().flat_map(|l| &l.uses).collect();
-        let derefs: Vec<&DerefDecl> = libraries.iter().flat_map(|l| &l.derefs).collect();
-        self.resolve_aliases(&mut paths, &uses, &derefs, &crates);
+        let lends: Vec<&LendDecl> = libraries.iter().flat_map(|l| &l.lends).collect();
+        self.resolve_aliases(&mut paths, &uses, &lends, &crates);
         let private: HashSet<PathId> = libraries
             .iter()
             .flat_map(|library| library.private_modules.iter().copied())
@@ -699,7 +699,7 @@ impl Indexer {
                 uses: Vec::new(),
                 calls: Vec::new(),
                 macro_rules: Vec::new(),
-                derefs: Vec::new(),
+                lends: Vec::new(),
                 params: Vec::new(),
                 signatures: Vec::new(),
                 failure: Some(message.clone()),
@@ -769,12 +769,12 @@ impl Indexer {
             .collect();
         let calls = self.calls(&module, items);
         let macro_rules = self.rules(&module, items);
-        let derefs = items
-            .derefs
+        let lends = items
+            .lends
             .iter()
             .map(|d| {
                 let within = self.within(&module, &d.module);
-                (within, self.syms(&d.self_ty), self.syms(&d.target))
+                (within, self.syms(&d.owner), self.syms(&d.source))
             })
             .collect();
         Contribution {
@@ -784,7 +784,7 @@ impl Indexer {
             uses,
             calls,
             macro_rules,
-            derefs,
+            lends,
             params: self.syms(&items.params),
             signatures,
             failure: None,
@@ -922,12 +922,12 @@ impl Indexer {
     }
 
     /// Adds re-export paths and, for sources inside the workspace, everything below them, then
-    /// the members a `Deref` target lends its dereferencing type.
+    /// the members a `Deref` target or a supertrait lends.
     fn resolve_aliases(
         &mut self,
         paths: &mut HashSet<PathId>,
         uses: &[&UseDecl],
-        derefs: &[&DerefDecl],
+        lends: &[&LendDecl],
         crates: &[Sym],
     ) {
         const ROUNDS: usize = 8;
@@ -959,12 +959,12 @@ impl Indexer {
                     self.copy_below(copy, &tree, paths, &mut origins, &mut fresh);
                 }
             }
-            for (module, self_ty, target) in derefs {
-                let Some(owner) = self.resolve(module, self_ty, module[0]) else {
+            for (module, owner, source) in lends {
+                let Some(owner) = self.resolve(module, owner, module[0]) else {
                     continue;
                 };
                 let target = self
-                    .resolve(module, target, module[0])
+                    .resolve(module, source, module[0])
                     .and_then(|resolved| self.interner.find_path(&resolved))
                     .filter(|id| paths.contains(id));
                 let owner_known = self

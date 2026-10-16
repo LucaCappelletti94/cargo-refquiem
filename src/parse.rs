@@ -18,7 +18,7 @@ pub(crate) const SERDE_MARKER: &str = "<serde>";
 pub(crate) struct FileItems {
     /// Named items, by path from the file's module.
     pub(crate) items: Vec<Decl>,
-    /// Inherent impl blocks.
+    /// Impl blocks, inherent and of traits.
     pub(crate) impls: Vec<Impl>,
     /// Re-exports and renaming imports.
     pub(crate) uses: Vec<Use>,
@@ -30,8 +30,9 @@ pub(crate) struct FileItems {
     pub(crate) invocations: Vec<Invocation>,
     /// `macro_rules!` definitions.
     pub(crate) macro_rules: Vec<MacroRules>,
-    /// `Deref` impls with a plain path target.
-    pub(crate) derefs: Vec<DerefImpl>,
+    /// Members one path lends another: a `Deref` target its dereferencing type, a supertrait
+    /// its subtrait.
+    pub(crate) lends: Vec<Lend>,
     /// The parameter names of every function, method and trait method, deduplicated.
     pub(crate) params: Vec<String>,
 }
@@ -53,7 +54,7 @@ impl FileItems {
         self.macro_rules
             .iter_mut()
             .for_each(|r| nest(&mut r.module));
-        self.derefs.iter_mut().for_each(|d| nest(&mut d.module));
+        self.lends.iter_mut().for_each(|l| nest(&mut l.module));
     }
 }
 
@@ -68,13 +69,13 @@ pub(crate) struct Decl {
     pub(crate) signature: Option<String>,
 }
 
-/// An inherent impl block.
+/// An impl block, inherent or of a trait.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Impl {
     pub(crate) module: Vec<String>,
     /// The self type's path segments without generic arguments.
     pub(crate) self_ty: Vec<String>,
-    /// Each item's name, kind, whether it is `pub`, and a method's signature.
+    /// Each item's name, kind, whether it is visible, and an inherent method's signature.
     pub(crate) items: Vec<(String, ItemKind, bool, Option<String>)>,
 }
 
@@ -131,13 +132,13 @@ pub(crate) struct MacroRules {
     pub(crate) exported: bool,
 }
 
-/// An `impl Deref for SelfTy { type Target = Target; }`, whose target's members the self type
-/// reaches by auto-deref.
+/// A path whose members another path reaches, by auto-deref through an
+/// `impl Deref for Owner { type Target = Source; }` or as the supertrait in `trait Owner: Source`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct DerefImpl {
+pub(crate) struct Lend {
     pub(crate) module: Vec<String>,
-    pub(crate) self_ty: Vec<String>,
-    pub(crate) target: Vec<String>,
+    pub(crate) owner: Vec<String>,
+    pub(crate) source: Vec<String>,
 }
 
 /// The declarations of `source`, or the parser's message when it is not valid Rust.
@@ -478,6 +479,15 @@ impl Collector<'_> {
             members.push((name, kind, true, Vec::new()));
         }
         let trait_name = item.ident.to_string();
+        for bound in &item.supertraits {
+            if let syn::TypeParamBound::Trait(bound) = bound {
+                self.out.lends.push(Lend {
+                    module: self.module.clone(),
+                    owner: vec![strip_raw(&trait_name).to_owned()],
+                    source: path_segments(&bound.path),
+                });
+            }
+        }
         self.owner(&trait_name, ItemKind::Trait, &item.vis, members);
         for (name, signature) in signatures {
             self.sign(&[&trait_name, &name], ItemKind::Method, signature);
@@ -495,6 +505,7 @@ impl Collector<'_> {
         let Some(segments) = type_path(&item.self_ty) else {
             return;
         };
+        let of_trait = item.trait_.is_some();
         if let Some((trait_path, _)) = &item.trait_ {
             let is_deref = trait_path
                 .segments
@@ -505,14 +516,14 @@ impl Collector<'_> {
                 _ => None,
             });
             if is_deref && let Some(target) = target {
-                self.out.derefs.push(DerefImpl {
+                self.out.lends.push(Lend {
                     module: self.module.clone(),
-                    self_ty: segments,
-                    target,
+                    owner: segments.clone(),
+                    source: target,
                 });
             }
-            return;
         }
+        // A trait's items are as visible as the trait, and their signatures are the trait's.
         let items = item
             .items
             .iter()
@@ -520,15 +531,15 @@ impl Collector<'_> {
                 ImplItem::Const(c) => Some((&c.ident, ItemKind::AssociatedConst, &c.vis, None)),
                 ImplItem::Fn(f) => {
                     let end = f.block.brace_token.span.open().byte_range().start;
-                    let signature = self.signature(&f.sig, end);
-                    Some((&f.sig.ident, ItemKind::Method, &f.vis, Some(signature)))
+                    let signature = (!of_trait).then(|| self.signature(&f.sig, end));
+                    Some((&f.sig.ident, ItemKind::Method, &f.vis, signature))
                 }
                 ImplItem::Type(t) => Some((&t.ident, ItemKind::AssociatedType, &t.vis, None)),
                 _ => None,
             })
             .map(|(ident, kind, vis, signature)| {
                 let name = strip_raw(&ident.to_string()).to_owned();
-                (name, kind, is_pub(vis), signature)
+                (name, kind, of_trait || is_pub(vis), signature)
             })
             .collect();
         self.out.impls.push(Impl {
@@ -691,13 +702,15 @@ fn type_path(ty: &Type) -> Option<Vec<String>> {
     if path.qself.is_some() {
         return None;
     }
-    Some(
-        path.path
-            .segments
-            .iter()
-            .map(|s| strip_raw(&s.ident.to_string()).to_owned())
-            .collect(),
-    )
+    Some(path_segments(&path.path))
+}
+
+/// The segments of `path` without generic arguments.
+fn path_segments(path: &syn::Path) -> Vec<String> {
+    path.segments
+        .iter()
+        .map(|s| strip_raw(&s.ident.to_string()).to_owned())
+        .collect()
 }
 
 fn include_path(mac: &syn::Macro) -> Option<String> {

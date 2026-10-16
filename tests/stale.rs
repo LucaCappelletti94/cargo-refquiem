@@ -414,21 +414,6 @@ fn a_longer_identifier_sharing_a_prefix_is_not_a_mention() {
 }
 
 #[test]
-fn methods_of_trait_impls_are_not_indexed() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
-        "pub struct Shown;\nimpl core::fmt::Display for Shown {\n    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {\n        f.write_str(\"x\")\n    }\n}\n",
-    );
-    repo.commit("display");
-    repo.write("src/lib.rs", "pub struct Shown;\n");
-    repo.write("README.md", "`Shown::fmt`.\n");
-    repo.commit("drop display");
-
-    assert_eq!(removed(&repo.run()), [] as [&str; 0]);
-}
-
-#[test]
 fn an_item_removed_from_one_cfg_branch_only_stays_alive() {
     let repo = Repo::new();
     repo.write(
