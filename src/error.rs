@@ -41,15 +41,6 @@ pub enum Error {
         #[source]
         source: gix::Error,
     },
-    /// A tree could not be searched by path.
-    #[error("looking up {path} in a tree")]
-    TreeLookup {
-        /// The path looked up.
-        path: String,
-        /// The cause.
-        #[source]
-        source: gix::Error,
-    },
     /// A tree could not be listed or traversed.
     #[error("listing tree {id}")]
     TreeList {

@@ -1016,3 +1016,59 @@ fn a_removed_trait_impl_removes_its_members_from_the_type() {
         ItemKind::Method
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_module_behind_a_symlinked_directory_is_indexed_in_history() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "#[path = \"core/inner.rs\"]\npub mod inner;\n",
+    );
+    repo.write("shared/inner.rs", "pub fn kept() {}\npub fn gone() {}\n");
+    std::os::unix::fs::symlink("../shared", repo.path().join("src/core")).unwrap();
+    repo.commit("inner behind a symlink");
+    repo.write("shared/inner.rs", "pub fn kept() {}\n");
+    repo.write("README.md", "`fixture::inner::gone`\n");
+    let removing = repo.commit("drop gone");
+
+    let report = run(&repo);
+    assert_eq!(removed(&report), ["fixture::inner::gone"]);
+    assert_eq!(
+        report.groups[0].removed_in,
+        Some(refquiem::RemovedIn::Commit(removing))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinks_resolve_inside_the_snapshot_up_to_forty_hops() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "#[path = \"dot/inner.rs\"]\npub mod dotted;\n#[path = \"../chain1/inner.rs\"]\npub mod chained;\n#[path = \"../abs/inner.rs\"]\npub mod absolute;\n#[path = \"../cycle/inner.rs\"]\npub mod looped;\n",
+    );
+    repo.write("shared/inner.rs", "pub fn kept() {}\npub fn gone() {}\n");
+    let link = |target: &str, name: &str| {
+        std::os::unix::fs::symlink(target, repo.path().join(name)).unwrap();
+    };
+    link("./../shared", "src/dot");
+    for n in 1..40 {
+        link(&format!("chain{}", n + 1), &format!("chain{n}"));
+    }
+    link("shared", "chain40");
+    link("/shared", "abs");
+    link("cycle", "cycle");
+    repo.commit("modules behind symlinks");
+    repo.write("shared/inner.rs", "pub fn kept() {}\n");
+    repo.write(
+        "README.md",
+        "`fixture::dotted::gone`, `fixture::chained::gone`, `fixture::absolute::gone` and `fixture::looped::gone`.\n",
+    );
+    repo.commit("drop gone");
+
+    assert_eq!(
+        removed(&run(&repo)),
+        ["fixture::chained::gone", "fixture::dotted::gone"]
+    );
+}
