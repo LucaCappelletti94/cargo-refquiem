@@ -1072,3 +1072,44 @@ fn symlinks_resolve_inside_the_snapshot_up_to_forty_hops() {
         ["fixture::chained::gone", "fixture::dotted::gone"]
     );
 }
+
+#[test]
+fn privately_imported_names_resolve_impls_lends_and_aliases() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct Conn;\nimpl Conn {\n    pub fn set_limits() {}\n}\npub struct Outer;\nimpl Outer {\n    pub fn shared() {}\n}\npub struct Inner;\npub struct Alias;\nimpl Alias {\n    pub fn establish() {}\n}\n",
+    );
+    repo.commit("members at the root");
+    repo.write(
+        "src/lib.rs",
+        "pub struct Conn;\npub struct Outer;\npub struct Inner;\nimpl Inner {\n    pub fn shared() {}\n}\nmod limits;\npub use limits::Alias;\nmod like {\n    pub struct Like;\n    impl Like {\n        pub fn establish() {}\n    }\n}\n",
+    );
+    repo.write(
+        "src/limits.rs",
+        "use super::Conn;\nuse super::{Inner, Outer};\nuse crate::like::Like;\npub type Alias = Like;\nimpl Conn {\n    pub fn set_limits() {}\n}\nimpl core::ops::Deref for Outer {\n    type Target = Inner;\n    fn deref(&self) -> &Inner {\n        &Inner\n    }\n}\n",
+    );
+    repo.write(
+        "README.md",
+        "`fixture::Conn::set_limits`, `fixture::Outer::shared` and `fixture::Alias::establish`.\n",
+    );
+    repo.commit("members behind private imports");
+
+    assert_eq!(removed(&run(&repo)), Vec::<String>::new());
+}
+
+#[test]
+fn a_declared_module_outranks_an_imported_function_of_its_name() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "mod rng;\npub use rng::Ext;\n");
+    repo.write("src/rng.rs", "pub trait Ext {\n    fn range();\n}\n");
+    repo.write("README.md", "`fixture::Ext::range`\n");
+    repo.commit("a trait in a private module");
+    repo.write(
+        "src/lib.rs",
+        "pub mod rngs {\n    pub fn rng() {}\n}\npub use crate::rngs::rng;\nmod rng;\npub use rng::Ext;\n",
+    );
+    repo.commit("a function of the module's name");
+
+    assert_eq!(removed(&run(&repo)), Vec::<String>::new());
+}

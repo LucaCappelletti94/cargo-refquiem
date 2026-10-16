@@ -22,6 +22,8 @@ pub(crate) struct FileItems {
     pub(crate) impls: Vec<Impl>,
     /// Re-exports and renaming imports.
     pub(crate) uses: Vec<Use>,
+    /// Plain private imports, which only resolve the names written in their module.
+    pub(crate) imports: Vec<Use>,
     /// `mod name;` declarations whose body lives in another file.
     pub(crate) mods: Vec<ModDecl>,
     /// Item-position `include!("file")` invocations.
@@ -46,6 +48,7 @@ impl FileItems {
         self.items.iter_mut().for_each(|d| nest(&mut d.path));
         self.impls.iter_mut().for_each(|i| nest(&mut i.module));
         self.uses.iter_mut().for_each(|u| nest(&mut u.module));
+        self.imports.iter_mut().for_each(|u| nest(&mut u.module));
         self.mods.iter_mut().for_each(|m| nest(&mut m.module));
         self.includes.iter_mut().for_each(|i| nest(&mut i.module));
         self.invocations
@@ -571,7 +574,7 @@ impl Collector<'_> {
                 self.uses(&path.tree, prefix, exported, public);
                 prefix.pop();
             }
-            UseTree::Name(name) if exported => {
+            UseTree::Name(name) => {
                 let ident = strip_raw(&name.ident.to_string()).to_owned();
                 let (source, name) = if ident == "self" {
                     (prefix.clone(), prefix.last().cloned())
@@ -581,12 +584,17 @@ impl Collector<'_> {
                     (source, Some(ident))
                 };
                 if name.is_some() {
-                    self.out.uses.push(Use {
+                    let decl = Use {
                         module: self.module.clone(),
                         source,
                         name,
                         public,
-                    });
+                    };
+                    if exported {
+                        self.out.uses.push(decl);
+                    } else {
+                        self.out.imports.push(decl);
+                    }
                 }
             }
             UseTree::Rename(rename) => {
@@ -617,7 +625,7 @@ impl Collector<'_> {
                     self.uses(tree, prefix, exported, public);
                 }
             }
-            UseTree::Name(_) | UseTree::Glob(_) => {}
+            UseTree::Glob(_) => {}
         }
     }
 

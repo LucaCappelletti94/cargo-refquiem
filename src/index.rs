@@ -44,6 +44,9 @@ type UseDecl = (Vec<Sym>, Vec<Sym>, Option<Sym>);
 /// A lend: the module it sits in, the owner reaching the members and their source as written.
 type LendDecl = (Vec<Sym>, Vec<Sym>, Vec<Sym>);
 
+/// A named `use` of any visibility: the module it sits in, its source as written and the name.
+type Import = (Vec<Sym>, Vec<Sym>, Sym);
+
 /// Re-exports: each path a mention may start with, mapped to the paths it stands for as
 /// written.
 pub(crate) type Reexports = HashMap<Vec<Sym>, Vec<Vec<Sym>>>;
@@ -739,9 +742,30 @@ impl Indexer {
                 private_modules.push(id);
             }
         }
+        let declared: HashSet<Vec<Sym>> = items
+            .items
+            .iter()
+            .map(|decl| self.within(&module, &decl.path))
+            .collect();
+        let imports: Vec<Import> = items
+            .uses
+            .iter()
+            .chain(&items.imports)
+            .filter_map(|u| {
+                let name = self.interner.sym(u.name.as_deref()?);
+                let mut within = self.within(&module, &u.module);
+                within.push(name);
+                // A declared name is what paths reach, so an import of it names another namespace.
+                if declared.contains(&within) {
+                    return None;
+                }
+                within.pop();
+                Some((within, self.syms(&u.source), name))
+            })
+            .collect();
         for block in &items.impls {
             let within = self.within(&module, &block.module);
-            let self_ty: Vec<Sym> = self.syms(&block.self_ty);
+            let self_ty = imported(&imports, &within, self.syms(&block.self_ty));
             let Some(mut base) = self.resolve(&within, &self_ty, crate_sym) else {
                 continue;
             };
@@ -770,7 +794,9 @@ impl Indexer {
             .filter(|u| counts(u.public))
             .map(|u| {
                 let name = u.name.as_deref().map(|n| self.interner.sym(n));
-                (self.within(&module, &u.module), self.syms(&u.source), name)
+                let within = self.within(&module, &u.module);
+                let source = imported(&imports, &within, self.syms(&u.source));
+                (within, source, name)
             })
             .collect();
         let calls = self.calls(&module, items);
@@ -780,7 +806,9 @@ impl Indexer {
             .iter()
             .map(|d| {
                 let within = self.within(&module, &d.module);
-                (within, self.syms(&d.owner), self.syms(&d.source))
+                let owner = imported(&imports, &within, self.syms(&d.owner));
+                let source = imported(&imports, &within, self.syms(&d.source));
+                (within, owner, source)
             })
             .collect();
         Contribution {
@@ -1136,6 +1164,20 @@ struct Tree {
 /// The declared path `id` stands for, given the alias and copy `origins`.
 fn origin(origins: &HashMap<PathId, PathId>, id: PathId) -> PathId {
     origins.get(&id).copied().unwrap_or(id)
+}
+
+/// `path` as written in `module`, its first segment replaced while it names one of `imports`
+/// there by that import's source.
+fn imported(imports: &[Import], module: &[Sym], mut path: Vec<Sym>) -> Vec<Sym> {
+    for _ in 0..imports.len() {
+        let Some((_, source, _)) = imports.iter().find(|(within, source, name)| {
+            within == module && path.first() == Some(name) && source.first() != Some(name)
+        }) else {
+            break;
+        };
+        path.splice(..1, source.iter().copied());
+    }
+    path
 }
 
 /// The directory owned by `file` for `mod` declarations nested in the inline modules `inline`.
