@@ -1,6 +1,8 @@
 //! Indexing of every declaration kind, of re-exports, serde spellings and manifests.
 
 mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
 
 use common::Repo;
 use refquiem::{ItemKind, Range};
@@ -22,7 +24,8 @@ fn kind_of(report: &refquiem::Report, path: &str) -> ItemKind {
     report.groups.iter().find(|g| g.path == path).unwrap().kind
 }
 
-/// Writes `Cargo.lock` without touching the network, as every dependency is a path dependency.
+/// Writes `Cargo.lock` without touching the network, as every dependency is a path dependency
+/// or vendored.
 fn lock(repo: &Repo) {
     let status = std::process::Command::new("cargo")
         .args(["generate-lockfile", "--offline", "--quiet"])
@@ -32,12 +35,7 @@ fn lock(repo: &Repo) {
     assert!(status.success());
 }
 
-const DEPENDENCY: &str = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n";
-
 const BARE: &str = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
-
-const HELPER_MANIFEST: &str =
-    "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
 
 #[test]
 fn items_of_raw_named_modules_are_found_by_their_plain_path() {
@@ -788,17 +786,21 @@ fn rename_and_alias_add_spellings_and_skip_suppresses_them() {
 #[test]
 fn a_private_member_of_a_removed_dependency_is_not_reported() {
     let repo = Repo::new();
-    repo.write("Cargo.toml", DEPENDENCY);
-    repo.write("vendor/helper/Cargo.toml", HELPER_MANIFEST);
-    repo.write(
-        "vendor/helper/src/lib.rs",
+    repo.vendor(
+        "helper",
+        "0.1.0",
         "pub struct Gadget {\n    #[serde(rename = \"secret_field\")]\n    secret: u8,\n}\n",
+    );
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"0.1\"\n",
     );
     repo.write("src/lib.rs", "pub struct Local;\n");
     lock(&repo);
     repo.commit("dependency with a private field");
     repo.write("Cargo.toml", BARE);
     repo.write("src/lib.rs", "");
+    lock(&repo);
     repo.write(
         "README.md",
         "A `helper::Gadget` with a `helper::Gadget::secret` and `secret_field`.\n",
@@ -814,17 +816,21 @@ fn a_private_member_of_a_removed_dependency_is_not_reported() {
 #[test]
 fn public_modules_of_a_removed_dependency_keep_their_items_reportable() {
     let repo = Repo::new();
-    repo.write("Cargo.toml", DEPENDENCY);
-    repo.write("vendor/helper/Cargo.toml", HELPER_MANIFEST);
-    repo.write(
-        "vendor/helper/src/lib.rs",
+    repo.vendor(
+        "helper",
+        "0.1.0",
         "pub mod shelf {\n    pub struct Inside;\n}\n",
+    );
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"0.1\"\n",
     );
     repo.write("src/lib.rs", "pub struct Local;\n");
     lock(&repo);
     repo.commit("dependency with a public module");
     repo.write("Cargo.toml", BARE);
     repo.write("src/lib.rs", "");
+    lock(&repo);
     repo.write("README.md", "`helper::shelf::Inside` and `Local`.\n");
     repo.commit("drop the dependency");
 
@@ -950,17 +956,16 @@ fn a_glob_reexport_copies_top_level_items_to_the_crate_root() {
 #[test]
 fn a_dependency_glob_reexport_of_another_crate_keeps_its_items_alive() {
     let repo = Repo::new();
-    repo.write("Cargo.toml", DEPENDENCY);
+    repo.vendor("inner", "0.1.0", "pub struct Gadget;\n");
+    repo.vendor("helper", "0.1.0", "pub use inner::*;\n");
     repo.write(
-        "vendor/helper/Cargo.toml",
-        "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\ninner = { path = \"../inner\" }\n",
+        "vendor/helper-0.1.0/Cargo.toml",
+        "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\ninner = \"0.1\"\n",
     );
-    repo.write("vendor/helper/src/lib.rs", "pub use inner::*;\n");
     repo.write(
-        "vendor/inner/Cargo.toml",
-        "[package]\nname = \"inner\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"0.1\"\n",
     );
-    repo.write("vendor/inner/src/lib.rs", "pub struct Gadget;\n");
     repo.write("src/lib.rs", "pub struct Gadget;\n");
     lock(&repo);
     repo.commit("own Gadget");

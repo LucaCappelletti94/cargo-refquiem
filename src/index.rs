@@ -7,7 +7,7 @@ use std::rc::Rc;
 use gix::ObjectId;
 
 use crate::cache::FileCache;
-use crate::git::Snapshot;
+use crate::git::{ManifestDirs, Snapshot};
 use crate::intern::{Interner, PathId, Sym};
 use crate::manifest::{self, Member, TargetKind, join};
 use crate::parse::{self, FileItems};
@@ -216,6 +216,7 @@ pub(crate) struct Indexer {
     pub(crate) members: BTreeMap<String, BTreeSet<String>>,
     /// The crate names of every workspace target in any indexed snapshot.
     pub(crate) crates: HashSet<Sym>,
+    manifest_dirs: ManifestDirs,
 }
 
 impl Indexer {
@@ -230,6 +231,7 @@ impl Indexer {
             head_unexpanded: HashSet::new(),
             members: BTreeMap::new(),
             crates: HashSet::new(),
+            manifest_dirs: ManifestDirs::new(),
         }
     }
 
@@ -285,10 +287,11 @@ impl Indexer {
         self.cache.save();
     }
 
-    /// The index of `snapshot` for the workspace in `workspace`.
+    /// The index of `snapshot` for the workspace in `workspace` and every other package in the
+    /// tree.
     ///
-    /// At `head`, an unreadable manifest or Rust file is an error. Elsewhere it leaves the index
-    /// incomplete.
+    /// At `head`, an unreadable manifest or Rust file of the workspace is an error. Elsewhere it
+    /// leaves the index incomplete. Packages outside the workspace that cannot be read are skipped.
     pub(crate) fn index(
         &mut self,
         snapshot: &dyn Snapshot,
@@ -307,9 +310,14 @@ impl Indexer {
             }
             Err(error) => return Err(error),
         };
+        let dirs = snapshot.manifest_dirs(&mut self.manifest_dirs)?;
+        let outside_members = manifest::packages(snapshot, &dirs, &members);
+        let mut workspace_crates = HashSet::new();
+        let mut outside = HashSet::new();
         let mut crates = Vec::new();
         let mut stack = Vec::new();
-        for member in members {
+        let workspace_members = members.len();
+        for (n, member) in members.into_iter().chain(outside_members).enumerate() {
             self.entries(&member, &mut index);
             self.members
                 .entry(member.dir)
@@ -317,6 +325,11 @@ impl Indexer {
                 .insert(member.package);
             for target in member.targets {
                 let crate_sym = self.interner.sym(&target.crate_name);
+                if n < workspace_members {
+                    workspace_crates.insert(crate_sym);
+                } else {
+                    outside.insert(crate_sym);
+                }
                 crates.push(crate_sym);
                 self.crates.insert(crate_sym);
                 if target.kind == TargetKind::Lib {
@@ -333,8 +346,10 @@ impl Indexer {
                 }));
             }
         }
+        // A crate name a workspace member also has stays strict at head.
+        outside.retain(|krate| !workspace_crates.contains(krate));
 
-        let reached = self.reach(snapshot, stack, head, &mut index)?;
+        let reached = self.reach(snapshot, stack, head, &outside, &mut index)?;
         let uses: Vec<&UseDecl> = reached.contributions().flat_map(|c| &c.uses).collect();
         let derefs: Vec<&DerefDecl> = reached.contributions().flat_map(|c| &c.derefs).collect();
         self.resolve_aliases(&mut index.paths, &uses, &derefs, &crates);
@@ -357,11 +372,13 @@ impl Indexer {
     /// macro invocations expand to, returning their contributions.
     ///
     /// At `head`, an unreadable Rust file is an error. Elsewhere it leaves the index incomplete.
+    /// An unreadable file of an `outside` crate is skipped.
     fn reach(
         &mut self,
         snapshot: &dyn Snapshot,
         mut stack: Vec<Rc<Visit>>,
         head: bool,
+        outside: &HashSet<Sym>,
         index: &mut Index,
     ) -> Result<Reached, Error> {
         let mut seen = HashSet::new();
@@ -376,6 +393,9 @@ impl Indexer {
                 };
                 let contribution = self.contribution(snapshot, &visit, id)?;
                 if let Some(message) = &contribution.failure {
+                    if outside.contains(&self.interner.segments(visit.module)[0]) {
+                        continue;
+                    }
                     if head {
                         return Err(Error::Parse {
                             path: visit.file.clone(),
@@ -591,7 +611,7 @@ impl Indexer {
             module,
             public_only: true,
         });
-        let reached = self.reach(snapshot, vec![visit], false, &mut index)?;
+        let reached = self.reach(snapshot, vec![visit], false, &HashSet::new(), &mut index)?;
         Ok(Library {
             macro_idents: macro_idents(&mut self.interner, &reached)
                 .into_values()

@@ -101,6 +101,29 @@ pub(crate) fn workspace(snapshot: &dyn Snapshot, dir: &str) -> Result<Vec<Member
     Ok(members)
 }
 
+/// The packages in the manifest directories `dirs` that none of the workspace `members` is,
+/// each read alone, skipping crates `cargo vendor` copied, which carry `.cargo-checksum.json`,
+/// and any whose manifest or targets cannot be read.
+pub(crate) fn packages(
+    snapshot: &dyn Snapshot,
+    dirs: &[String],
+    members: &[Member],
+) -> Vec<Member> {
+    dirs.iter()
+        .filter(|dir| !members.iter().any(|member| member.dir == **dir))
+        .filter(|dir| {
+            !matches!(
+                snapshot.blob(&join(dir, ".cargo-checksum.json")),
+                Ok(Some(_))
+            )
+        })
+        .filter_map(|dir| {
+            let manifest = read_manifest(snapshot, dir).ok()??;
+            read_member(snapshot, dir, &manifest, (dir, None)).ok()?
+        })
+        .collect()
+}
+
 /// The manifest in `dir`, `None` when there is none.
 pub(crate) fn read_manifest(snapshot: &dyn Snapshot, dir: &str) -> Result<Option<Table>, Error> {
     let path = join(dir, "Cargo.toml");

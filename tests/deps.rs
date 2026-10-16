@@ -258,6 +258,7 @@ fn a_bare_name_names_removed_entries_only_outside_data_examples() {
         "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
     lock(&repo);
+    std::fs::remove_dir_all(repo.path().join("vendor/helper")).unwrap();
     repo.write(
         "README.md",
         "The `helper` crate.\n\n```json\n{\"helper\": 1}\n```\n",
@@ -728,6 +729,7 @@ fn a_removed_dependency_named_alone_is_reported_as_the_dependency() {
         "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
     lock(&repo);
+    std::fs::remove_dir_all(repo.path().join("vendor/helper")).unwrap();
     repo.write("README.md", "`helper`\n");
     repo.commit("drop helper");
 

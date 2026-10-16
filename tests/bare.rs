@@ -246,17 +246,14 @@ fn serialized_spellings_are_checked_in_prose_and_data_examples() {
 #[test]
 fn public_dependency_items_keep_names_alive_and_private_ones_do_not() {
     let repo = Repo::new();
+    repo.vendor(
+        "helper",
+        "0.1.0",
+        "pub struct Gadget;\nstruct Hidden;\nmod private {\n    pub struct Inner;\n    pub struct Exported;\n}\npub use private::Exported;\n",
+    );
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
-    );
-    repo.write(
-        "vendor/helper/Cargo.toml",
-        "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    repo.write(
-        "vendor/helper/src/lib.rs",
-        "pub struct Gadget;\nstruct Hidden;\nmod private {\n    pub struct Inner;\n    pub struct Exported;\n}\npub use private::Exported;\n",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"0.1\"\n",
     );
     repo.write(
         "src/lib.rs",
@@ -281,15 +278,11 @@ fn public_dependency_items_keep_names_alive_and_private_ones_do_not() {
 #[test]
 fn items_of_a_removed_dependency_become_stale() {
     let repo = Repo::new();
+    repo.vendor("helper", "0.1.0", "pub struct Thing;\n");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"0.1\"\n",
     );
-    repo.write(
-        "vendor/helper/Cargo.toml",
-        "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    repo.write("vendor/helper/src/lib.rs", "pub struct Thing;\n");
     repo.write("src/lib.rs", "");
     lock(&repo);
     repo.commit("with helper");
