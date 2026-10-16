@@ -55,6 +55,8 @@ pub(crate) struct Removal {
 pub(crate) struct Layer {
     /// Public paths, rooted at the names code spells the dependencies by.
     pub(crate) paths: HashSet<PathId>,
+    /// The names code spells the dependencies by.
+    pub(crate) roots: HashSet<Sym>,
     /// Identifiers their item-position macros may turn into items.
     pub(crate) macro_idents: HashSet<Sym>,
     /// Their `#[macro_export]` macros by name.
@@ -343,6 +345,7 @@ fn libraries(
             .flat_map(|library| library.macro_rules.iter().cloned())
             .collect(),
         paths: indexer.public_paths(&found, &root_syms),
+        roots: root_syms.into_iter().collect(),
     })
 }
 

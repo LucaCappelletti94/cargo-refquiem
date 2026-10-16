@@ -801,7 +801,7 @@ fn a_private_member_of_a_removed_dependency_is_not_reported() {
     repo.write("src/lib.rs", "");
     repo.write(
         "README.md",
-        "A `Gadget` with a `secret` and `secret_field`.\n",
+        "A `helper::Gadget` with a `helper::Gadget::secret` and `secret_field`.\n",
     );
     repo.commit("drop the dependency");
 

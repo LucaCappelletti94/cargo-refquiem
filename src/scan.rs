@@ -99,6 +99,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let dependency_removals = deps::removed(&mut indexer, &repo, &removals, alive, &scratch)?;
     let dependency_items = dependency_removals.items;
     let interner = &indexer.interner;
+    let rooted = rooted(interner, &dependency_items, &dependencies, &indexer.crates);
     removed.extend(dependency_items.keys().copied());
     removed.sort_by_cached_key(|&id| display(interner, id));
 
@@ -108,6 +109,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         &head_index,
         &dependencies,
         &removed,
+        &rooted,
         &entries,
         &indexer.crates,
     );
@@ -601,6 +603,24 @@ fn has_extension(file: &str, extensions: &[&str]) -> bool {
         .is_some_and(|(_, ext)| extensions.iter().any(|e| ext.eq_ignore_ascii_case(e)))
 }
 
+/// The removed dependency `items` whose crate is neither among head's `dependencies` nor a
+/// workspace crate of the `crates`, which match only as whole paths from that crate.
+fn rooted(
+    interner: &Interner,
+    items: &HashMap<PathId, PathId>,
+    dependencies: &deps::Layer,
+    crates: &HashSet<Sym>,
+) -> HashSet<PathId> {
+    items
+        .keys()
+        .copied()
+        .filter(|&id| {
+            let root = interner.segments(id)[0];
+            !dependencies.roots.contains(&root) && !crates.contains(&root)
+        })
+        .collect()
+}
+
 /// Whether an item-position macro of head may still generate `id`.
 fn kept_by_macro(interner: &Interner, head: &Index, id: PathId) -> bool {
     let segments = interner.segments(id);
@@ -646,11 +666,14 @@ struct Matcher<'a> {
 }
 
 impl<'a> Matcher<'a> {
+    /// Builds the matcher, where the `rooted` among the `removed` paths match only as whole
+    /// paths from their crate root.
     fn new(
         interner: &'a Interner,
         head: &'a Index,
         dependencies: &deps::Layer,
         removed: &[PathId],
+        rooted: &HashSet<PathId>,
         entries: &'a Entries<'a>,
         crates: &'a HashSet<Sym>,
     ) -> Self {
@@ -668,6 +691,10 @@ impl<'a> Matcher<'a> {
         let mut removed_spellings = HashMap::new();
         for &id in removed {
             let segments = interner.segments(id);
+            if rooted.contains(&id) {
+                removed_suffixes.entry(Box::from(segments)).or_insert(id);
+                continue;
+            }
             for suffix in suffixes(segments) {
                 removed_suffixes.entry(Box::from(suffix)).or_insert(id);
             }

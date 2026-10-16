@@ -73,7 +73,7 @@ fn a_removed_dependency_is_read_from_the_registry_its_manifest_named() {
         "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
     lock(&repo);
-    repo.write("README.md", "The `LockedItem` item.\n");
+    repo.write("README.md", "The `locked_hdep::LockedItem` item.\n");
     repo.commit("drop locked-hdep");
 
     let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
@@ -86,7 +86,7 @@ fn a_removed_dependency_is_read_from_the_registry_its_manifest_named() {
         rows,
         [(
             "locked_hdep::LockedItem".to_owned(),
-            "LockedItem".to_owned()
+            "locked_hdep::LockedItem".to_owned()
         )]
     );
     assert_eq!(report.skipped, []);
@@ -112,13 +112,16 @@ fn a_removed_dependency_is_pinned_to_the_version_its_member_locked() {
         "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
     lock(&repo);
-    repo.write("README.md", "`OldThing` and `NewThing`.\n");
+    repo.write("README.md", "`helper::OldThing` and `helper::NewThing`.\n");
     repo.commit("drop helper");
 
     let rows: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
     assert_eq!(
         rows,
-        [("helper::OldThing".to_owned(), "OldThing".to_owned())]
+        [
+            ("helper".to_owned(), "helper::NewThing".to_owned()),
+            ("helper::OldThing".to_owned(), "helper::OldThing".to_owned())
+        ]
     );
 }
 
@@ -151,6 +154,53 @@ fn a_removed_dependency_is_read_at_the_version_locked_by_its_member_not_siblings
     assert_eq!(
         rows,
         [("helper::NewThing".to_owned(), "NewThing".to_owned())]
+    );
+}
+
+#[test]
+fn items_of_a_dependency_head_no_longer_has_match_only_from_its_crate_root() {
+    let repo = Repo::new();
+    repo.vendor(
+        "gone_dep",
+        "1.0.0",
+        "pub struct Widget;\nimpl Widget {\n    pub fn build() {}\n}\n",
+    );
+    repo.vendor("helper", "0.1.0", "pub struct OldThing;\n");
+    repo.vendor("helper", "0.2.0", "pub struct NewThing;\n");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"app\"]\n\n[dependencies]\nhelper = \"0.2\"\n",
+    );
+    repo.write(
+        "app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\ngone_dep = \"1\"\nhelper = \"0.1\"\n",
+    );
+    repo.write("src/lib.rs", "");
+    repo.write("app/src/lib.rs", "");
+    lock(&repo);
+    repo.commit("app with gone_dep and the old helper");
+    repo.write(
+        "app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    lock(&repo);
+    repo.write(
+        "README.md",
+        "`Widget`, `Widget::build`, `gone_dep::Widget::build`, `OldThing` and `helper::OldThing`.\n",
+    );
+    repo.commit("app drops both");
+
+    let rows: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
+    assert_eq!(
+        rows,
+        [
+            (
+                "gone_dep::Widget::build".to_owned(),
+                "gone_dep::Widget::build".to_owned()
+            ),
+            ("helper::OldThing".to_owned(), "OldThing".to_owned()),
+            ("helper::OldThing".to_owned(), "helper::OldThing".to_owned())
+        ]
     );
 }
 

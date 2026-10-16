@@ -305,10 +305,7 @@ fn items_of_a_removed_dependency_become_stale() {
         found(&repo).into_iter().map(|m| (m.0, m.3, m.5)).collect();
     assert_eq!(
         rows,
-        [
-            ("helper::Thing".to_owned(), 2, "Thing".to_owned()),
-            ("helper::Thing".to_owned(), 11, "helper::Thing".to_owned()),
-        ]
+        [("helper::Thing".to_owned(), 11, "helper::Thing".to_owned())]
     );
     let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
     let thing = report
@@ -340,11 +337,17 @@ fn a_removed_registry_dependency_is_read_at_its_locked_version() {
         "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
     lock(&repo);
-    repo.write("README.md", "`Locked` and `Newer`.\n");
+    repo.write("README.md", "`helper::Locked` and `helper::Newer`.\n");
     repo.commit("drop helper");
 
     let rows: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
-    assert_eq!(rows, [("helper::Locked".to_owned(), "Locked".to_owned())]);
+    assert_eq!(
+        rows,
+        [
+            ("helper::Locked".to_owned(), "helper::Locked".to_owned()),
+            ("helper".to_owned(), "helper::Newer".to_owned())
+        ]
+    );
 }
 
 #[test]
