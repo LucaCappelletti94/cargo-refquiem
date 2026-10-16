@@ -357,7 +357,7 @@ fn string_literals_inside_hash_attributes_are_macro_arguments() {
     repo.commit("start");
     repo.write(
         "src/lib.rs",
-        "#![doc = \"see gone_a\"]\n\
+        "#![my_inner(\"see gone_a\")]\n\
          \n\
          #[doc = \"note\"]\n\
          static B: &str = \"see gone_b\";\n\
@@ -607,6 +607,40 @@ fn a_string_literal_holding_one_identifier_is_data() {
         [
             (4, 29, "gone_fn".to_owned()),
             (3, 25, "fixture::old::Item".to_owned())
+        ]
+    );
+}
+
+#[test]
+fn a_doc_comment_runs_across_doc_attributes_plain_comments_and_attributes() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone_fn() {}\npub fn gone_too() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "//! Crate docs.\n#![doc = \"Inner names `fixture::gone_too`.\"]\n\n/// ```\n/// let a = 1;\n#[cfg_attr(not(doctest), doc = \"     ...\")]\n/// let b = 2;\n/// ```\n///\n/// Prose names gone_fn.\npub fn one() {}\n\n/// ```text\n/// error output\n//    --> src/main.rs\n//  note: gone_too was here\n/// ```\n///\n/// Prose names gone_too here.\npub fn two() {}\n\n#[doc = \"Docs name `fixture::gone_fn` too.\"]\n#[doc = r\"Raw names `fixture::gone_too`.\"]\n#[doc = \"First line.\nSecond names `fixture::gone_fn`.\"]\npub fn three() {}\n\n/// Docs.\n#[deprecated(note = \"use fixture::gone_fn\")]\npub fn four() {}\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(usize, usize, Context, String)> = found(&repo)
+        .into_iter()
+        .map(|m| (m.2, m.3, m.4, m.5))
+        .collect();
+    let doc = |kind| context(Source::DocComment, kind);
+    let text = |source| context(source, Kind::Text);
+    let row = |line, column, context, mention: &str| (line, column, context, mention.to_owned());
+    let (gone_fn, gone_too) = ("fixture::gone_fn", "fixture::gone_too");
+    assert_eq!(
+        rows,
+        [
+            row(10, 17, doc(Kind::Text), "gone_fn"),
+            row(22, 21, doc(Kind::CodeSpan), gone_fn),
+            row(25, 15, doc(Kind::CodeSpan), gone_fn),
+            row(29, 26, text(Source::StringLiteral), gone_fn),
+            row(2, 24, doc(Kind::CodeSpan), gone_too),
+            row(16, 11, text(Source::Comment), "gone_too"),
+            row(19, 17, doc(Kind::Text), "gone_too"),
+            row(23, 22, doc(Kind::CodeSpan), gone_too),
         ]
     );
 }

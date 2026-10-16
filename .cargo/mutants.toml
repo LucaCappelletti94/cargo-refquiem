@@ -36,4 +36,7 @@ exclude_re = [
     'src/text\.rs:\d+:27: replace \+ with [-*] in requested_features',
     # `macro_rules` is followed by `!` wherever it declares a macro.
     'src/text\.rs:\d+:26: replace match guard kind\(i\) == Some\(TokenKind::Bang\) with true in declaration',
+    # Resuming at or before a doc attribute's last token re-reads its literal at the same place,
+    # and mentions are deduplicated by place.
+    'src/text\.rs:\d+:83: replace \+ with [-*] in rust',
 ]

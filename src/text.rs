@@ -6,7 +6,7 @@ use pulldown_cmark::{
     BrokenLink, CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd,
 };
 use ra_ap_rustc_lexer::{
-    FrontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
+    DocStyle, FrontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
 };
 
 use crate::{Context, Kind, Source};
@@ -114,30 +114,21 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Vec<Spelled> {
     let mut i = 0;
     while i < tokens.len() {
         let (offset, len, kind) = tokens[i];
+        if kind == TokenKind::Pound
+            && !attribute.inside()
+            && let Some((style, _, docs)) = doc_attribute(source, &tokens, i)
+            && !docs.is_empty()
+        {
+            i = doc_run(source, &tokens, i, style, scan_commented_code, &mut out) + 1;
+            continue;
+        }
         attribute.step(kind);
         let text = &source[offset..offset + len];
         match kind {
             TokenKind::LineComment {
                 doc_style: Some(style),
             } => {
-                let mut lines = vec![(offset, len)];
-                for (next, &(o, l, k)) in tokens.iter().enumerate().skip(i + 1) {
-                    match k {
-                        TokenKind::Whitespace => {}
-                        TokenKind::LineComment { doc_style: Some(s) } if s == style => {
-                            lines.push((o, l));
-                            i = next;
-                        }
-                        _ => break,
-                    }
-                }
-                let doc = Doc::from_lines(source, &lines);
-                markdown(
-                    &doc.text,
-                    |at| doc.file_offset(at),
-                    Source::DocComment,
-                    &mut out,
-                );
+                i = doc_run(source, &tokens, i, style, scan_commented_code, &mut out);
             }
             TokenKind::BlockComment {
                 doc_style: Some(_),
@@ -202,6 +193,118 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Vec<Spelled> {
         i += 1;
     }
     out
+}
+
+/// Reads the doc comment of `style` starting at token `start`, a doc comment line or a doc
+/// attribute, across whitespace, plain comments and attributes of the same style, the strings
+/// of `doc = "…"` arguments counting as doc lines, and returns its last token. Plain comments
+/// inside it are scanned as comments.
+fn doc_run(
+    source: &str,
+    tokens: &[(usize, usize, TokenKind)],
+    start: usize,
+    style: DocStyle,
+    scan_commented_code: bool,
+    out: &mut Vec<Spelled>,
+) -> usize {
+    const PREFIX: usize = 3;
+    let mut lines: Vec<(usize, &str)> = Vec::new();
+    let mut plain = Vec::new();
+    let mut pending = Vec::new();
+    let mut last = start;
+    let mut j = start;
+    while j < tokens.len() {
+        let (o, l, kind) = tokens[j];
+        match kind {
+            TokenKind::Whitespace => {}
+            TokenKind::LineComment { doc_style: Some(s) } if s == style => {
+                lines.push((o + PREFIX, &source[o + PREFIX..o + l]));
+                plain.append(&mut pending);
+                last = j;
+            }
+            TokenKind::LineComment { doc_style: None } => pending.push((o, l)),
+            TokenKind::Pound => {
+                let Some((_, end, docs)) =
+                    doc_attribute(source, tokens, j).filter(|attribute| attribute.0 == style)
+                else {
+                    break;
+                };
+                for &k in &docs {
+                    let (at, len, _) = tokens[k];
+                    let literal = &source[at..at + len];
+                    if let (Some(open), Some(close)) = (literal.find('"'), literal.rfind('"')) {
+                        let mut line_at = at + open + 1;
+                        for line in literal[open + 1..close].split('\n') {
+                            lines.push((line_at, line));
+                            line_at += line.len() + 1;
+                        }
+                    }
+                }
+                if !docs.is_empty() {
+                    plain.append(&mut pending);
+                    last = end;
+                }
+                j = end;
+            }
+            _ => break,
+        }
+        j += 1;
+    }
+    let doc = Doc::unindent(&lines);
+    markdown(&doc.text, |at| doc.file_offset(at), Source::DocComment, out);
+    for (o, l) in plain {
+        if scan_commented_code || !is_code(&source[o + 2..o + l]) {
+            scan(&source[o..o + l], o, comment(), out);
+        }
+    }
+    last
+}
+
+/// The style, closing bracket token and `doc = "…"` string literal tokens of the attribute whose
+/// `#` is token `at`, `None` when no attribute opens there.
+fn doc_attribute(
+    source: &str,
+    tokens: &[(usize, usize, TokenKind)],
+    at: usize,
+) -> Option<(DocStyle, usize, Vec<usize>)> {
+    let solid = |from: usize| (from..tokens.len()).find(|&k| tokens[k].2 != TokenKind::Whitespace);
+    let before = |k: usize| (0..k).rev().find(|&p| tokens[p].2 != TokenKind::Whitespace);
+    let mut open = solid(at + 1)?;
+    let style = if tokens[open].2 == TokenKind::Bang {
+        open = solid(open + 1)?;
+        DocStyle::Inner
+    } else {
+        DocStyle::Outer
+    };
+    if tokens[open].2 != TokenKind::OpenBracket {
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut docs = Vec::new();
+    for (k, &(_, _, kind)) in tokens.iter().enumerate().skip(open) {
+        match kind {
+            TokenKind::OpenBracket | TokenKind::OpenParen | TokenKind::OpenBrace => depth += 1,
+            TokenKind::CloseBracket | TokenKind::CloseParen | TokenKind::CloseBrace => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((style, k, docs));
+                }
+            }
+            TokenKind::Literal {
+                kind: LiteralKind::Str { .. } | LiteralKind::RawStr { .. },
+                ..
+            } => {
+                let key = before(k)
+                    .filter(|&p| tokens[p].2 == TokenKind::Eq)
+                    .and_then(before);
+                if key.is_some_and(|p| &source[tokens[p].0..tokens[p].0 + tokens[p].1] == "doc") {
+                    docs.push(k);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Whether the body of string literal token `text`, between its first and last quote, is
@@ -278,16 +381,6 @@ struct Doc {
 }
 
 impl Doc {
-    /// The Markdown of consecutive `///` or `//!` comments, each `(offset, len)` in `source`.
-    fn from_lines(source: &str, comments: &[(usize, usize)]) -> Self {
-        const PREFIX: usize = 3;
-        let lines: Vec<(usize, &str)> = comments
-            .iter()
-            .map(|&(offset, len)| (offset + PREFIX, &source[offset + PREFIX..offset + len]))
-            .collect();
-        Self::unindent(&lines)
-    }
-
     /// The Markdown of a `/** */` or `/*! */` comment at `offset`, dropping leading `*` decoration.
     fn from_block(source: &str, offset: usize, len: usize) -> Self {
         const OPEN: usize = 3;
