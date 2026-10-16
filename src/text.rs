@@ -189,8 +189,9 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Vec<Spelled> {
                     source: Source::StringLiteral,
                     kind: Kind::Text,
                 };
-                // A string inside an attribute is a macro argument, whose words are no names.
-                if attribute.inside() {
+                // A string inside an attribute is a macro argument, and a string holding one
+                // identifier is data, so neither has words that are names.
+                if attribute.inside() || one_identifier(text) {
                     spelled(text, offset, context, &mut out);
                 } else {
                     scan(text, offset, context, &mut out);
@@ -201,6 +202,16 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Vec<Spelled> {
         i += 1;
     }
     out
+}
+
+/// Whether the body of string literal token `text`, between its first and last quote, is
+/// exactly one identifier.
+fn one_identifier(text: &str) -> bool {
+    let (Some(open), Some(close)) = (text.find('"'), text.rfind('"')) else {
+        return false;
+    };
+    let body = text.get(open + 1..close).unwrap_or_default();
+    ident(body, 0).is_some_and(|(_, after)| after == body.len())
 }
 
 /// Whether comment `body` is Rust code, items or the statements of a block, rather than prose.

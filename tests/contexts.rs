@@ -357,14 +357,14 @@ fn string_literals_inside_hash_attributes_are_macro_arguments() {
     repo.commit("start");
     repo.write(
         "src/lib.rs",
-        "#![doc = \"gone_a\"]\n\
+        "#![doc = \"see gone_a\"]\n\
          \n\
          #[doc = \"note\"]\n\
-         static B: &str = \"gone_b\";\n\
+         static B: &str = \"see gone_b\";\n\
          \n\
-         static A: [&str; 1] = [\"gone_c\"];\n\
+         static A: [&str; 1] = [\"see gone_c\"];\n\
          \n\
-         #[my_attr([x] \"gone_d\")]\n\
+         #[my_attr([x] \"see gone_d\")]\n\
          fn f() {}\n",
     );
     repo.commit("drop gone_a through gone_d");
@@ -377,7 +377,7 @@ fn string_literals_inside_hash_attributes_are_macro_arguments() {
                 "fixture::gone_b".to_owned(),
                 "src/lib.rs".to_owned(),
                 4,
-                19,
+                23,
                 literal,
                 "gone_b".to_owned()
             ),
@@ -385,7 +385,7 @@ fn string_literals_inside_hash_attributes_are_macro_arguments() {
                 "fixture::gone_c".to_owned(),
                 "src/lib.rs".to_owned(),
                 6,
-                25,
+                29,
                 literal,
                 "gone_c".to_owned()
             )
@@ -582,6 +582,31 @@ fn commented_out_code_is_skipped_unless_the_config_asks_for_it() {
             row(8, 16, comment, path),
             row(12, 16, comment, path),
             row(13, 16, doc, path),
+        ]
+    );
+}
+
+#[test]
+fn a_string_literal_holding_one_identifier_is_data() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub const EXCEPT_TABLE: u8 = 0;\npub fn seq_shuffle_100() {}\npub fn gone_fn() {}\npub mod old {\n    pub struct Item;\n}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "pub const ARG: &str = \"EXCEPT_TABLE\";\npub fn bench(c: &mut Bencher) { c.bench_function(\"seq_shuffle_100\", |b| b.iter(|| ())); }\npub const PATH: &str = \"fixture::old::Item\";\npub const HINT: &str = \"use gone_fn instead\";\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(usize, usize, String)> =
+        found(&repo).into_iter().map(|m| (m.2, m.3, m.5)).collect();
+    assert_eq!(
+        rows,
+        [
+            (4, 29, "gone_fn".to_owned()),
+            (3, 25, "fixture::old::Item".to_owned())
         ]
     );
 }
