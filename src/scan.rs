@@ -1157,7 +1157,7 @@ impl<'a> Entries<'a> {
     }
 
     /// The removed entry of one of `kinds` called `name` as seen from `scope`, when no entry of
-    /// those kinds keeps the name alive there.
+    /// those kinds keeps the name alive there and no package of head is a dependency of that name.
     fn stale(&self, kinds: &[ItemKind], name: &str, scope: Option<&str>) -> Option<PathId> {
         let alive = kinds.iter().any(|&kind| {
             let name = comparable(kind, name);
@@ -1166,7 +1166,8 @@ impl<'a> Entries<'a> {
                 None => self.head_any.contains(&(kind, name)),
             }
         });
-        if alive {
+        let package = (ItemKind::Package, comparable(ItemKind::Package, name));
+        if alive || (kinds.contains(&ItemKind::Dependency) && self.head_any.contains(&package)) {
             return None;
         }
         kinds.iter().find_map(|&kind| {

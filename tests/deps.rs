@@ -298,6 +298,40 @@ fn a_path_spelled_from_a_live_crate_name_names_nothing_removed() {
 }
 
 #[test]
+fn a_toml_dependency_key_naming_a_head_package_is_alive() {
+    let repo = Repo::new();
+    repo.vendor("widget", "0.1.0", "");
+    let app = |dependency: &str, features: &str| {
+        format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[features]\n{features}\n\n[dev-dependencies]\n{dependency}\n"
+        )
+    };
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"widget\", \"app\"]\n",
+    );
+    repo.write(
+        "widget/Cargo.toml",
+        "[package]\nname = \"widget\"\nversion = \"0.2.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("widget/src/lib.rs", "");
+    repo.write("app/Cargo.toml", &app("widget = \"0.1\"", "widget = []"));
+    repo.write("app/src/lib.rs", "");
+    lock(&repo);
+    repo.commit("app depends on a published widget");
+    repo.write("app/Cargo.toml", &app("", ""));
+    lock(&repo);
+    repo.write(
+        "app/README.md",
+        "```toml\n[dependencies]\nwidget = \"0.1\"\n```\n\nRun `cargo build --features widget`.\n",
+    );
+    repo.commit("app drops widget");
+
+    let rows: Vec<(String, usize)> = found(&repo).into_iter().map(|m| (m.0, m.2)).collect();
+    assert_eq!(rows, [("widget".to_owned(), 6)]);
+}
+
+#[test]
 fn a_rustdoc_url_is_read_from_its_item_not_its_directory() {
     let repo = Repo::new();
     repo.write(
