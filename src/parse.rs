@@ -122,6 +122,9 @@ pub(crate) struct Invocation {
     pub(crate) idents: Vec<String>,
     /// The tokens as text, kept for item-position invocations, which may be expanded.
     pub(crate) tokens: Option<String>,
+    /// For an invocation among an impl's items, the impl's header from `impl` to its brace,
+    /// which wraps the expansion.
+    pub(crate) impl_header: Option<String>,
 }
 
 /// A `macro_rules!` definition.
@@ -500,7 +503,14 @@ impl Collector<'_> {
     fn impl_block(&mut self, item: &syn::ItemImpl) {
         for impl_item in &item.items {
             match impl_item {
-                ImplItem::Macro(m) => self.invocation(&m.mac, false),
+                ImplItem::Macro(m) => {
+                    self.invocation(&m.mac, true);
+                    let start = item.impl_token.span.byte_range().start;
+                    let end = item.brace_token.span.open().byte_range().start;
+                    if let Some(call) = self.out.invocations.last_mut() {
+                        call.impl_header = self.source.get(start..end).map(str::to_owned);
+                    }
+                }
                 ImplItem::Fn(f) => self.params(&f.sig),
                 _ => {}
             }
@@ -656,6 +666,7 @@ impl Collector<'_> {
                 idents(&mac.tokens)
             },
             tokens: item_position.then(|| mac.tokens.to_string()),
+            impl_header: None,
         });
     }
 }

@@ -339,6 +339,27 @@ fn a_path_returning_through_aliases_to_a_module_it_passed_is_not_indexed() {
 const CFG_MACROS: &str = "macro_rules! cfg_sync {\n    ($($item:item)*) => {\n        $(\n            #[cfg(feature = \"sync\")]\n            $item\n        )*\n    };\n}\n\nmacro_rules! feature {\n    (#![$meta:meta] $($item:item)*) => {\n        $(\n            #[cfg($meta)]\n            $item\n        )*\n    };\n}\n";
 
 #[test]
+fn item_macros_among_impl_items_add_members() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "mod net {\n    pub struct Listener;\n    impl Listener {\n        pub fn bind() {}\n        pub fn open() {}\n    }\n}\npub use net::Listener;\n",
+    );
+    repo.write(
+        "README.md",
+        "`fixture::Listener::bind` and `fixture::Listener::open`.\n",
+    );
+    repo.commit("plain members");
+    repo.write(
+        "src/lib.rs",
+        "macro_rules! cfg_net {\n    ($($i:item)*) => { $(#[cfg(feature = \"net\")] $i)* };\n}\nmod net {\n    pub struct Listener;\n    impl Listener {\n        cfg_net! { pub fn bind() {} }\n        undefined_mac! { pub fn open() {} }\n    }\n}\npub use net::Listener;\n",
+    );
+    repo.commit("members inside macros");
+
+    assert_eq!(removed(&run(&repo)), Vec::<String>::new());
+}
+
+#[test]
 fn modules_declared_inside_item_macros_are_indexed() {
     let repo = Repo::new();
     repo.write("src/macros.rs", CFG_MACROS);

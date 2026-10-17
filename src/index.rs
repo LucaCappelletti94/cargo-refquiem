@@ -73,8 +73,18 @@ struct Call {
     module: PathId,
     name: Sym,
     idents: Vec<Sym>,
-    /// For an item-position invocation, its enclosing inline modules and its tokens as text.
-    expandable: Option<(Rc<[String]>, Rc<str>)>,
+    /// For an item-position invocation, what expanding it needs.
+    expandable: Option<Expandable>,
+}
+
+/// An invocation as expansion reads it.
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct Expandable {
+    /// The inline modules enclosing it in its file.
+    inline: Rc<[String]>,
+    tokens: Rc<str>,
+    /// For an invocation among an impl's items, the impl's header, which wraps the expansion.
+    impl_header: Option<Rc<str>>,
 }
 
 /// A `macro_rules!` definition.
@@ -145,8 +155,8 @@ impl Reached {
 /// How deep expansions may produce further expansions, as rustc's default recursion limit.
 const RECURSION_LIMIT: usize = 128;
 
-/// An expansion's visit, enclosing inline modules, macro definition and invocation tokens.
-type ExpansionKey = (Rc<Visit>, Rc<[String]>, Option<Definition>, Rc<str>);
+/// An expansion's visit, invocation and macro definition.
+type ExpansionKey = (Rc<Visit>, Expandable, Option<Definition>);
 
 /// A file to read as a module.
 #[derive(PartialEq, Eq, Hash)]
@@ -194,8 +204,8 @@ fn macro_idents(interner: &mut Interner, reached: &Reached) -> HashMap<PathId, H
     for call in reached.unexpanded() {
         let module = alive.entry(call.module).or_default();
         module.extend(&call.idents);
-        if let Some((_, tokens)) = &call.expandable {
-            let idents = parse::text_idents(tokens);
+        if let Some(expandable) = &call.expandable {
+            let idents = parse::text_idents(&expandable.tokens);
             module.extend(idents.iter().map(|name| interner.sym(name)));
         }
         if let Some(body) = bodies.get(&call.name) {
@@ -538,7 +548,7 @@ impl Indexer {
     ) -> bool {
         let entry = reached.entries[i].clone();
         let call = &entry.contribution.calls[k];
-        let Some((inline, tokens)) = &call.expandable else {
+        let Some(expandable) = &call.expandable else {
             return false;
         };
         if entry.depth >= RECURSION_LIMIT {
@@ -546,7 +556,7 @@ impl Indexer {
         }
         let mut grew = false;
         for definition in definitions {
-            let Some(expansion) = self.expansion(&entry.visit, inline, definition, tokens) else {
+            let Some(expansion) = self.expansion(&entry.visit, expandable, definition) else {
                 continue;
             };
             if definition.is_some() {
@@ -568,24 +578,19 @@ impl Indexer {
         grew
     }
 
-    /// The items `tokens` expand to under `definition`, or read as items without one, nested
-    /// in the inline modules `inline` of `visit`'s file.
+    /// The items the invocation `expandable` of `visit`'s file expands to under `definition`,
+    /// or reads as without one.
     fn expansion(
         &mut self,
         visit: &Rc<Visit>,
-        inline: &Rc<[String]>,
+        expandable: &Expandable,
         definition: Option<&Definition>,
-        tokens: &Rc<str>,
     ) -> Option<Rc<Contribution>> {
-        let key = (
-            Rc::clone(visit),
-            Rc::clone(inline),
-            definition.cloned(),
-            Rc::clone(tokens),
-        );
+        let key = (Rc::clone(visit), expandable.clone(), definition.cloned());
         if let Some(known) = self.expansions.get(&key) {
             return known.clone();
         }
+        let tokens = &expandable.tokens;
         let text = match definition {
             Some(definition) => {
                 let home = definition
@@ -595,9 +600,13 @@ impl Indexer {
             }
             None => Some(tokens.to_string()),
         };
+        let text = match &expandable.impl_header {
+            Some(header) => text.map(|text| format!("{header} {{ {text} }}")),
+            None => text,
+        };
         let items = text.and_then(|text| parse::parse(&text).ok());
         let built = items.map(|mut items| {
-            items.nest(inline);
+            items.nest(&expandable.inline);
             Rc::new(self.build(visit, &items))
         });
         self.expansions.insert(key, built.clone());
@@ -857,10 +866,11 @@ impl Indexer {
                     module: self.interner.path(&within, ItemKind::Module),
                     name: self.interner.sym(&inv.name),
                     idents: self.syms(&inv.idents),
-                    expandable: inv
-                        .tokens
-                        .as_deref()
-                        .map(|tokens| (Rc::from(inv.module.as_slice()), Rc::from(tokens))),
+                    expandable: inv.tokens.as_deref().map(|tokens| Expandable {
+                        inline: Rc::from(inv.module.as_slice()),
+                        tokens: Rc::from(tokens),
+                        impl_header: inv.impl_header.as_deref().map(Rc::from),
+                    }),
                 }
             })
             .collect()
