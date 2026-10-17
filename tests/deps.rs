@@ -541,6 +541,32 @@ fn a_hyphenated_spelling_matches_a_name_with_underscores() {
 }
 
 #[test]
+fn a_public_reexport_keeps_the_path_it_shares_with_a_private_module() {
+    let repo = Repo::new();
+    repo.vendor(
+        "helper",
+        "1.0.0",
+        "mod blank_out {\n    pub fn blank_out() {}\n    pub fn hidden_fn() {}\n}\npub use self::blank_out::blank_out;\n",
+    );
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n",
+    );
+    repo.write(
+        "src/lib.rs",
+        "pub fn blank_out() {}\npub fn hidden_fn() {}\n",
+    );
+    lock(&repo);
+    repo.commit("start");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "`blank_out` and `hidden_fn`.\n");
+    repo.commit("drop both");
+
+    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.0).collect();
+    assert_eq!(rows, ["fixture::hidden_fn"]);
+}
+
+#[test]
 fn a_scan_succeeds_when_a_default_target_directory_is_a_file() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "pub fn gone() {}\n");

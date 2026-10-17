@@ -656,8 +656,8 @@ impl Indexer {
         })
     }
 
-    /// The paths of `libraries` that start with one of `roots` and lie outside every private
-    /// module, after resolving the re-exports between all of them.
+    /// The paths of `libraries` that start with one of `roots`, lie below no private module and
+    /// are not themselves hidden once the re-exports between all of them are resolved.
     pub(crate) fn public_paths(&mut self, libraries: &[Library], roots: &[Sym]) -> HashSet<PathId> {
         let mut paths: HashSet<PathId> = libraries
             .iter()
@@ -675,13 +675,14 @@ impl Indexer {
             .iter()
             .flat_map(|library| library.hidden.iter().copied())
             .collect();
-        // A declared private module drops what lies below it, even where a re-export shares its name.
+        // What lies below a private module goes even where a `pub use` shares the module's path.
         let private = hidden.clone();
         self.resolve_aliases(&mut paths, &mut hidden, &uses, &lends, &crates);
         paths.retain(|&id| {
             let segments = self.interner.segments(id);
             roots.contains(&segments[0])
-                && !(2..=segments.len()).any(|len| {
+                && !hidden.contains(&id)
+                && !(2..segments.len()).any(|len| {
                     self.interner
                         .find_path(&segments[..len])
                         .is_some_and(|prefix| private.contains(&prefix))
