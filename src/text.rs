@@ -716,6 +716,9 @@ fn bindings<'c>(code: &'c str, tokens: &[(usize, usize, TokenKind)]) -> HashSet<
             );
         !after_type && tokens.get(i + 1).map(|token| token.2) != Some(TokenKind::Lt)
     };
+    // A `:` of a `::` ends no pattern, and a pattern's tokens never sit at index 0.
+    let joined = |a: usize, b: usize| colon(a) && colon(b) && tokens[a].1 == tokens[b].0;
+    let in_path = |i: usize| joined(i, i + 1) || joined(i - 1, i);
     let mut bound = HashSet::new();
     let mut i = 0;
     while i < tokens.len() {
@@ -756,7 +759,7 @@ fn bindings<'c>(code: &'c str, tokens: &[(usize, usize, TokenKind)]) -> HashSet<
                     };
                     depth = inner;
                 }
-                _ if depth == 0 && pattern.ends(kind, text(i)) => break,
+                _ if depth == 0 && !in_path(i) && pattern.ends(kind, text(i)) => break,
                 TokenKind::Ident if binds(text(i)) && !segment(i) => {
                     bound.insert(text(i));
                 }

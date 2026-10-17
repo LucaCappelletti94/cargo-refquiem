@@ -974,3 +974,22 @@ fn a_for_bound_leaves_later_declarations_bound_and_a_leading_for_loop_binds() {
         found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
     assert_eq!(rows, [("fixture::gone_call".to_owned(), 11, 5)]);
 }
+
+#[test]
+fn a_path_in_a_let_pattern_leaves_its_bindings_bound() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn gone_int() {}\n#[allow(non_camel_case_types)]\npub struct gone_ty;\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// if let Lit::Int(gone_int) = lit {\n///     gone_int;\n/// }\n/// let a: gone_ty = v;\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize, usize)> =
+        found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
+    assert_eq!(rows, [("fixture::gone_ty".to_owned(), 5, 12)]);
+}
