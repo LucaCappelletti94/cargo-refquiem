@@ -35,7 +35,8 @@ pub(crate) struct FileItems {
     /// Members one path lends another: a `Deref` target its dereferencing type, a supertrait
     /// its subtrait.
     pub(crate) lends: Vec<Lend>,
-    /// The parameter names of every function, method and trait method, deduplicated.
+    /// The parameter names of every function, method and trait method and the type and const
+    /// parameter names of every generic item, deduplicated.
     pub(crate) params: Vec<String>,
 }
 
@@ -187,7 +188,10 @@ impl Collector<'_> {
         for item in items {
             match item {
                 Item::Const(item) => self.decl(&item.ident.to_string(), ItemKind::Const, &item.vis),
-                Item::Enum(item) => self.enumeration(item),
+                Item::Enum(item) => {
+                    self.enumeration(item);
+                    self.generics(&item.generics);
+                }
                 Item::Fn(item) => {
                     let name = item.sig.ident.to_string();
                     self.decl(&name, ItemKind::Function, &item.vis);
@@ -197,7 +201,10 @@ impl Collector<'_> {
                     self.params(&item.sig);
                 }
                 Item::ForeignMod(foreign) => self.foreign_items(&foreign.items),
-                Item::Impl(item) => self.impl_block(item),
+                Item::Impl(item) => {
+                    self.impl_block(item);
+                    self.generics(&item.generics);
+                }
                 Item::Macro(item) => self.macro_item(item),
                 Item::Mod(item) => self.mod_item(item),
                 Item::Static(item) => {
@@ -211,16 +218,25 @@ impl Collector<'_> {
                     };
                     let name = item.ident.to_string();
                     self.owner(&name, ItemKind::Struct, &item.vis, fields);
+                    self.generics(&item.generics);
                 }
-                Item::Trait(item) => self.trait_item(item),
+                Item::Trait(item) => {
+                    self.trait_item(item);
+                    self.generics(&item.generics);
+                }
                 Item::TraitAlias(item) => {
                     self.decl(&item.ident.to_string(), ItemKind::TraitAlias, &item.vis);
+                    self.generics(&item.generics);
                 }
-                Item::Type(item) => self.type_alias(item),
+                Item::Type(item) => {
+                    self.type_alias(item);
+                    self.generics(&item.generics);
+                }
                 Item::Union(item) => {
                     let container = Container::new(&item.attrs);
                     let fields = named_fields(&item.fields.named, &container);
                     self.owner(&item.ident.to_string(), ItemKind::Union, &item.vis, fields);
+                    self.generics(&item.generics);
                 }
                 Item::Use(item) => {
                     let public = is_pub(&item.vis);
@@ -647,9 +663,26 @@ impl Collector<'_> {
             }
         }
         for name in names {
-            if !self.out.params.contains(&name) {
-                self.out.params.push(name);
-            }
+            self.param(name);
+        }
+        self.generics(&signature.generics);
+    }
+
+    /// Records the names of the type and const parameters `generics` declares.
+    fn generics(&mut self, generics: &syn::Generics) {
+        for param in &generics.params {
+            let ident = match param {
+                syn::GenericParam::Type(param) => &param.ident,
+                syn::GenericParam::Const(param) => &param.ident,
+                syn::GenericParam::Lifetime(_) => continue,
+            };
+            self.param(strip_raw(&ident.to_string()).to_owned());
+        }
+    }
+
+    fn param(&mut self, name: String) {
+        if !self.out.params.contains(&name) {
+            self.out.params.push(name);
         }
     }
 

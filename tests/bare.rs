@@ -427,6 +427,24 @@ fn parameter_names_of_head_functions_are_live() {
 }
 
 #[test]
+fn generic_parameter_names_of_head_items_are_live() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct Lanes;\npub struct Elem;\npub struct Seed;\npub struct Key;\npub struct Out;\npub struct Al;\npub struct Un;\npub struct En;\npub struct Ex;\npub struct Unused;\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// Uses `Lanes`, `Elem`, `Seed`, `Key`, `Out`, `Al`, `Un`, `En`, `Ex` and `Unused`.\npub fn sample<Elem, const Lanes: usize>() {}\npub struct Holder<Seed>(Seed);\nimpl<Key> Holder<Key> {\n    pub fn method<Ex>() {}\n}\npub trait Conv<Out> {}\npub type Alias<Al> = Vec<Al>;\npub union U<Un: Copy> {\n    a: Un,\n}\npub enum E<En> {\n    A(En),\n}\n",
+    );
+    repo.commit("generic parameters only");
+
+    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.0).collect();
+    assert_eq!(rows, ["fixture::Unused"]);
+}
+
+#[test]
 fn names_a_dependency_declares_through_macros_are_live() {
     let repo = Repo::new();
     repo.write(
