@@ -445,6 +445,21 @@ fn generic_parameter_names_of_head_items_are_live() {
 }
 
 #[test]
+fn the_prose_of_a_doc_comment_sees_the_names_its_examples_declare() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone_reader() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// A `gone_reader` function may only read owned data.\n///\n/// ```\n/// fn gone_reader() {}\n/// ```\npub fn kept() {}\n\n/// Calls `gone_reader`.\npub fn other() {}\n",
+    );
+    repo.commit("drop gone_reader");
+
+    let rows: Vec<(String, usize)> = found(&repo).into_iter().map(|m| (m.0, m.2)).collect();
+    assert_eq!(rows, [("fixture::gone_reader".to_owned(), 8)]);
+}
+
+#[test]
 fn names_a_dependency_declares_through_macros_are_live() {
     let repo = Repo::new();
     repo.write(

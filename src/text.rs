@@ -477,12 +477,13 @@ fn markdown_mentions(text: &str, source: Source) -> Vec<Spelled> {
     let mut block: Option<Block> = None;
     let mut in_label_link = false;
     let mut found = Vec::new();
+    let mut declared: HashSet<String> = HashSet::new();
     for (event, range) in events.by_ref() {
         match event {
             Event::Start(Tag::CodeBlock(kind)) => block = Some(Block::new(&kind, source)),
             Event::End(TagEnd::CodeBlock) => {
                 if let Some(block) = block.take() {
-                    block.finish(text, source, &mut found);
+                    declared.extend(block.finish(text, source, &mut found));
                 }
             }
             Event::Start(Tag::Link {
@@ -552,6 +553,11 @@ fn markdown_mentions(text: &str, source: Source) -> Vec<Spelled> {
             &mut found,
         );
     }
+    // A name an example of the same doc comment declares is that example's, in prose too.
+    found.retain(|spelled| {
+        let prose = matches!(spelled.context.kind, Kind::Text | Kind::CodeSpan);
+        !(prose && matches!(&spelled.named, Named::Name { word, .. } if declared.contains(word)))
+    });
     found
 }
 
@@ -589,10 +595,10 @@ impl Block {
     }
 
     /// Records the dependency tables, serialized spellings and code identifiers of a finished
-    /// block in Markdown `text` from `source`.
-    fn finish(self, text: &str, source: Source, out: &mut Vec<Spelled>) {
+    /// block in Markdown `text` from `source`, and returns the names a compiled block binds.
+    fn finish(self, text: &str, source: Source, out: &mut Vec<Spelled>) -> Vec<String> {
         let Some((start, end)) = self.span else {
-            return;
+            return Vec::new();
         };
         let block = &text[start..end];
         let kind = Kind::CodeBlock {
@@ -610,7 +616,9 @@ impl Block {
             }
         }
         if self.compiled {
-            code_names(block, start, context, out);
+            code_names(block, start, context, out)
+        } else {
+            Vec::new()
         }
     }
 }
@@ -677,8 +685,8 @@ fn names_bound(spelled: &Spelled, bound: &HashSet<&str>) -> bool {
 
 /// The identifier tokens of compiled `code` at `base`, outside its paths and attribute arguments
 /// and other than the names it binds itself, whose paths starting at such a name are dropped
-/// from `out`.
-fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
+/// from `out`. Returns the names it binds.
+fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>) -> Vec<String> {
     let tokens = code_tokens(code);
     let bound = bindings(code, &tokens);
     // The block is finished, so only its own and earlier mentions are in `out` yet.
@@ -707,6 +715,7 @@ fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>)
             out.push(name(code, base, span, false, context));
         }
     }
+    bound.into_iter().map(str::to_owned).collect()
 }
 
 /// Which of the non-trivia `tokens` of `code`, as `(start, end, kind)`, sit inside the arguments
