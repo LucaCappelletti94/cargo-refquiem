@@ -205,25 +205,32 @@ fn items_of_a_dependency_head_no_longer_has_match_only_from_its_crate_root() {
 }
 
 #[test]
-fn a_live_dependency_built_as_an_rlib_keeps_its_names_alive() {
-    let repo = Repo::new();
-    repo.write(
-        "vendor/helper/Cargo.toml",
-        "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"helper\"\npath = \"src/lib.rs\"\ncrate-type = [\"rlib\"]\n",
-    );
-    repo.write("vendor/helper/src/lib.rs", "pub struct mac;\n");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
-    );
-    repo.write("src/lib.rs", "pub struct Frame {\n    pub mac: u8,\n}\n");
-    lock(&repo);
-    repo.commit("own mac");
-    repo.write("src/lib.rs", "");
-    repo.write("README.md", "`mac`\n");
-    repo.commit("drop Frame");
+fn a_live_dependency_built_as_an_rlib_or_dylib_keeps_its_names_alive() {
+    for crate_type in ["rlib", "dylib"] {
+        let repo = Repo::new();
+        repo.write(
+            "vendor/helper/Cargo.toml",
+            &format!("[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"helper\"\npath = \"src/lib.rs\"\ncrate-type = [\"{crate_type}\"]\n"),
+        );
+        repo.write("vendor/helper/src/lib.rs", "pub struct frame_tag;\n");
+        // Marked as vendored, so only the dependency layer, not the tree's own index, reads it.
+        repo.write("vendor/helper/.cargo-checksum.json", "{\"files\":{}}");
+        repo.write(
+            "Cargo.toml",
+            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "pub struct Frame {\n    pub frame_tag: u8,\n}\n",
+        );
+        lock(&repo);
+        repo.commit("own frame_tag");
+        repo.write("src/lib.rs", "");
+        repo.write("README.md", "`frame_tag`\n");
+        repo.commit("drop Frame");
 
-    assert_eq!(found(&repo), []);
+        assert_eq!(found(&repo), [], "{crate_type}");
+    }
 }
 
 #[test]
@@ -564,6 +571,80 @@ fn a_public_reexport_keeps_the_path_it_shares_with_a_private_module() {
 
     let rows: Vec<String> = found(&repo).into_iter().map(|m| m.0).collect();
     assert_eq!(rows, ["fixture::hidden_fn"]);
+}
+
+#[test]
+fn a_renamed_dependency_also_reads_under_its_crate_name() {
+    let repo = Repo::new();
+    repo.vendor("helper", "0.1.0", "pub struct OldThing;\n");
+    repo.vendor(
+        "helper",
+        "0.2.0",
+        "pub struct OldThing;\npub struct NewThing;\n",
+    );
+    let root = |dependency: &str| {
+        format!(
+            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"app\"]\n\n[dependencies]\n{dependency}\n"
+        )
+    };
+    repo.write("Cargo.toml", &root(""));
+    repo.write(
+        "app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"0.2\"\n",
+    );
+    repo.write("src/lib.rs", "");
+    repo.write("app/src/lib.rs", "");
+    lock(&repo);
+    repo.commit("app with helper 0.2");
+    repo.write(
+        "app/Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write(
+        "Cargo.toml",
+        &root("helper_01 = { package = \"helper\", version = \"0.1\" }"),
+    );
+    lock(&repo);
+    repo.write("README.md", "`helper::OldThing` and `helper::NewThing`.\n");
+    repo.commit("the root renames the old helper");
+
+    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.0).collect();
+    assert_eq!(rows, ["helper::NewThing"]);
+}
+
+#[test]
+fn a_renamed_old_version_of_a_workspace_crate_keeps_nothing_of_it_alive() {
+    let repo = Repo::new();
+    repo.vendor("helper", "0.1.0", "pub struct Gone;\n");
+    let app = |dependency: &str| {
+        format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n{dependency}\n"
+        )
+    };
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"helper\", \"app\"]\n",
+    );
+    repo.write(
+        "helper/Cargo.toml",
+        "[package]\nname = \"helper\"\nversion = \"0.2.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("helper/src/lib.rs", "pub struct Gone;\n");
+    repo.write("app/Cargo.toml", &app(""));
+    repo.write("app/src/lib.rs", "");
+    lock(&repo);
+    repo.commit("helper has Gone");
+    repo.write("helper/src/lib.rs", "");
+    repo.write(
+        "app/Cargo.toml",
+        &app("helper_old = { package = \"helper\", version = \"0.1\" }"),
+    );
+    lock(&repo);
+    repo.write("README.md", "`helper::Gone`.\n");
+    repo.commit("Gone goes, an old helper stays");
+
+    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.0).collect();
+    assert_eq!(rows, ["helper::Gone"]);
 }
 
 #[test]
