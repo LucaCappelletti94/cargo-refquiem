@@ -703,6 +703,36 @@ fn an_item_position_include_pulls_its_file_into_the_module() {
 }
 
 #[test]
+fn mod_declarations_of_an_included_file_resolve_against_its_directory() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod m {\n    pub fn in_a() {}\n    pub fn decoy() {}\n}\npub mod outer {\n    pub mod m {\n        pub fn in_b() {}\n        pub fn decoy_b() {}\n    }\n}\n",
+    );
+    repo.write(
+        "README.md",
+        "`fixture::m::in_a`, `fixture::m::decoy`, `fixture::outer::m::in_b` and `fixture::outer::m::decoy_b`.\n",
+    );
+    repo.commit("inline modules");
+    repo.write(
+        "src/lib.rs",
+        "include!(\"a/inc.rs\");\npub mod outer {\n    include!(\"b/inc.rs\");\n}\n",
+    );
+    repo.write("src/a/inc.rs", "pub mod m;\n");
+    repo.write("src/a/m.rs", "pub fn in_a() {}\n");
+    repo.write("src/b/inc.rs", "pub mod m;\n");
+    repo.write("src/b/m.rs", "pub fn in_b() {}\n");
+    repo.write("src/m.rs", "pub fn decoy() {}\n");
+    repo.write("src/outer/m.rs", "pub fn decoy_b() {}\n");
+    repo.commit("modules of included files");
+
+    assert_eq!(
+        removed(&run(&repo)),
+        ["fixture::m::decoy", "fixture::outer::m::decoy_b"]
+    );
+}
+
+#[test]
 fn every_rename_all_case_rule_spells_its_members() {
     let repo = Repo::new();
     repo.write(

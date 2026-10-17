@@ -153,9 +153,7 @@ type ExpansionKey = (Rc<Visit>, Rc<[String]>, Option<Definition>, Rc<str>);
 struct Visit {
     /// The file read.
     file: String,
-    /// The file `mod` declarations resolve against, differing from `file` for `include!`.
-    origin: String,
-    /// Whether `origin` is a `mod.rs`-style file owning its directory.
+    /// Whether `file` is a `mod.rs`-style file owning its directory, as an included file is.
     mod_rs: bool,
     module: PathId,
     /// Whether only `pub` items and `pub use` re-exports count, as for a dependency.
@@ -348,7 +346,6 @@ impl Indexer {
                 let module = self.interner.path(&[crate_sym], ItemKind::Module);
                 index.paths.insert(module);
                 stack.push(Rc::new(Visit {
-                    origin: target.root.clone(),
                     file: target.root,
                     mod_rs: true,
                     module,
@@ -620,7 +617,6 @@ impl Indexer {
         let mut index = Index::default();
         index.paths.insert(module);
         let visit = Rc::new(Visit {
-            origin: root.to_owned(),
             file: root.to_owned(),
             mod_rs: true,
             module,
@@ -894,15 +890,14 @@ impl Indexer {
             let mut child = self.within(module, &decl.module);
             child.push(self.interner.sym(&decl.name));
             let child = self.interner.path(&child, ItemKind::Module);
-            let base = owned_dir(&visit.origin, visit.mod_rs, &decl.module);
+            let base = owned_dir(&visit.file, visit.mod_rs, &decl.module);
             for path in decl.paths.iter().chain(&decl.conditional_paths) {
                 let file = if decl.module.is_empty() {
-                    join(parent(&visit.origin), path)
+                    join(parent(&visit.file), path)
                 } else {
                     join(&base, path)
                 };
                 visits.push(Rc::new(Visit {
-                    origin: file.clone(),
                     file,
                     mod_rs: true,
                     module: child,
@@ -915,7 +910,6 @@ impl Indexer {
                     (join(&base, &format!("{}/mod.rs", decl.name)), true),
                 ] {
                     visits.push(Rc::new(Visit {
-                        origin: file.clone(),
                         file,
                         mod_rs,
                         module: child,
@@ -926,10 +920,10 @@ impl Indexer {
         }
         for include in &items.includes {
             let within = self.within(module, &include.module);
+            // As in rustc, an included file's `mod`s resolve against its own directory.
             visits.push(Rc::new(Visit {
                 file: join(parent(&visit.file), &include.path),
-                origin: visit.origin.clone(),
-                mod_rs: visit.mod_rs,
+                mod_rs: true,
                 module: self.interner.path(&within, ItemKind::Module),
                 public_only: visit.public_only,
             }));
