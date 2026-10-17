@@ -1011,3 +1011,157 @@ fn a_path_in_a_let_pattern_leaves_its_bindings_bound() {
         found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
     assert_eq!(rows, [("fixture::gone_ty".to_owned(), 5, 12)]);
 }
+
+#[test]
+fn fields_variants_arms_and_macro_keys_of_a_doc_example_are_its_own_names() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn gone_field() {}\npub struct GoneVariant;\npub fn gone_inner() {}\npub fn gone_data() {}\npub fn gone_check() {}\npub fn gone_res() {}\npub fn gone_fut() {}\npub fn gone_key() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// struct Pagination { gone_field: usize }\n/// enum E { GoneVariant(u8), Other { gone_inner: u8 } }\n/// let p = Pagination { gone_field: 1 };\n/// let _ = (p.gone_field, GoneVariant, gone_inner);\n/// match v {\n///     Some(gone_data) if gone_check(gone_data) => {}\n///     _ => {}\n/// }\n/// tokio::select! {\n///     gone_res = gone_fut => { gone_res; }\n/// }\n/// info_span!(\"x\", gone_key = \"yes\");\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize)> = found(&repo).into_iter().map(|m| (m.0, m.2)).collect();
+    assert_eq!(
+        rows,
+        [
+            ("fixture::gone_check".to_owned(), 7),
+            ("fixture::gone_fut".to_owned(), 11)
+        ]
+    );
+}
+
+/// The removed functions `names` a compiled doc example spelled as `example` still reports,
+/// with the example line each is on.
+fn example_reports(names: &[&str], example: &str) -> Vec<(String, usize)> {
+    let repo = Repo::new();
+    let mut lib = String::new();
+    for name in names {
+        lib.push_str("#[allow(non_snake_case)]\npub fn ");
+        lib.push_str(name);
+        lib.push_str("() {}\n");
+    }
+    repo.write("src/lib.rs", &lib);
+    repo.commit("start");
+    let mut doc = String::new();
+    for line in example.lines() {
+        doc.push_str("/// ");
+        doc.push_str(line);
+        doc.push('\n');
+    }
+    repo.write(
+        "src/lib.rs",
+        &format!("/// ```\n{doc}/// ```\npub struct Kept;\n"),
+    );
+    repo.commit("drop them");
+    let mut rows: Vec<(String, usize)> = found(&repo)
+        .into_iter()
+        .map(|m| (m.0.trim_start_matches("fixture::").to_owned(), m.2 - 1))
+        .collect();
+    rows.sort_by(|a, b| (a.1, &a.0).cmp(&(b.1, &b.0)));
+    rows
+}
+
+#[test]
+fn only_the_fields_and_variants_an_example_declares_are_its_own() {
+    let names = [
+        "gone_w",
+        "gone_mod",
+        "GoneMapV",
+        "GoneVar",
+        "GoneSecond",
+        "gone_named",
+        "gone_lit",
+        "gone_v",
+    ];
+    let example = "struct W<T> where T: Fn([u8; 2]) -> u8 { gone_w: T, f: gone_mod::Ty, m: HashMap<u8, GoneMapV> }\nenum E { #[default] GoneVar, Tup(u8, GoneSecond), Named { gone_named: u8 } }\nstruct Unit;\nlet _ = Other { gone_lit: 1 };\nlet _ = (gone_w, GoneVar, gone_named, gone_mod, GoneMapV, GoneSecond);\nstruct V where [u8; { 1 }]: Copy { gone_v: u8 }\nlet _ = gone_v;\nstruct Trailing";
+    let rows = example_reports(&names, example);
+    let row = |name: &str, line| (name.to_owned(), line);
+    assert_eq!(
+        rows,
+        [
+            row("GoneMapV", 1),
+            row("GoneSecond", 2),
+            row("gone_lit", 4),
+            row("GoneMapV", 5),
+            row("GoneSecond", 5),
+            row("gone_mod", 5)
+        ]
+    );
+}
+
+#[test]
+fn match_and_select_patterns_end_at_their_guard_future_or_arrow() {
+    let names = [
+        "gone_inside",
+        "gone_a",
+        "gone_guard",
+        "gone_body",
+        "gone_z",
+        "gone_b",
+        "gone_block",
+        "gone_c",
+        "gone_then",
+        "gone_else",
+        "gone_rest",
+        "gone_res",
+        "gone_fut",
+        "gone_cond",
+        "gone_v",
+        "gone_rx",
+        "gone_handle",
+        "gone_last",
+    ];
+    let example = "match run(|| { gone_inside() }) {\n    Some(gone_a) if gone_guard(gone_a) => gone_body(gone_a, gone_z),\n    Pair(gone_b, _) => { gone_block(gone_b); match q { _ => 1 } }\n    Other { gone_c, .. } => if gone_c { gone_then() } else { gone_else() },\n    1..=5 | gone_rest => gone_rest,\n}\ntokio::select! {\n    gone_res = gone_fut(), if gone_cond => { gone_res; }\n    Some(gone_v) = gone_rx => gone_handle(gone_v),\n    else => gone_last(),\n}";
+    let rows = example_reports(&names, example);
+    let row = |name: &str, line| (name.to_owned(), line);
+    assert_eq!(
+        rows,
+        [
+            row("gone_inside", 1),
+            row("gone_body", 2),
+            row("gone_guard", 2),
+            row("gone_z", 2),
+            row("gone_block", 3),
+            row("gone_else", 4),
+            row("gone_then", 4),
+            row("gone_cond", 8),
+            row("gone_fut", 8),
+            row("gone_handle", 9),
+            row("gone_rx", 9),
+            row("gone_last", 10)
+        ]
+    );
+}
+
+#[test]
+fn only_a_single_eq_at_the_top_of_macro_arguments_binds() {
+    let names = [
+        "gone_key",
+        "gone_eq",
+        "gone_arrow",
+        "gone_nested",
+        "gone_member",
+        "gone_ne",
+        "gone_late",
+        "gone_tight",
+    ];
+    let example = "info_span!(\"x\", gone_key = \"yes\", gone_eq == 1, gone_arrow => 2, f(gone_nested = 1), s.gone_member = 1, gone_late = 2, gone_tight=3);\nlet _ = (gone_key, gone_ne != 1, gone_late, gone_tight);";
+    let rows = example_reports(&names, example);
+    let row = |name: &str, line| (name.to_owned(), line);
+    assert_eq!(
+        rows,
+        [
+            row("gone_arrow", 1),
+            row("gone_eq", 1),
+            row("gone_member", 1),
+            row("gone_nested", 1),
+            row("gone_ne", 2)
+        ]
+    );
+}
