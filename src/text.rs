@@ -163,9 +163,10 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Vec<Spelled> {
                 }
                 let body: Vec<&str> = lines.iter().map(|&(o, l)| &source[o + 2..o + l]).collect();
                 if scan_commented_code || !is_code(&body.join("\n")) {
-                    for (o, l) in lines {
+                    for &(o, l) in &lines {
                         scan(&source[o..o + l], o, comment(), &mut out);
                     }
+                    comment_examples(source, &lines, &mut out);
                 }
             }
             TokenKind::BlockComment { .. } => {
@@ -614,10 +615,8 @@ impl Block {
     }
 }
 
-/// The identifier tokens of compiled `code` at `base`, outside its paths and attribute arguments
-/// and other than the names it binds itself, whose paths starting at such a name are dropped
-/// from `out`.
-fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
+/// The non-trivia tokens of `code` as `(start, end, kind)`.
+fn code_tokens(code: &str) -> Vec<(usize, usize, TokenKind)> {
     let mut tokens = Vec::new();
     let mut offset = 0;
     for token in ra_ap_rustc_lexer::tokenize(code, FrontmatterAllowed::No) {
@@ -631,6 +630,56 @@ fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>)
         }
         offset += len;
     }
+    tokens
+}
+
+/// Drops the mentions of `out` that a fenced Rust example inside the `//` comment `lines` of
+/// `source` names by one of its own names, the way a compiled doc example's own names are none.
+fn comment_examples(source: &str, lines: &[(usize, usize)], out: &mut Vec<Spelled>) {
+    // The first line of a Rust example with its code so far, or `None` inside another fence.
+    let mut fence: Option<Option<(usize, String)>> = None;
+    for &(o, l) in lines {
+        let body = &source[o + 2..o + l];
+        let body = body.strip_prefix(' ').unwrap_or(body);
+        if let Some(info) = body.trim_start().strip_prefix("```") {
+            fence = match fence.take() {
+                None => Some(rust_fence(info).then(|| (o, String::new()))),
+                Some(Some((start, code))) => {
+                    let bound = bindings(&code, &code_tokens(&code));
+                    out.retain(|spelled| {
+                        !((start..o).contains(&spelled.start) && names_bound(spelled, &bound))
+                    });
+                    None
+                }
+                Some(None) => None,
+            };
+        } else if let Some(Some((_, code))) = &mut fence {
+            code.push_str(body);
+            code.push('\n');
+        }
+    }
+}
+
+/// Whether `spelled` is a bare name in `bound` or a path starting at one.
+fn names_bound(spelled: &Spelled, bound: &HashSet<&str>) -> bool {
+    match &spelled.named {
+        Named::Path => {
+            !spelled.leading_colon
+                && spelled
+                    .segments
+                    .first()
+                    .is_some_and(|first| bound.contains(first.as_str()))
+        }
+        Named::Name { word, .. } => bound.contains(word.as_str()),
+        _ => false,
+    }
+}
+
+/// The identifier tokens of compiled `code` at `base`, outside its paths and attribute arguments
+/// and other than the names it binds itself, whose paths starting at such a name are dropped
+/// from `out`.
+fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
+    let tokens = code_tokens(code);
     let bound = bindings(code, &tokens);
     // The block is finished, so only its own and earlier mentions are in `out` yet.
     out.retain(|spelled| {
@@ -1581,22 +1630,30 @@ fn compiled(kind: &CodeBlockKind<'_>, source: Source) -> bool {
     let CodeBlockKind::Fenced(info) = kind else {
         return true;
     };
+    fence_tokens(info, rust_token)
+}
+
+/// Whether a fence `info` line marks Rust code, an `ignore` example included.
+fn rust_fence(info: &str) -> bool {
+    fence_tokens(info, |token| token == "ignore" || rust_token(token))
+}
+
+/// Whether every token of the fence `info` line passes `accepts`.
+fn fence_tokens(info: &str, accepts: impl Fn(&str) -> bool) -> bool {
     without_comments(info)
         .split(|c: char| c == ',' || c.is_whitespace())
         .filter(|token| !token.is_empty())
-        .all(|token| {
-            matches!(
-                token,
-                "rust"
-                    | "should_panic"
-                    | "no_run"
-                    | "compile_fail"
-                    | "test_harness"
-                    | "standalone_crate"
-            ) || token.starts_with("edition")
-                || token.starts_with('{')
-                || (token.starts_with('E') && token[1..].bytes().all(|b| b.is_ascii_digit()))
-        })
+        .all(accepts)
+}
+
+/// Whether fence token `token` keeps a Rust example compiled.
+fn rust_token(token: &str) -> bool {
+    matches!(
+        token,
+        "rust" | "should_panic" | "no_run" | "compile_fail" | "test_harness" | "standalone_crate"
+    ) || token.starts_with("edition")
+        || token.starts_with('{')
+        || (token.starts_with('E') && token[1..].bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// A fence info line without its `(…)` comments, which rustdoc skips.

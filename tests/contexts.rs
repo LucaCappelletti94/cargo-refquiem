@@ -671,3 +671,29 @@ fn identifiers_in_attribute_arguments_of_a_compiled_example_are_not_names() {
         ]
     );
 }
+
+#[test]
+fn a_rust_example_in_a_plain_comment_declares_its_own_names() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct GoneAlias;\nimpl GoneAlias {\n    pub fn gone_assoc() {}\n}\npub fn gone_call() {}\npub struct GoneOther;\npub struct GoneText;\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "// Implement HasTable for tuples.\n//\n// For example:\n// ```rust,ignore\n// type GoneAlias = <(a, b) as HasTable>::Table;\n// let t = GoneAlias::gone_assoc();\n// ::GoneAlias::gone_assoc();\n// gone_call();\n// ```\n//\n// A `GoneOther` outside the example counts, and so does a text example:\n// ```text\n// type GoneText = u8;\n// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize)> = found(&repo).into_iter().map(|m| (m.0, m.2)).collect();
+    assert_eq!(
+        rows,
+        [
+            ("fixture::GoneAlias::gone_assoc".to_owned(), 7),
+            ("fixture::GoneOther".to_owned(), 11),
+            ("fixture::GoneText".to_owned(), 13),
+            ("fixture::gone_call".to_owned(), 8)
+        ]
+    );
+}
