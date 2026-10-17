@@ -729,6 +729,24 @@ fn a_digit_started_hyphenated_name_counts_in_running_text() {
 }
 
 #[test]
+fn a_keyword_of_a_doc_example_names_no_serialized_spelling() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "#[derive(serde::Serialize)]\npub struct Config {\n    #[serde(rename = \"enum\")]\n    pub kind: u8,\n}\n",
+    );
+    repo.commit("renamed");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// enum Choice { A }\n/// call(r#enum);\n/// ```\n#[derive(serde::Serialize)]\npub struct Config {\n    pub b: u8,\n}\n",
+    );
+    repo.commit("drop the field");
+
+    let rows: Vec<(String, usize)> = found(&repo).into_iter().map(|m| (m.0, m.2)).collect();
+    assert_eq!(rows, [("fixture::Config::\"enum\"".to_owned(), 3)]);
+}
+
+#[test]
 fn words_glued_to_addresses_and_colons_are_not_bare_names() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "pub struct old_name;\n");

@@ -96,6 +96,15 @@ const MEMBER_KINDS: [&str; 6] = [
     "associatedtype",
 ];
 
+/// Rust's strict and reserved keywords, which as plain identifier tokens name no item.
+const KEYWORDS: [&str; 52] = [
+    "abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "crate",
+    "do", "dyn", "else", "enum", "extern", "false", "final", "fn", "for", "gen", "if", "impl",
+    "in", "let", "loop", "macro", "match", "mod", "move", "mut", "override", "priv", "pub", "ref",
+    "return", "self", "Self", "static", "struct", "super", "trait", "true", "try", "type",
+    "typeof", "unsafe", "unsized", "use", "virtual", "where", "while", "yield",
+];
+
 /// Every mention in a Rust source file: comments, doc comments read as Markdown, and string
 /// literals. Plain comments holding nothing but Rust code are skipped unless
 /// `scan_commented_code`.
@@ -640,7 +649,7 @@ fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>)
         .collect();
     for (&(start, end, kind), argument) in tokens.iter().zip(arguments) {
         let span = match kind {
-            TokenKind::Ident => (start, end),
+            TokenKind::Ident if !KEYWORDS.contains(&&code[start..end]) => (start, end),
             TokenKind::RawIdent => (start + 2, end),
             _ => continue,
         };
