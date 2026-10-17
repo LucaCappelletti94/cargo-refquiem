@@ -559,6 +559,29 @@ fn a_path_the_workspace_removed_after_a_dependency_on_it_went_is_blamed_on_its_o
 }
 
 #[test]
+fn a_module_public_on_one_cfg_branch_stays_public() {
+    let repo = Repo::new();
+    repo.vendor(
+        "helper",
+        "1.0.0",
+        "macro_rules! cfg_a {\n    ($($i:item)*) => { $($i)* };\n}\nmacro_rules! cfg_b {\n    ($($i:item)*) => { $($i)* };\n}\ncfg_a! {\n    pub mod runtime {\n        pub struct Runtime;\n    }\n}\ncfg_b! {\n    pub(crate) mod runtime {\n        pub struct Runtime;\n    }\n}\nmod deep {\n    pub struct Deep;\n}\n",
+    );
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n",
+    );
+    repo.write("src/lib.rs", "pub struct Runtime;\npub struct Deep;\n");
+    lock(&repo);
+    repo.commit("start");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "`Runtime` and `Deep`.\n");
+    repo.commit("drop both");
+
+    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.0).collect();
+    assert_eq!(rows, ["fixture::Deep"]);
+}
+
+#[test]
 fn a_hyphenated_spelling_matches_a_name_with_underscores() {
     let repo = Repo::new();
     repo.vendor("helper_lib", "1.0.0", "pub struct Thing;\n");

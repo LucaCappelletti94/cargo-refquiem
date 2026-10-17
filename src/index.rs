@@ -58,6 +58,8 @@ struct Contribution {
     /// Paths declared without `pub`, among them the private modules kept when only public
     /// items count.
     hidden: Vec<PathId>,
+    /// Paths declared with `pub`, which no hidden declaration of the same path elsewhere hides.
+    exposed: Vec<PathId>,
     visits: Vec<Rc<Visit>>,
     uses: Vec<UseDecl>,
     calls: Vec<Call>,
@@ -174,6 +176,7 @@ struct Visit {
 pub(crate) struct Library {
     paths: HashSet<PathId>,
     hidden: Vec<PathId>,
+    exposed: Vec<PathId>,
     uses: Vec<UseDecl>,
     lends: Vec<LendDecl>,
     /// Identifiers its item-position macros may turn into items, in any module.
@@ -369,10 +372,11 @@ impl Indexer {
         let reached = self.reach(snapshot, stack, head, &outside, &mut index)?;
         let uses: Vec<&UseDecl> = reached.contributions().flat_map(|c| &c.uses).collect();
         let lends: Vec<&LendDecl> = reached.contributions().flat_map(|c| &c.lends).collect();
-        let mut hidden: HashSet<PathId> = reached
-            .contributions()
-            .flat_map(|c| c.hidden.iter().copied())
-            .collect();
+        let mut hidden = hidden_paths(
+            reached
+                .contributions()
+                .map(|c| (c.hidden.as_slice(), c.exposed.as_slice())),
+        );
         index.reexports =
             self.resolve_aliases(&mut index.paths, &mut hidden, &uses, &lends, &crates);
         if head {
@@ -654,6 +658,10 @@ impl Indexer {
                 .contributions()
                 .flat_map(|c| c.hidden.iter().copied())
                 .collect(),
+            exposed: reached
+                .contributions()
+                .flat_map(|c| c.exposed.iter().copied())
+                .collect(),
             uses: reached
                 .contributions()
                 .flat_map(|c| c.uses.iter().cloned())
@@ -680,10 +688,11 @@ impl Indexer {
             .collect();
         let uses: Vec<&UseDecl> = libraries.iter().flat_map(|l| &l.uses).collect();
         let lends: Vec<&LendDecl> = libraries.iter().flat_map(|l| &l.lends).collect();
-        let mut hidden: HashSet<PathId> = libraries
-            .iter()
-            .flat_map(|library| library.hidden.iter().copied())
-            .collect();
+        let mut hidden = hidden_paths(
+            libraries
+                .iter()
+                .map(|library| (library.hidden.as_slice(), library.exposed.as_slice())),
+        );
         // What lies below a private module goes even where a `pub use` shares the module's path.
         let private = hidden.clone();
         self.resolve_aliases(&mut paths, &mut hidden, &uses, &lends, &crates);
@@ -718,6 +727,7 @@ impl Indexer {
             Err(message) => Contribution {
                 paths: Vec::new(),
                 hidden: Vec::new(),
+                exposed: Vec::new(),
                 visits: Vec::new(),
                 uses: Vec::new(),
                 calls: Vec::new(),
@@ -739,7 +749,7 @@ impl Indexer {
         let mut paths = Vec::new();
         let mut signatures = Vec::new();
         let mut hidden = Vec::new();
-        let mut exposed = HashSet::new();
+        let mut exposed = Vec::new();
         for decl in &items.items {
             // A private module stays, so that re-exports out of it resolve, and is dropped
             // with everything below it once they have.
@@ -754,7 +764,7 @@ impl Indexer {
                 signatures.push((id, Rc::from(signature.as_str())));
             }
             if decl.public {
-                exposed.insert(id);
+                exposed.push(id);
             } else {
                 hidden.push(id);
             }
@@ -772,7 +782,7 @@ impl Indexer {
                     let id = self.interner.path(&base, *kind);
                     paths.push(id);
                     if *public {
-                        exposed.insert(id);
+                        exposed.push(id);
                     } else {
                         hidden.push(id);
                     }
@@ -787,8 +797,6 @@ impl Indexer {
             let name = self.interner.sym(&rules.name);
             paths.push(self.interner.path(&[crate_sym, name], ItemKind::Macro));
         }
-        // One path stands for every namespace, so a public item of a name keeps it public.
-        hidden.retain(|id| !exposed.contains(id));
 
         let visits = self.visits(visit, &module, items);
 
@@ -818,6 +826,7 @@ impl Indexer {
         Contribution {
             paths,
             hidden,
+            exposed,
             visits,
             uses,
             calls,
@@ -1222,6 +1231,19 @@ struct Tree {
 /// The declared path `id` stands for, given the alias and copy `origins`.
 fn origin(origins: &HashMap<PathId, PathId>, id: PathId) -> PathId {
     origins.get(&id).copied().unwrap_or(id)
+}
+
+/// The paths some of the `(hidden, exposed)` declaration lists hide and none exposes, since
+/// one path stands for every namespace and every `cfg` branch.
+fn hidden_paths<'a>(lists: impl Iterator<Item = (&'a [PathId], &'a [PathId])>) -> HashSet<PathId> {
+    let mut hidden = HashSet::new();
+    let mut exposed = HashSet::new();
+    for (hides, exposes) in lists {
+        hidden.extend(hides.iter().copied());
+        exposed.extend(exposes.iter().copied());
+    }
+    hidden.retain(|id| !exposed.contains(id));
+    hidden
 }
 
 /// `path` as written in `module`, its first segment replaced while it names one of `imports`
