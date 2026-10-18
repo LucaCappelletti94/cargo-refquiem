@@ -5,7 +5,7 @@ mod common;
 mod vendor;
 
 use common::Repo;
-use refquiem::{ItemKind, Range};
+use refquiem::{ItemKind, Range, RemovedIn};
 
 /// Runs refquiem over the full history against the working tree.
 fn run(repo: &Repo) -> refquiem::Report {
@@ -447,6 +447,94 @@ fn a_macro_without_arguments_declares_the_items_of_its_body() {
     repo.commit("drop legacy and gone");
 
     assert_eq!(removed(&run(&repo)), ["fixture::de::gone"]);
+}
+
+#[test]
+fn a_changed_macro_body_expands_its_unchanged_invocation_anew_on_every_scan() {
+    let repo = Repo::new();
+    let lib = |name: &str| {
+        format!(
+            "macro_rules! make {{\n    () => {{\n        pub fn {name}() {{}}\n    }};\n}}\n\nmake!();\n"
+        )
+    };
+    repo.write("src/lib.rs", &lib("first"));
+    repo.commit("first");
+    repo.write("src/lib.rs", &lib("second"));
+    repo.write("README.md", "`fixture::first`\n");
+    repo.commit("second");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::first"]);
+    assert_eq!(removed(&run(&repo)), ["fixture::first"]);
+}
+
+#[test]
+fn an_expansion_shared_by_two_inline_modules_indexes_its_items_under_each() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "macro_rules! pack {\n    ($name:ident) => {\n        pub mod $name {\n            pub struct Kept;\n            pub struct Gone;\n        }\n    };\n}\n\npub mod alpha {\n    pack!(inner);\n}\n\npub mod beta {\n    pack!(inner);\n}\n",
+    );
+    repo.commit("packed");
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "README.md",
+        "`fixture::alpha::inner::Gone` and `fixture::beta::inner::Gone`\n",
+    );
+    repo.commit("drop the packs");
+
+    assert_eq!(
+        removed(&run(&repo)),
+        ["fixture::alpha::inner::Gone", "fixture::beta::inner::Gone"]
+    );
+    assert_eq!(
+        removed(&run(&repo)),
+        ["fixture::alpha::inner::Gone", "fixture::beta::inner::Gone"]
+    );
+}
+
+#[test]
+fn a_macro_invoked_in_two_impls_indexes_its_items_under_each_receiver() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct Alpha;\npub struct Beta;\n\nmacro_rules! methods {\n    () => {\n        pub fn kept(&self) {}\n        pub fn gone(&self) {}\n    };\n}\n\nimpl Alpha {\n    methods!();\n}\n\nimpl Beta {\n    methods!();\n}\n",
+    );
+    repo.commit("methods");
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "README.md",
+        "`fixture::Alpha::gone` and `fixture::Beta::gone`\n",
+    );
+    let deleting = repo.commit("drop the impls");
+
+    let report = run(&repo);
+    assert_eq!(
+        removed(&report),
+        ["fixture::Alpha::gone", "fixture::Beta::gone"]
+    );
+    let removed_in = Some(RemovedIn::Commit(deleting));
+    assert_eq!(report.groups[0].removed_in, removed_in);
+    assert_eq!(report.groups[1].removed_in, removed_in);
+    assert_eq!(
+        removed(&run(&repo)),
+        ["fixture::Alpha::gone", "fixture::Beta::gone"]
+    );
+}
+
+#[test]
+fn an_unmatched_macro_invocation_expands_to_nothing_on_every_scan() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub struct Gone;\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "macro_rules! only_alpha {\n    (alpha) => {\n        pub struct Alpha;\n    };\n}\n\nonly_alpha!(beta);\n",
+    );
+    repo.write("README.md", "`fixture::Gone`\n");
+    repo.commit("unmatched");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::Gone"]);
+    assert_eq!(removed(&run(&repo)), ["fixture::Gone"]);
 }
 
 #[test]

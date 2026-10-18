@@ -519,6 +519,33 @@ fn a_cache_entry_that_no_longer_decodes_is_parsed_again() {
     assert_eq!(first, second);
 }
 
+#[test]
+fn a_corrupt_expansions_file_is_rebuilt_with_the_same_findings() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "macro_rules! make {\n    () => {\n        pub fn kept() {}\n        pub fn gone() {}\n    };\n}\n\nmake!();\n",
+    );
+    repo.commit("made");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "`fixture::gone`.\n");
+    repo.commit("drop the functions");
+
+    let first = mentions(&repo.run());
+    for path in walk(&repo.cache_dir()) {
+        if path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with("expansions-"))
+        {
+            std::fs::write(&path, b"{ not json").unwrap();
+        }
+    }
+    let second = mentions(&repo.run());
+
+    assert_eq!(first.len(), 1);
+    assert_eq!(first, second);
+}
+
 fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut files = Vec::new();
     for entry in std::fs::read_dir(dir).unwrap() {

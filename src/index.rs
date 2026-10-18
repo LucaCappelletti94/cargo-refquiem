@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use gix::ObjectId;
 
-use crate::cache::FileCache;
+use crate::cache::{Expanded, FileCache};
 use crate::git::{ManifestDirs, Snapshot};
 use crate::intern::{Interner, PathId, Sym};
 use crate::manifest::{self, Member, TargetKind, join};
@@ -603,22 +603,36 @@ impl Indexer {
         if let Some(known) = self.expansions.get(&key) {
             return known.clone();
         }
-        let tokens = &expandable.tokens;
-        let text = match definition {
-            Some(definition) => {
-                let home = definition
-                    .home
-                    .map_or("crate", |home| self.interner.name(home));
-                self.expander.expand(&definition.body, tokens, home)
+        let home = definition.map(|definition| {
+            definition
+                .home
+                .map_or("crate", |home| self.interner.name(home))
+        });
+        let body = definition.map(|definition| &*definition.body);
+        let header = expandable.impl_header.as_deref();
+        let stored = expansion_key([body, home, Some(&*expandable.tokens), header]);
+        let recalled = stored.and_then(|key| self.cache.expansion(key));
+        let expanded = if let Some(expanded) = recalled {
+            expanded
+        } else {
+            let text = match (definition, home) {
+                (Some(definition), Some(home)) => {
+                    self.expander
+                        .expand(&definition.body, &expandable.tokens, home)
+                }
+                _ => Some(expandable.tokens.to_string()),
+            };
+            let text = match header {
+                Some(header) => text.map(|text| format!("{header} {{ {text} }}")),
+                None => text,
+            };
+            let expanded = Expanded::from(text.and_then(|text| parse::parse(&text).ok()));
+            if let Some(key) = stored {
+                self.cache.store_expansion(key, &expanded);
             }
-            None => Some(tokens.to_string()),
+            expanded
         };
-        let text = match &expandable.impl_header {
-            Some(header) => text.map(|text| format!("{header} {{ {text} }}")),
-            None => text,
-        };
-        let items = text.and_then(|text| parse::parse(&text).ok());
-        let built = items.map(|mut items| {
+        let built = expanded.items().map(|mut items| {
             items.nest(&expandable.inline);
             Rc::new(self.build(visit, &items))
         });
@@ -1348,6 +1362,25 @@ fn alias_key(
     }
     list(&mut key, crates);
     (key, paths.len())
+}
+
+/// The key an expansion's items are stored under, the SHA-1 of its macro body, home crate name,
+/// invocation tokens and impl header, each marked present or absent and prefixed by its length.
+/// `None` when the hasher detects a collision attack.
+fn expansion_key(parts: [Option<&str>; 4]) -> Option<ObjectId> {
+    let mut hasher = gix::hash::hasher(gix::hash::Kind::Sha1);
+    for part in parts {
+        match part {
+            Some(text) => {
+                let len = u64::try_from(text.len()).expect("lengths fit in u64");
+                hasher.update(&[1]);
+                hasher.update(&len.to_le_bytes());
+                hasher.update(text.as_bytes());
+            }
+            None => hasher.update(&[0]),
+        }
+    }
+    hasher.try_finalize().ok()
 }
 
 /// The link before the first one of a chain in [`Indexer::copy_below`].
