@@ -1,6 +1,9 @@
 //! Interned identifiers and item paths shared by every snapshot of a scan.
 
 use std::collections::HashMap;
+use std::hash::{BuildHasher, RandomState};
+
+use hashbrown::HashTable;
 
 use crate::ItemKind;
 
@@ -15,8 +18,13 @@ pub(crate) type PathId = u32;
 pub(crate) struct Interner {
     syms: HashMap<Box<str>, Sym>,
     names: Vec<Box<str>>,
-    paths: HashMap<Box<[Sym]>, PathId>,
-    segments: Vec<Box<[Sym]>>,
+    /// The segments of every path, one path after another.
+    arena: Vec<Sym>,
+    /// Where the segments of each path end in `arena`.
+    ends: Vec<u32>,
+    /// Every path, found by the hash of its segments.
+    paths: HashTable<PathId>,
+    state: RandomState,
     kinds: Vec<ItemKind>,
     /// Paths [`Self::child`] found, by their parent and last segment.
     children: HashMap<(PathId, Sym), PathId>,
@@ -48,19 +56,37 @@ impl Interner {
 
     /// The id of `segments`, interning it with `kind` when new. The first kind seen sticks.
     pub(crate) fn path(&mut self, segments: &[Sym], kind: ItemKind) -> PathId {
-        if let Some(&id) = self.paths.get(segments) {
+        let hash = self.state.hash_one(segments);
+        let known = self.paths.find(hash, |&known| {
+            span(&self.arena, &self.ends, known) == segments
+        });
+        if let Some(&id) = known {
             return id;
         }
-        let id = PathId::try_from(self.segments.len()).expect("fewer than 2^32 paths");
-        self.segments.push(segments.into());
-        self.paths.insert(segments.into(), id);
+        let id = PathId::try_from(self.ends.len()).expect("fewer than 2^32 paths");
+        self.arena.extend_from_slice(segments);
+        let end = u32::try_from(self.arena.len()).expect("fewer than 2^32 segments");
+        self.ends.push(end);
+        let Self {
+            arena,
+            ends,
+            paths,
+            state,
+            ..
+        } = self;
+        paths.insert_unique(hash, id, |&known| state.hash_one(span(arena, ends, known)));
         self.kinds.push(kind);
         id
     }
 
     /// The id of `segments` when it was ever interned.
     pub(crate) fn find_path(&self, segments: &[Sym]) -> Option<PathId> {
-        self.paths.get(segments).copied()
+        let hash = self.state.hash_one(segments);
+        self.paths
+            .find(hash, |&known| {
+                span(&self.arena, &self.ends, known) == segments
+            })
+            .copied()
     }
 
     /// The id of `parent`'s segments followed by `last`, interning it with `kind` when new as
@@ -81,7 +107,7 @@ impl Interner {
 
     /// The segments of `id`.
     pub(crate) fn segments(&self, id: PathId) -> &[Sym] {
-        &self.segments[index(id)]
+        span(&self.arena, &self.ends, id)
     }
 
     /// The kind `id` was first seen with.
@@ -109,4 +135,11 @@ impl Interner {
 
 fn index(id: u32) -> usize {
     usize::try_from(id).expect("u32 ids fit in usize on supported targets")
+}
+
+/// The segments of path `id` in `arena`, whose paths end at `ends`.
+fn span<'a>(arena: &'a [Sym], ends: &[u32], id: PathId) -> &'a [Sym] {
+    let id = index(id);
+    let start = id.checked_sub(1).map_or(0, |before| index(ends[before]));
+    &arena[start..index(ends[id])]
 }
