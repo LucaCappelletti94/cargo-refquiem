@@ -19,11 +19,57 @@ use crate::{
     Suggestion, UnusedMarker, entry, stdlib, suggest,
 };
 
-/// What one commit of the range declares beyond head.
-struct State {
-    /// Paths of the commit that head lacks.
-    missing: HashSet<PathId>,
-    complete: bool,
+/// What the commits of the range declare beyond head, each distinct tree stored once.
+#[derive(Default)]
+struct States {
+    /// The distinct tree of each commit, in walk order, as an index into `complete`.
+    slot_of: Vec<usize>,
+    /// Whether each distinct tree could be read entirely.
+    complete: Vec<bool>,
+    /// Every path some tree has and head lacks, with the trees having it as sorted runs of
+    /// consecutive slots, first and last included.
+    missing: HashMap<PathId, Vec<(u32, u32)>>,
+}
+
+impl States {
+    /// Adds the next distinct tree, with the paths it has that head lacks, returning its slot.
+    fn add_tree(&mut self, missing: impl Iterator<Item = PathId>, complete: bool) -> usize {
+        let slot = self.complete.len();
+        let at = u32::try_from(slot).expect("fewer than 2^32 trees");
+        for id in missing {
+            let runs = self.missing.entry(id).or_default();
+            match runs.last_mut() {
+                Some((_, last)) if *last + 1 == at => *last = at,
+                _ => runs.push((at, at)),
+            }
+        }
+        self.complete.push(complete);
+        slot
+    }
+
+    /// Whether the tree of commit `i` could be read entirely.
+    fn complete(&self, i: usize) -> bool {
+        self.complete[self.slot_of[i]]
+    }
+
+    /// Whether the tree of commit `i` has `id` where head lacks it.
+    fn missing(&self, i: usize, id: PathId) -> bool {
+        let slot = u32::try_from(self.slot_of[i]).expect("fewer than 2^32 trees");
+        self.missing.get(&id).is_some_and(|runs| {
+            let at = runs.partition_point(|&(_, last)| last < slot);
+            runs.get(at).is_some_and(|&(first, _)| first <= slot)
+        })
+    }
+
+    /// Whether commit `i` has `id` where head lacks it, read from a tree read entirely.
+    fn has(&self, i: usize, id: PathId) -> bool {
+        self.complete(i) && self.missing(i, id)
+    }
+
+    /// Every path some tree has and head lacks.
+    fn paths(&self) -> impl Iterator<Item = PathId> + '_ {
+        self.missing.keys().copied()
+    }
 }
 
 /// Where the scanned workspace sits inside the repository.
@@ -84,14 +130,10 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let head_index = indexer.index(&*head_snapshot, &layout.workspace, true)?;
     indexer.use_head_macros(&head_index);
 
-    let (slots, state_of) = index_range(&mut indexer, &repo, &commits, &layout, &head_index)?;
-    let states: Vec<&State> = state_of.iter().map(|&slot| &slots[slot]).collect();
+    let states = index_range(&mut indexer, &repo, &commits, &layout, &head_index)?;
 
-    let mut removed: Vec<PathId> = slots
-        .iter()
-        .flat_map(|s| s.missing.iter().copied())
-        .collect::<HashSet<_>>()
-        .into_iter()
+    let mut removed: Vec<PathId> = states
+        .paths()
         .filter(|&id| !kept_by_macro(&indexer.interner, &head_index, id))
         .collect();
     let removals = removals(&indexer.interner, &removed, &commits, &states);
@@ -166,13 +208,13 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
 /// The walked commits and their states, children first.
 struct History<'a> {
     commits: &'a [git::Commit],
-    states: &'a [&'a State],
+    states: &'a States,
     position: HashMap<ObjectId, usize>,
     head: &'a Head,
 }
 
 impl<'a> History<'a> {
-    fn new(commits: &'a [git::Commit], states: &'a [&'a State], head: &'a Head) -> Self {
+    fn new(commits: &'a [git::Commit], states: &'a States, head: &'a Head) -> Self {
         let position = commits.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
         Self {
             commits,
@@ -209,7 +251,7 @@ impl History<'_> {
     /// The change that removed `id`: the uncommitted changes when `HEAD` has it, else the
     /// commit closest to head that lacks it while every parent has it.
     fn removal(&self, id: PathId) -> Option<RemovedAt> {
-        let has = |i: usize| self.states[i].complete && self.states[i].missing.contains(&id);
+        let has = |i: usize| self.states.has(i, id);
         if let Head::WorkTree(Some(head_commit)) = self.head
             && self.position.get(head_commit).is_some_and(|&i| has(i))
         {
@@ -219,7 +261,7 @@ impl History<'_> {
             .iter()
             .enumerate()
             .position(|(i, commit)| {
-                let lacks = self.states[i].complete && !self.states[i].missing.contains(&id);
+                let lacks = self.states.complete(i) && !self.states.missing(i, id);
                 lacks
                     && !commit.parents.is_empty()
                     && commit
@@ -232,10 +274,9 @@ impl History<'_> {
 
     /// The tree of the oldest commit that has `id`, where it first appeared.
     fn first_tree(&self, id: PathId) -> Option<ObjectId> {
-        let at = self
-            .states
-            .iter()
-            .rposition(|state| state.missing.contains(&id))?;
+        let at = (0..self.commits.len())
+            .rev()
+            .find(|&i| self.states.missing(i, id))?;
         Some(self.commits[at].tree)
     }
 }
@@ -363,32 +404,29 @@ fn filter(
     Filter::new(config, workspace_dir, workspace, package_dir)
 }
 
-/// Indexes each distinct tree of the range once, returning the states and each commit's state.
+/// Indexes each distinct tree of the range once, returning what each commit declares beyond head.
 fn index_range(
     indexer: &mut Indexer,
     repo: &gix::Repository,
     commits: &[git::Commit],
     layout: &Layout,
     head_index: &Index,
-) -> Result<(Vec<State>, Vec<usize>), Error> {
-    let mut slots: Vec<State> = Vec::new();
-    let mut state_of = Vec::with_capacity(commits.len());
+) -> Result<States, Error> {
+    let mut states = States::default();
     let mut by_tree: HashMap<ObjectId, usize> = HashMap::new();
     for commit in commits {
         if let Some(&slot) = by_tree.get(&commit.tree) {
-            state_of.push(slot);
+            states.slot_of.push(slot);
             continue;
         }
         let snapshot = TreeSnapshot::new(repo, commit.tree);
         let index = indexer.index(&snapshot, &layout.workspace, false)?;
-        by_tree.insert(commit.tree, slots.len());
-        state_of.push(slots.len());
-        slots.push(State {
-            missing: index.paths.difference(&head_index.paths).copied().collect(),
-            complete: index.complete,
-        });
+        let missing = index.paths.difference(&head_index.paths).copied();
+        let slot = states.add_tree(missing, index.complete);
+        by_tree.insert(commit.tree, slot);
+        states.slot_of.push(slot);
     }
-    Ok((slots, state_of))
+    Ok(states)
 }
 
 /// A name in a suppression marker of head.
@@ -448,14 +486,13 @@ fn removals(
     interner: &Interner,
     removed: &[PathId],
     commits: &[git::Commit],
-    states: &[&State],
+    states: &States,
 ) -> Vec<Removal> {
     let mut found: Vec<(usize, String, Removal)> = removed
         .iter()
         .filter(|&&id| interner.kind(id) == ItemKind::Dependency)
         .filter_map(|&id| {
-            let at = (0..commits.len())
-                .find(|&i| states[i].complete && states[i].missing.contains(&id))?;
+            let at = (0..commits.len()).find(|&i| states.has(i, id))?;
             let segments = interner.segments(id);
             let removal = Removal {
                 entry: id,
@@ -1191,4 +1228,46 @@ fn comparable(kind: ItemKind, name: &str) -> String {
 /// The suffixes of `segments` with at least two segments, longest first.
 fn suffixes(segments: &[Sym]) -> impl Iterator<Item = &[Sym]> {
     std::iter::successors(Some(segments), |rest| rest.get(1..)).take_while(|rest| rest.len() >= 2)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::States;
+
+    /// The states of one commit per tree, each tree read entirely and missing `trees[i]`.
+    fn states(trees: &[&[u32]]) -> States {
+        let mut states = States::default();
+        for tree in trees {
+            let slot = states.add_tree(tree.iter().copied(), true);
+            states.slot_of.push(slot);
+        }
+        states
+    }
+
+    #[test]
+    fn a_path_is_missing_exactly_in_the_trees_of_its_runs() {
+        let states = states(&[&[7], &[7, 8], &[7], &[8], &[7], &[]]);
+        let seven: Vec<bool> = (0..6).map(|i| states.missing(i, 7)).collect();
+        assert_eq!(seven, [true, true, true, false, true, false]);
+        let eight: Vec<bool> = (0..6).map(|i| states.missing(i, 8)).collect();
+        assert_eq!(eight, [false, true, false, true, false, false]);
+        assert!(!states.missing(0, 9));
+    }
+
+    #[test]
+    fn a_commit_repeating_an_earlier_tree_reads_that_tree() {
+        let mut states = states(&[&[7], &[]]);
+        states.slot_of.push(0);
+        assert!(states.missing(2, 7));
+        assert!(!states.missing(1, 7));
+    }
+
+    #[test]
+    fn an_incomplete_tree_has_no_path_it_lists() {
+        let mut states = States::default();
+        let slot = states.add_tree([7].into_iter(), false);
+        states.slot_of.push(slot);
+        assert!(states.missing(0, 7));
+        assert!(!states.has(0, 7));
+    }
 }
