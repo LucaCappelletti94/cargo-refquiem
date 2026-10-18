@@ -463,11 +463,15 @@ fn a_file_that_does_not_parse_at_head_is_an_error() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "pub fn fine() {}\n");
     repo.commit("start");
-    repo.write("src/lib.rs", "pub fn broken( {}\n");
+    repo.write("src/lib.rs", "\npub fn broken( {}\n");
 
     let error = refquiem::run(&repo.options()).unwrap_err();
 
-    assert!(error.to_string().contains("src/lib.rs"), "{error}");
+    assert!(
+        matches!(error, refquiem::Error::Parse { ref path, ref message }
+            if path == "src/lib.rs" && message.starts_with("2:")),
+        "{error}"
+    );
 }
 
 #[test]

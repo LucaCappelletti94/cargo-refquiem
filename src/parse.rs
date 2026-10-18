@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 use proc_macro2::{TokenStream, TokenTree};
 use serde::{Deserialize, Serialize};
+use syn::parse::{ParseStream, Parser};
 use syn::{Attribute, Fields, ImplItem, Item, TraitItem, Type, UseTree, Visibility};
 
 use crate::ItemKind;
@@ -163,13 +164,38 @@ pub(crate) fn parse(source: &str) -> Result<FileItems, String> {
             collector.items(&file.items);
             collector.out
         })
-        .map_err(|error| {
-            let start = error.span().start();
-            format!("{}:{}: {error}", start.line, start.column + 1)
-        });
+        .map_err(|error| error_message(&error));
     // Span locations keep every parsed source alive in a thread-local map until invalidated.
     proc_macro2::extra::invalidate_current_thread_spans();
     parsed
+}
+
+/// Parses one expansion item at a time without retaining the preceding syntax trees.
+pub(crate) fn parse_expansion(source: &str) -> Result<FileItems, String> {
+    let parsed = (|input: ParseStream<'_>| -> syn::Result<FileItems> {
+        let _ = Attribute::parse_inner(input)?;
+        let mut collector = Collector {
+            out: FileItems::default(),
+            module: Vec::new(),
+            source,
+        };
+        while !input.is_empty() {
+            let item: Item = input.parse()?;
+            collector.items(std::slice::from_ref(&item));
+        }
+        Ok(collector.out)
+    })
+    .parse_str(source)
+    .map_err(|error| error_message(&error));
+    // Span locations keep every parsed source alive in a thread-local map until invalidated.
+    proc_macro2::extra::invalidate_current_thread_spans();
+    parsed
+}
+
+/// The message of a parse `error`, prefixed by its line and column in the parsed text.
+fn error_message(error: &syn::Error) -> String {
+    let start = error.span().start();
+    format!("{}:{}: {error}", start.line, start.column + 1)
 }
 
 /// A member of an item: its name, kind, whether it is `pub`, and its serialized spellings.
@@ -843,4 +869,98 @@ fn string_literal(expr: &syn::Expr) -> Option<String> {
 /// `name` without a leading `r#`.
 pub(crate) fn strip_raw(name: &str) -> &str {
     name.strip_prefix("r#").unwrap_or(name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FileItems, ItemKind, parse_expansion};
+
+    /// The named items of `out`, in order.
+    fn named(out: &FileItems) -> Vec<(Vec<String>, ItemKind, bool, Option<String>)> {
+        out.items
+            .iter()
+            .map(|d| (d.path.clone(), d.kind, d.public, d.signature.clone()))
+            .collect()
+    }
+
+    /// The re-exports of `out`, in order.
+    fn reexports(out: &FileItems) -> Vec<(Vec<String>, Option<String>, bool)> {
+        out.uses
+            .iter()
+            .map(|u| (u.source.clone(), u.name.clone(), u.public))
+            .collect()
+    }
+
+    #[test]
+    fn a_malformed_trailing_item_fails_the_whole_expansion() {
+        let source = "pub fn ok() -> u8 {\n    1\n}\nstruct;\n";
+        assert!(parse_expansion(source).is_err());
+        let unterminated = "pub fn ok() -> u8 {\n    1\n}\nfn broken(\n";
+        assert!(parse_expansion(unterminated).is_err());
+    }
+
+    #[test]
+    fn a_multi_item_expansion_keeps_its_declarations_and_signatures() {
+        let source = "\n#![doc = \"Geometry\"]\npub use crate::geo::{Circle, Circle as Ring};\npub trait Shape: Default {\n    fn area(&self) -> f64;\n}\npub struct Point {\n    pub x: u32,\n    pub y: u32,\n}\npub fn distance(a: u32, b: &u32) -> f64 {\n    0.\n}\nimpl Point {\n    pub fn norm(self, scale: u32) -> f64 {\n        0.\n    }\n}\n";
+        let out = parse_expansion(source).expect("a valid expansion parses");
+        assert_eq!(
+            named(&out),
+            vec![
+                (vec!["Shape".into()], ItemKind::Trait, true, None),
+                (
+                    vec!["Shape".into(), "area".into()],
+                    ItemKind::Method,
+                    true,
+                    Some("(& self) -> f64".into())
+                ),
+                (vec!["Point".into()], ItemKind::Struct, true, None),
+                (
+                    vec!["Point".into(), "x".into()],
+                    ItemKind::Field,
+                    true,
+                    None
+                ),
+                (
+                    vec!["Point".into(), "y".into()],
+                    ItemKind::Field,
+                    true,
+                    None
+                ),
+                (
+                    vec!["distance".into()],
+                    ItemKind::Function,
+                    true,
+                    Some("(u32, & u32) -> f64".into())
+                ),
+            ]
+        );
+        assert_eq!(
+            reexports(&out),
+            vec![
+                (
+                    vec!["crate".into(), "geo".into(), "Circle".into()],
+                    Some("Circle".into()),
+                    true
+                ),
+                (
+                    vec!["crate".into(), "geo".into(), "Circle".into()],
+                    Some("Ring".into()),
+                    true
+                ),
+            ]
+        );
+        assert_eq!(out.impls[0].self_ty, ["Point"]);
+        assert_eq!(
+            out.impls[0].items,
+            [(
+                "norm".into(),
+                ItemKind::Method,
+                true,
+                Some("(self, u32) -> f64".into())
+            )]
+        );
+        assert_eq!(out.lends[0].owner, ["Shape"]);
+        assert_eq!(out.lends[0].source, ["Default"]);
+        assert_eq!(out.params, ["a", "b", "scale"]);
+    }
 }

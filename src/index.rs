@@ -626,7 +626,7 @@ impl Indexer {
                 Some(header) => text.map(|text| format!("{header} {{ {text} }}")),
                 None => text,
             };
-            let expanded = Expanded::from(text.and_then(|text| parse::parse(&text).ok()));
+            let expanded = Expanded::from(text.and_then(|text| parse::parse_expansion(&text).ok()));
             if let Some(key) = stored {
                 self.cache.store_expansion(key, &expanded);
             }
