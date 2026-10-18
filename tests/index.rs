@@ -291,6 +291,25 @@ fn private_uses_do_not_create_reported_paths() {
 }
 
 #[test]
+fn trees_with_the_same_items_but_another_glob_source_reexport_differently() {
+    let repo = Repo::new();
+    let lib = |source: &str| {
+        format!(
+            "mod a {{\n    pub fn kept() {{}}\n}}\nmod b {{\n    pub fn moved() {{}}\n}}\npub use {source}::*;\n"
+        )
+    };
+    repo.write("src/lib.rs", &lib("a"));
+    repo.commit("glob from a");
+    repo.write("src/lib.rs", &lib("b"));
+    repo.commit("glob from b");
+    repo.write("src/lib.rs", &lib("a"));
+    repo.write("README.md", "`fixture::moved`\n");
+    repo.commit("glob from a again");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::moved"]);
+}
+
+#[test]
 fn a_module_reexporting_its_parent_does_not_nest_the_crate_into_itself() {
     let repo = Repo::new();
     repo.write(

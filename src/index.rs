@@ -1,7 +1,9 @@
 //! Every item path and manifest entry a snapshot declares, assembled from its crates' module
 //! trees and manifests.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::hash_map::DefaultHasher;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use gix::ObjectId;
@@ -238,6 +240,8 @@ pub(crate) struct Indexer {
     /// The crate names of every workspace target in any indexed snapshot.
     pub(crate) crates: HashSet<Sym>,
     manifest_dirs: ManifestDirs,
+    /// Recent alias resolutions of snapshots other than head, least recently used first.
+    aliases: VecDeque<AliasEntry>,
 }
 
 impl Indexer {
@@ -253,6 +257,7 @@ impl Indexer {
             members: BTreeMap::new(),
             crates: HashSet::new(),
             manifest_dirs: ManifestDirs::new(),
+            aliases: VecDeque::new(),
         }
     }
 
@@ -372,13 +377,17 @@ impl Indexer {
         let reached = self.reach(snapshot, stack, head, &outside, &mut index)?;
         let uses: Vec<&UseDecl> = reached.contributions().flat_map(|c| &c.uses).collect();
         let lends: Vec<&LendDecl> = reached.contributions().flat_map(|c| &c.lends).collect();
-        let mut hidden = hidden_paths(
+        let hidden = hidden_paths(
             reached
                 .contributions()
                 .map(|c| (c.hidden.as_slice(), c.exposed.as_slice())),
         );
-        index.reexports =
-            self.resolve_aliases(&mut index.paths, &mut hidden, &uses, &lends, &crates);
+        index.reexports = if head {
+            let mut hidden = hidden;
+            self.resolve_aliases(&mut index.paths, &mut hidden, &uses, &lends, &crates)
+        } else {
+            self.recalled_aliases(&mut index.paths, hidden, &uses, &lends, &crates)
+        };
         if head {
             index.alive = macro_idents(&mut self.interner, &reached);
             index.unexpanded = reached
@@ -1085,6 +1094,50 @@ impl Indexer {
         reexports
     }
 
+    /// [`Self::resolve_aliases`] for a snapshot other than head, reusing the result of a recent
+    /// snapshot whose inputs were identical. A resolution reads nothing but its inputs and the
+    /// paths it interns, which stay interned, so the reused result is the one it would compute.
+    fn recalled_aliases(
+        &mut self,
+        paths: &mut HashSet<PathId>,
+        mut hidden: HashSet<PathId>,
+        uses: &[&UseDecl],
+        lends: &[&LendDecl],
+        crates: &[Sym],
+    ) -> Reexports {
+        let (key, base) = alias_key(paths, &hidden, uses, lends, crates);
+        let mut hasher = DefaultHasher::new();
+        key.hash(&mut hasher);
+        let hash = hasher.finish();
+        let found = self
+            .aliases
+            .iter()
+            .position(|entry| entry.hash == hash && entry.key == key);
+        if let Some(entry) = found.and_then(|at| self.aliases.remove(at)) {
+            paths.extend(&entry.added);
+            let reexports = entry.reexports.clone();
+            self.aliases.push_back(entry);
+            return reexports;
+        }
+        let reexports = self.resolve_aliases(paths, &mut hidden, uses, lends, crates);
+        let before = &key[1..=base];
+        let added = paths
+            .iter()
+            .copied()
+            .filter(|id| before.binary_search(id).is_err())
+            .collect();
+        if self.aliases.len() == RECALLED_ALIASES {
+            self.aliases.pop_front();
+        }
+        self.aliases.push_back(AliasEntry {
+            hash,
+            key,
+            added,
+            reexports: reexports.clone(),
+        });
+        reexports
+    }
+
     fn resolve_use(
         &mut self,
         module: &[Sym],
@@ -1226,6 +1279,66 @@ struct Tree {
     children: HashMap<PathId, Vec<PathId>>,
     /// The paths whose parent was not interned yet, by the parent's segments.
     orphans: HashMap<Box<[Sym]>, Vec<PathId>>,
+}
+
+/// How many distinct alias inputs [`Indexer::recalled_aliases`] keeps, enough to find nearly
+/// every repeated input in diesel's history.
+const RECALLED_ALIASES: usize = 64;
+
+/// One alias resolution with the exact inputs it ran on.
+struct AliasEntry {
+    hash: u64,
+    /// The inputs as [`alias_key`] encodes them.
+    key: Vec<u32>,
+    /// The paths the resolution added.
+    added: Vec<PathId>,
+    reexports: Reexports,
+}
+
+/// Encodes everything [`Indexer::resolve_aliases`] reads, each list prefixed by its length and
+/// in the order the resolution reads it, the sets sorted. The sorted `paths` start at index 1,
+/// and their count is returned with the encoding.
+fn alias_key(
+    paths: &HashSet<PathId>,
+    hidden: &HashSet<PathId>,
+    uses: &[&UseDecl],
+    lends: &[&LendDecl],
+    crates: &[Sym],
+) -> (Vec<u32>, usize) {
+    fn count(key: &mut Vec<u32>, len: usize) {
+        key.push(u32::try_from(len).expect("fewer than 2^32 entries"));
+    }
+    fn list(key: &mut Vec<u32>, items: &[u32]) {
+        count(key, items.len());
+        key.extend_from_slice(items);
+    }
+    fn set(key: &mut Vec<u32>, items: &HashSet<u32>) {
+        count(key, items.len());
+        let start = key.len();
+        key.extend(items);
+        key[start..].sort_unstable();
+    }
+    let mut key = Vec::new();
+    set(&mut key, paths);
+    set(&mut key, hidden);
+    count(&mut key, uses.len());
+    for (module, source, name, public) in uses {
+        list(&mut key, module);
+        list(&mut key, source);
+        key.extend([
+            u32::from(name.is_some()),
+            name.unwrap_or(0),
+            u32::from(*public),
+        ]);
+    }
+    count(&mut key, lends.len());
+    for (module, owner, source) in lends {
+        list(&mut key, module);
+        list(&mut key, owner);
+        list(&mut key, source);
+    }
+    list(&mut key, crates);
+    (key, paths.len())
 }
 
 /// The declared path `id` stands for, given the alias and copy `origins`.
