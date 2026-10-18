@@ -1045,11 +1045,11 @@ impl Indexer {
                     if let Some(target) = target {
                         let stands_for = origin(&origins, target);
                         origins.entry(id).or_insert(stands_for);
-                        let copy = (target, alias, !public);
+                        let copy = (target, alias.as_slice(), !public);
                         self.copy_below(copy, &tree, paths, &mut origins, hidden, &mut fresh);
                     }
                 } else if let Some(target) = target {
-                    let copy = (target, module.clone(), !public);
+                    let copy = (target, module.as_slice(), !public);
                     self.copy_below(copy, &tree, paths, &mut origins, hidden, &mut fresh);
                 }
             }
@@ -1068,7 +1068,7 @@ impl Indexer {
                 if let Some(target) = target
                     && owner_known
                 {
-                    let copy = (target, owner, false);
+                    let copy = (target, owner.as_slice(), false);
                     self.copy_below(copy, &tree, paths, &mut origins, hidden, &mut fresh);
                 }
             }
@@ -1174,7 +1174,7 @@ impl Indexer {
     /// `hide` is set, joins them.
     fn copy_below(
         &mut self,
-        (from, to, hide): (PathId, Vec<Sym>, bool),
+        (from, to, hide): (PathId, &[Sym], bool),
         tree: &Tree,
         paths: &mut HashSet<PathId>,
         origins: &mut HashMap<PathId, PathId>,
@@ -1182,13 +1182,20 @@ impl Indexer {
         fresh: &mut Vec<PathId>,
     ) {
         let across = self.interner.segments(from)[0] != to[0];
-        let chain: Vec<PathId> = (1..=to.len())
-            .filter_map(|len| self.interner.find_path(&to[..len]))
-            .map(|id| origin(origins, id))
-            .collect();
-        let mut stack = vec![(from, to, chain)];
+        // The origins on each copy's chain, as links to the link before them.
+        let mut links: Vec<(PathId, usize)> = Vec::new();
+        let mut tip = NO_LINK;
+        for len in 1..=to.len() {
+            if let Some(id) = self.interner.find_path(&to[..len]) {
+                links.push((origin(origins, id), tip));
+                tip = links.len() - 1;
+            }
+        }
+        // Each entry is a source, the copy it lands at (`None` for `to` when never interned)
+        // and the tip of its chain.
+        let mut stack = vec![(from, self.interner.find_path(to), tip)];
         let mut guard = HashSet::new();
-        while let Some((source, prefix, chain)) = stack.pop() {
+        while let Some((source, prefix, tip)) = stack.pop() {
             if !guard.insert(source) {
                 continue;
             }
@@ -1201,10 +1208,13 @@ impl Indexer {
                     .segments(child)
                     .last()
                     .expect("children are non-empty paths");
-                let mut path = prefix.clone();
-                path.push(last);
                 let kind = self.interner.kind(child);
-                let id = self.interner.path(&path, kind);
+                let id = if let Some(parent) = prefix {
+                    self.interner.child(parent, last, kind)
+                } else {
+                    let path: Vec<Sym> = to.iter().copied().chain([last]).collect();
+                    self.interner.path(&path, kind)
+                };
                 if paths.insert(id) {
                     fresh.push(id);
                     if hide || hidden.contains(&child) {
@@ -1213,10 +1223,9 @@ impl Indexer {
                 }
                 let child_origin = origin(origins, child);
                 origins.entry(id).or_insert(child_origin);
-                if !chain.contains(&child_origin) {
-                    let mut deeper = chain.clone();
-                    deeper.push(child_origin);
-                    stack.push((child, path, deeper));
+                if !on_chain(&links, tip, child_origin) {
+                    links.push((child_origin, tip));
+                    stack.push((child, Some(id), links.len() - 1));
                 }
             }
         }
@@ -1339,6 +1348,20 @@ fn alias_key(
     }
     list(&mut key, crates);
     (key, paths.len())
+}
+
+/// The link before the first one of a chain in [`Indexer::copy_below`].
+const NO_LINK: usize = usize::MAX;
+
+/// Whether `origin` is on the chain of `links` ending at `tip`.
+fn on_chain(links: &[(PathId, usize)], mut tip: usize, origin: PathId) -> bool {
+    while let Some(&(on, before)) = links.get(tip) {
+        if on == origin {
+            return true;
+        }
+        tip = before;
+    }
+    false
 }
 
 /// The declared path `id` stands for, given the alias and copy `origins`.

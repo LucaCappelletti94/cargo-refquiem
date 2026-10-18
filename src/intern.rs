@@ -18,6 +18,10 @@ pub(crate) struct Interner {
     paths: HashMap<Box<[Sym]>, PathId>,
     segments: Vec<Box<[Sym]>>,
     kinds: Vec<ItemKind>,
+    /// Paths [`Self::child`] found, by their parent and last segment.
+    children: HashMap<(PathId, Sym), PathId>,
+    /// The segments [`Self::child`] builds a path in.
+    scratch: Vec<Sym>,
 }
 
 impl Interner {
@@ -57,6 +61,22 @@ impl Interner {
     /// The id of `segments` when it was ever interned.
     pub(crate) fn find_path(&self, segments: &[Sym]) -> Option<PathId> {
         self.paths.get(segments).copied()
+    }
+
+    /// The id of `parent`'s segments followed by `last`, interning it with `kind` when new as
+    /// [`Self::path`] does, without hashing the whole segment list again for a pair seen before.
+    pub(crate) fn child(&mut self, parent: PathId, last: Sym, kind: ItemKind) -> PathId {
+        if let Some(&id) = self.children.get(&(parent, last)) {
+            return id;
+        }
+        let mut path = std::mem::take(&mut self.scratch);
+        path.clear();
+        path.extend_from_slice(self.segments(parent));
+        path.push(last);
+        let id = self.path(&path, kind);
+        self.scratch = path;
+        self.children.insert((parent, last), id);
+        id
     }
 
     /// The segments of `id`.
