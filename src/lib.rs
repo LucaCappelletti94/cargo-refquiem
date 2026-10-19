@@ -4,6 +4,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 mod cache;
+mod config;
 mod deps;
 mod entry;
 mod error;
@@ -43,11 +44,15 @@ pub enum Range {
 pub struct Options {
     /// A directory inside the repository and the workspace.
     pub root: PathBuf,
-    /// The commit range.
+    /// The commit range, `Full` taking the config file's `since` when it has one.
     pub range: Range,
     /// Where parsed files are cached between runs and the manifests that locate dependency
     /// sources are written, `target/refquiem` of the workspace when absent.
     pub cache_dir: Option<PathBuf>,
+    /// The config file read instead of the workspace's `.refquiem.toml`.
+    pub config: Option<PathBuf>,
+    /// The only workspace member whose files are scanned for mentions.
+    pub package: Option<String>,
 }
 
 impl Options {
@@ -58,6 +63,8 @@ impl Options {
             root,
             range: Range::Full,
             cache_dir: None,
+            config: None,
+            package: None,
         }
     }
 }
@@ -260,6 +267,21 @@ pub struct Report {
     /// Removed dependencies whose sources cargo could not resolve, so their items went
     /// unchecked.
     pub skipped: Vec<Skipped>,
+    /// Names in `refquiem: allow(...)` markers that suppressed no mention.
+    pub unused_markers: Vec<UnusedMarker>,
+}
+
+/// A name in a suppression marker that suppressed no mention.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnusedMarker {
+    /// The file holding the marker, from the repository root.
+    pub file: String,
+    /// One-based line of the marker.
+    pub line: usize,
+    /// One-based character column of the name.
+    pub column: usize,
+    /// The name as written in the marker.
+    pub name: String,
 }
 
 /// A removed dependency whose items could not be checked.
@@ -272,16 +294,23 @@ pub struct Skipped {
 }
 
 impl Report {
-    /// Whether nothing stale was found.
+    /// Whether nothing stale was found and every suppression marker suppressed something.
     #[must_use]
     pub fn is_clean(&self) -> bool {
-        self.groups.is_empty()
+        self.groups.is_empty() && self.unused_markers.is_empty()
     }
 
     /// The report as printed by `cargo refquiem`.
     #[must_use]
     pub fn human(&self) -> String {
         let mut out = self.findings();
+        for marker in &self.unused_markers {
+            let _ = writeln!(
+                out,
+                "{}:{}:{}  refquiem: allow({}) suppresses nothing",
+                marker.file, marker.line, marker.column, marker.name
+            );
+        }
         for skipped in &self.skipped {
             let reason = skipped
                 .reason
@@ -299,7 +328,7 @@ impl Report {
     }
 
     fn findings(&self) -> String {
-        if self.is_clean() {
+        if self.groups.is_empty() {
             return "refquiem: no stale mentions\n".to_owned();
         }
         let mentions: usize = self.groups.iter().map(|g| g.mentions.len()).sum();
