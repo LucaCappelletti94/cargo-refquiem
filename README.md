@@ -6,7 +6,7 @@
 
 A cargo requiem for the refs your Rust code left behind.
 
-`cargo refquiem` walks your git history, finds every item that existed in some commit and is gone now, and reports the comments, doc comments, string literals and Markdown files that still name it, links to its rustdoc page included.
+`cargo refquiem` walks your git history, finds every item that existed in some commit and is gone now, and reports the comments, doc comments, string literals and Markdown files that still name it, links to its rustdoc page included. Named imports resolve item paths, and re-export expansion stops at module cycles.
 
 ```sh
 cargo refquiem                                   # every commit, against the working tree

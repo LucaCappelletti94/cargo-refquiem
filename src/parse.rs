@@ -16,6 +16,8 @@ pub(crate) struct FileItems {
     pub(crate) impls: Vec<Impl>,
     /// Re-exports and renaming imports.
     pub(crate) uses: Vec<Use>,
+    /// Plain private imports used to resolve written names within their module.
+    pub(crate) imports: Vec<Use>,
     /// `mod name;` declarations whose body lives in another file.
     pub(crate) mods: Vec<ModDecl>,
     /// Item-position `include!("file")` invocations.
@@ -42,7 +44,7 @@ pub(crate) struct Impl {
     pub(crate) items: Vec<(String, ItemKind)>,
 }
 
-/// A `use` that creates a path.
+/// A named import, type alias or glob re-export.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Use {
     pub(crate) module: Vec<String>,
@@ -353,7 +355,7 @@ fn uses(
             uses(&path.tree, prefix, public, module, out);
             prefix.pop();
         }
-        UseTree::Name(name) if public => {
+        UseTree::Name(name) => {
             let ident = strip_raw(&name.ident.to_string()).to_owned();
             let (source, name) = if ident == "self" {
                 (prefix.clone(), prefix.last().cloned())
@@ -363,11 +365,16 @@ fn uses(
                 (source, Some(ident))
             };
             if name.is_some() {
-                out.uses.push(Use {
+                let decl = Use {
                     module: module.to_vec(),
                     source,
                     name,
-                });
+                };
+                if public {
+                    out.uses.push(decl);
+                } else {
+                    out.imports.push(decl);
+                }
             }
         }
         UseTree::Rename(rename) => {
@@ -396,7 +403,7 @@ fn uses(
                 uses(tree, prefix, public, module, out);
             }
         }
-        UseTree::Name(_) | UseTree::Glob(_) => {}
+        UseTree::Glob(_) => {}
     }
 }
 

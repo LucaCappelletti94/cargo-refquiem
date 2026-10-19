@@ -30,6 +30,9 @@ pub(crate) struct Index {
 /// `None` for a glob.
 type UseDecl = (Vec<Sym>, Vec<Sym>, Option<Sym>);
 
+/// A named import, its module, source and local name.
+type Import = (Vec<Sym>, Vec<Sym>, Sym);
+
 /// One file read as one module of one crate, reusable across snapshots.
 struct Contribution {
     paths: Vec<PathId>,
@@ -195,9 +198,10 @@ impl Indexer {
             let path = self.within(&module, &decl.path);
             paths.push(self.interner.path(&path, decl.kind));
         }
+        let imports = self.imports(&module, items, &paths);
         for block in &items.impls {
             let within = self.within(&module, &block.module);
-            let self_ty: Vec<Sym> = self.syms(&block.self_ty);
+            let self_ty = imported(&imports, &within, self.syms(&block.self_ty));
             let Some(mut base) = self.resolve(&within, &self_ty, crate_sym) else {
                 continue;
             };
@@ -260,7 +264,9 @@ impl Indexer {
             .iter()
             .map(|u| {
                 let name = u.name.as_deref().map(|n| self.interner.sym(n));
-                (self.within(&module, &u.module), self.syms(&u.source), name)
+                let within = self.within(&module, &u.module);
+                let source = imported(&imports, &within, self.syms(&u.source));
+                (within, source, name)
             })
             .collect();
         let invocations = items
@@ -285,6 +291,29 @@ impl Indexer {
             macro_rules,
             failure: None,
         }
+    }
+
+    fn imports(&mut self, module: &[Sym], items: &FileItems, paths: &[PathId]) -> Vec<Import> {
+        let declared: HashSet<PathId> = paths.iter().copied().collect();
+        items
+            .uses
+            .iter()
+            .chain(&items.imports)
+            .filter_map(|u| {
+                let name = self.interner.sym(u.name.as_deref()?);
+                let mut within = self.within(module, &u.module);
+                within.push(name);
+                if self
+                    .interner
+                    .find_path(&within)
+                    .is_some_and(|id| declared.contains(&id))
+                {
+                    return None;
+                }
+                within.pop();
+                Some((within, self.syms(&u.source), name))
+            })
+            .collect()
     }
 
     fn syms(&mut self, names: &[String]) -> Vec<Sym> {
@@ -332,6 +361,7 @@ impl Indexer {
     /// Adds re-export paths and, for sources inside the workspace, everything below them.
     fn resolve_uses(&mut self, paths: &mut HashSet<PathId>, uses: &[&UseDecl], crates: &[Sym]) {
         const ROUNDS: usize = 8;
+        let mut origins = HashMap::new();
         for _ in 0..ROUNDS {
             let before = paths.len();
             let children = self.children(paths);
@@ -343,12 +373,15 @@ impl Indexer {
                 if let Some(name) = name {
                     let mut alias = module.clone();
                     alias.push(*name);
-                    paths.insert(self.interner.path(&alias, ItemKind::Reexport));
+                    let id = self.interner.path(&alias, ItemKind::Reexport);
+                    paths.insert(id);
                     if let Some(target) = target {
-                        self.copy_below(target, alias, &children, paths);
+                        let stands_for = origin(&origins, target);
+                        origins.entry(id).or_insert(stands_for);
+                        self.copy_below(target, alias, &children, paths, &mut origins);
                     }
                 } else if let Some(target) = target {
-                    self.copy_below(target, module.clone(), &children, paths);
+                    self.copy_below(target, module.clone(), &children, paths, &mut origins);
                 }
             }
             if paths.len() == before {
@@ -384,17 +417,22 @@ impl Indexer {
         crates.contains(&first).then(|| source.to_vec())
     }
 
-    /// Re-roots every path strictly below `from` under `to`.
+    /// Copies descendants without visiting a declared origin twice on one path.
     fn copy_below(
         &mut self,
         from: PathId,
         to: Vec<Sym>,
         children: &HashMap<PathId, Vec<PathId>>,
         paths: &mut HashSet<PathId>,
+        origins: &mut HashMap<PathId, PathId>,
     ) {
-        let mut stack = vec![(from, to)];
+        let chain: Vec<PathId> = (1..=to.len())
+            .filter_map(|len| self.interner.find_path(&to[..len]))
+            .map(|id| origin(origins, id))
+            .collect();
+        let mut stack = vec![(from, to, chain)];
         let mut guard = HashSet::new();
-        while let Some((source, prefix)) = stack.pop() {
+        while let Some((source, prefix, chain)) = stack.pop() {
             if !guard.insert(source) {
                 continue;
             }
@@ -407,8 +445,15 @@ impl Indexer {
                 let mut path = prefix.clone();
                 path.push(last);
                 let kind = self.interner.kind(child);
-                paths.insert(self.interner.path(&path, kind));
-                stack.push((child, path));
+                let id = self.interner.path(&path, kind);
+                paths.insert(id);
+                let child_origin = origin(origins, child);
+                origins.entry(id).or_insert(child_origin);
+                if !chain.contains(&child_origin) {
+                    let mut deeper = chain.clone();
+                    deeper.push(child_origin);
+                    stack.push((child, path, deeper));
+                }
             }
         }
     }
@@ -431,6 +476,24 @@ impl Indexer {
         }
         children
     }
+}
+
+/// The declared path represented by an alias or copied path.
+fn origin(origins: &HashMap<PathId, PathId>, id: PathId) -> PathId {
+    origins.get(&id).copied().unwrap_or(id)
+}
+
+/// Resolves a written first segment through the named imports of its module.
+fn imported(imports: &[Import], module: &[Sym], mut path: Vec<Sym>) -> Vec<Sym> {
+    for _ in 0..imports.len() {
+        let Some((_, source, _)) = imports.iter().find(|(within, source, name)| {
+            within == module && path.first() == Some(name) && source.first() != Some(name)
+        }) else {
+            break;
+        };
+        path.splice(..1, source.iter().copied());
+    }
+    path
 }
 
 /// The directory owned by `file` for `mod` declarations nested in the inline modules `inline`.
