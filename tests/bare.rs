@@ -46,6 +46,137 @@ fn lock(repo: &Repo) {
 }
 
 #[test]
+fn dropped_dependency_names_require_their_crate_root() {
+    let repo = Repo::new();
+    repo.vendor("helper", "1.0.0", "pub struct RetiredProbe842;");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[dependencies]\nhelper = \"1\"\n",
+    );
+    repo.write("src/lib.rs", "");
+    lock(&repo);
+    repo.commit("dependency");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write(
+        "README.md",
+        "`helper`, `RetiredProbe842` and `helper::RetiredProbe842`.\n",
+    );
+    repo.commit("drop dependency");
+    let rows: Vec<_> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
+    assert_eq!(
+        rows,
+        [(
+            "helper::RetiredProbe842".to_owned(),
+            "helper::RetiredProbe842".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn compiled_examples_declare_their_own_names() {
+    for (source, example, name) in [
+        (
+            "pub fn retired_probe_842() {}",
+            "fn retired_probe_842() {}\nretired_probe_842();",
+            "retired_probe_842",
+        ),
+        (
+            "pub struct RetiredProbe842;",
+            "struct RetiredProbe842;\nlet _ = RetiredProbe842;",
+            "RetiredProbe842",
+        ),
+    ] {
+        let repo = Repo::new();
+        repo.write("src/lib.rs", source);
+        repo.commit("workspace item");
+        let block = format!("```\n{example}\nfixture::{name};\n```\n");
+        let mut doc = String::new();
+        for line in block.lines() {
+            doc.push_str("/// ");
+            doc.push_str(line);
+            doc.push('\n');
+        }
+        repo.write("src/lib.rs", &format!("{doc}pub struct Kept;\n"));
+        let rows: Vec<_> = found(&repo).into_iter().map(|m| m.5).collect();
+        assert_eq!(rows, [format!("fixture::{name}")], "{example}");
+    }
+}
+
+#[test]
+fn only_methods_of_public_dependency_types_claim_bare_names() {
+    let mut mismatches = Vec::new();
+    for (source, stale) in [
+        (
+            "struct Hidden; impl Hidden { pub fn retired_probe_842(&self) {} }",
+            true,
+        ),
+        (
+            "enum Hidden {} impl Hidden { pub fn retired_probe_842(&self) {} }",
+            true,
+        ),
+        (
+            "pub struct Public; impl Public { pub fn retired_probe_842(&self) {} }",
+            false,
+        ),
+        (
+            "mod hidden { pub struct Public; impl Public { pub fn retired_probe_842(&self) {} } } pub use hidden::Public;",
+            false,
+        ),
+        (
+            "mod hidden { mod private_inner { pub struct Public; impl Public { pub fn retired_probe_842(&self) {} } } } pub use hidden::*;",
+            true,
+        ),
+        (
+            "#[cfg(feature = \"private\")] mod api { pub struct Public; impl Public { pub fn retired_probe_842(&self) {} } } #[cfg(not(feature = \"private\"))] pub mod api { pub struct Public; impl Public { pub fn retired_probe_842(&self) {} } }",
+            false,
+        ),
+    ] {
+        let repo = Repo::new();
+        repo.vendor("helper", "1.0.0", source);
+        repo.write("src/lib.rs", "pub fn retired_probe_842() {}\n");
+        repo.commit("public workspace function");
+        repo.write("src/lib.rs", "");
+        repo.write(
+            "Cargo.toml",
+            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n",
+        );
+        repo.write("README.md", "`retired_probe_842`\n");
+        let paths: Vec<_> = found(&repo).into_iter().map(|mention| mention.0).collect();
+        let expected = if stale {
+            vec!["fixture::retired_probe_842".to_owned()]
+        } else {
+            Vec::new()
+        };
+        if paths != expected {
+            mismatches.push((source, paths, expected));
+        }
+    }
+    assert_eq!(mismatches, []);
+}
+
+#[test]
+fn a_public_dependency_function_can_share_a_private_modules_name() {
+    let repo = Repo::new();
+    repo.vendor(
+        "helper",
+        "1.0.0",
+        "mod shared_name { pub fn shared_name() {} } pub use shared_name::shared_name;",
+    );
+    repo.write("src/lib.rs", "pub fn shared_name() {}\n");
+    repo.commit("workspace function");
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n",
+    );
+    repo.write("README.md", "`helper::shared_name` and `shared_name`\n");
+    assert_eq!(found(&repo), []);
+}
+
+#[test]
 fn bare_names_are_stale_unless_a_vocabulary_or_live_item_claims_them() {
     let repo = Repo::new();
     repo.write(
@@ -280,10 +411,7 @@ fn items_of_a_removed_dependency_become_stale() {
         found(&repo).into_iter().map(|m| (m.0, m.3, m.5)).collect();
     assert_eq!(
         rows,
-        [
-            ("helper::Thing".to_owned(), 2, "Thing".to_owned()),
-            ("helper::Thing".to_owned(), 11, "helper::Thing".to_owned()),
-        ]
+        [("helper::Thing".to_owned(), 11, "helper::Thing".to_owned())]
     );
     let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
     let thing = report
@@ -315,11 +443,17 @@ fn a_removed_registry_dependency_is_read_at_its_locked_version() {
         "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
     lock(&repo);
-    repo.write("README.md", "`Locked` and `Newer`.\n");
+    repo.write("README.md", "`helper::Locked` and `helper::Newer`.\n");
     repo.commit("drop helper");
 
     let rows: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
-    assert_eq!(rows, [("helper::Locked".to_owned(), "Locked".to_owned())]);
+    assert_eq!(
+        rows,
+        [
+            ("helper::Locked".to_owned(), "helper::Locked".to_owned()),
+            ("helper".to_owned(), "helper::Newer".to_owned()),
+        ]
+    );
 }
 
 #[test]
@@ -567,6 +701,402 @@ fn a_removed_dependency_is_rooted_at_its_library_name() {
     let paths: Vec<&str> = report.groups.iter().map(|g| g.path.as_str()).collect();
     assert_eq!(paths, ["weird::Thing"]);
     assert_eq!(report.skipped, []);
+}
+
+#[test]
+fn names_a_doc_example_declares_are_local_to_its_block() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn run_test() {}\npub async fn root() {}\npub static RE: u8 = 0;\npub struct Ip;\npub mod kw {}\npub fn from_reader() {}\npub struct R;\npub struct T;\npub fn rdr() {}\n#[macro_export]\nmacro_rules! gone_mac {\n    () => {};\n}\npub const LIMIT: u8 = 0;\npub enum Mode {}\npub type Alias = u8;\npub trait Draw {}\npub union Bits {\n    bits_field: u8,\n}\npub fn only_called() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// # fn run_test() {}\n/// async fn root() {}\n/// lazy_static::lazy_static! { static ref RE: u8 = 0; }\n/// struct r#Ip;\n/// mod kw {}\n/// fn from_reader<R, T: Fn() -> u8>(rdr: R) -> T { run_test(); root(); RE; Ip; kw; rdr; loop {} }\n/// macro_rules! gone_mac { () => {} }\n/// const LIMIT: u8 = 0;\n/// enum Mode {}\n/// type Alias = u8;\n/// trait Draw {}\n/// union Bits { b: u8 }\n/// gone_mac!(); let _ = (LIMIT, Mode, Alias, Draw, Bits);\n/// ```\n///\n/// ```\n/// only_called(); run_test();\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize, usize)> =
+        found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
+    assert_eq!(
+        rows,
+        [
+            ("fixture::only_called".to_owned(), 18, 5),
+            ("fixture::run_test".to_owned(), 18, 20)
+        ]
+    );
+}
+
+#[test]
+fn a_doc_example_declaration_binds_no_bound_type_or_body_name() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub const N: usize = 0;\npub struct GoneInner;\npub trait GoneBound {}\npub fn gone_second() {}\npub fn gone_px() {}\npub struct gone_type;\npub fn gone_body() {}\npub struct gone_field;\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// fn first<const N: usize, T: Into<Wrap<u8, GoneInner>> + GoneBound>(gone_second: u8, Wrapper { inner: gone_px }: Wrapper, pair: (u8, gone_type)) {}\n/// fn other() { gone_body(N); }\n/// struct Pair(gone_field);\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize, usize)> =
+        found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
+    assert_eq!(
+        rows,
+        [
+            ("fixture::GoneInner".to_owned(), 2, 47),
+            ("fixture::GoneBound".to_owned(), 2, 61),
+            ("fixture::gone_type".to_owned(), 2, 137),
+            ("fixture::gone_body".to_owned(), 3, 18),
+            ("fixture::gone_field".to_owned(), 4, 17)
+        ]
+    );
+}
+
+#[test]
+fn an_impl_header_for_leaves_later_declarations_bound() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn gone_body() {}\npub fn gone_item() {}\npub fn gone_call() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// impl Clone for Lower {\n///     fn clone(&self) -> Self {\n///         gone_body()\n///     }\n/// }\n/// for gone_item in list {\n///     gone_item;\n/// }\n/// gone_call();\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize, usize)> =
+        found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
+    assert_eq!(
+        rows,
+        [
+            ("fixture::gone_body".to_owned(), 4, 13),
+            ("fixture::gone_call".to_owned(), 10, 5)
+        ]
+    );
+}
+
+#[test]
+fn a_for_bound_leaves_later_declarations_bound_and_a_leading_for_loop_binds() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn gone_x() {}\npub struct GoneLater;\npub fn gone_call() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// for gone_x in list {\n///     gone_x;\n/// }\n/// ```\n///\n/// ```\n/// fn apply<F>(f: F) where F: for<'a> Fn(&'a u8) {}\n/// struct GoneLater;\n/// let _ = GoneLater;\n/// gone_call();\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize, usize)> =
+        found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
+    assert_eq!(rows, [("fixture::gone_call".to_owned(), 11, 5)]);
+}
+
+#[test]
+fn a_path_in_a_let_pattern_leaves_its_bindings_bound() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn gone_int() {}\n#[allow(non_camel_case_types)]\npub struct gone_ty;\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// if let Lit::Int(gone_int) = lit {\n///     gone_int;\n/// }\n/// let a: gone_ty = v;\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize, usize)> =
+        found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
+    assert_eq!(rows, [("fixture::gone_ty".to_owned(), 5, 12)]);
+}
+
+#[test]
+fn a_keyword_of_a_doc_example_names_no_serialized_spelling() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "#[derive(serde::Serialize)]\npub struct Config {\n    #[serde(rename = \"enum\")]\n    pub kind: u8,\n}\n",
+    );
+    repo.commit("renamed");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// enum Choice { A }\n/// call(r#enum);\n/// ```\n#[derive(serde::Serialize)]\npub struct Config {\n    pub b: u8,\n}\n",
+    );
+    repo.commit("drop the field");
+
+    let rows: Vec<(String, usize)> = found(&repo).into_iter().map(|m| (m.0, m.2)).collect();
+    assert_eq!(rows, [("fixture::Config::\"enum\"".to_owned(), 3)]);
+}
+
+#[test]
+fn a_string_literal_holding_one_identifier_is_data() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub const EXCEPT_TABLE: u8 = 0;\npub fn seq_shuffle_100() {}\npub fn gone_fn() {}\npub mod old {\n    pub struct Item;\n}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "pub const ARG: &str = \"EXCEPT_TABLE\";\npub fn bench(c: &mut Bencher) { c.bench_function(\"seq_shuffle_100\", |b| b.iter(|| ())); }\npub const PATH: &str = \"fixture::old::Item\";\npub const HINT: &str = \"use gone_fn instead\";\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(usize, usize, String)> =
+        found(&repo).into_iter().map(|m| (m.2, m.3, m.5)).collect();
+    assert_eq!(
+        rows,
+        [
+            (3, 25, "fixture::old::Item".to_owned()),
+            (4, 29, "gone_fn".to_owned())
+        ]
+    );
+}
+
+#[test]
+fn identifier_strings_retain_removed_serialized_spellings() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "#[derive(serde::Serialize)]\npub struct Data {\n    #[serde(rename = \"retired_label_842\")]\n    pub value: u8,\n}\npub fn retired_api_842() {}\n",
+    );
+    repo.commit("serialized field and API");
+    repo.write(
+        "src/lib.rs",
+        "pub const LABEL: &str = \"retired_label_842\";\npub const API: &str = \"retired_api_842\";\n",
+    );
+    let rows: Vec<_> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
+    assert_eq!(
+        rows,
+        [(
+            "fixture::Data::\"retired_label_842\"".to_owned(),
+            "retired_label_842".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn identifiers_in_attribute_arguments_of_a_compiled_example_are_not_names() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct VariadicArgs {\n    pub argument_count: u8,\n}\npub struct Container {\n    pub rename_all: u8,\n}\npub struct RemovedDerive;\npub struct GoneType;\npub fn gone_attr() {}\npub fn gone_inner() {}\npub fn gone_arg() {}\npub fn gone_lint() {}\npub fn gone_idx() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// #![allow(gone_inner)]\n/// #[variadic(argument_count)]\n/// #[serde(rename_all = \"camelCase\")]\n/// #[cfg_attr(test, derive(RemovedDerive), gone_arg)]\n/// #[cfg_attr(test, allow(gone_lint))]\n/// #[gone_attr]\n/// struct S { field: GoneType }\n/// let x = data[(gone_idx)];\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(usize, usize, String)> =
+        found(&repo).into_iter().map(|m| (m.2, m.3, m.5)).collect();
+    assert_eq!(
+        rows,
+        [
+            (5, 29, "RemovedDerive".to_owned()),
+            (7, 7, "gone_attr".to_owned()),
+            (8, 23, "GoneType".to_owned()),
+            (9, 19, "gone_idx".to_owned())
+        ]
+    );
+}
+
+#[test]
+fn a_root_derive_attribute_still_names_a_removed_item() {
+    assert_eq!(
+        example_reports(&["RemovedDerive"], "#[derive(RemovedDerive)]\nstruct Kept;"),
+        [("RemovedDerive".to_owned(), 1)]
+    );
+}
+
+#[test]
+fn fields_variants_arms_and_macro_keys_of_a_doc_example_are_its_own_names() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn gone_field() {}\npub struct GoneVariant;\npub fn gone_inner() {}\npub fn gone_data() {}\npub fn gone_check() {}\npub fn gone_res() {}\npub fn gone_fut() {}\npub fn gone_key() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// struct Pagination { gone_field: usize }\n/// enum E { GoneVariant(u8), Other { gone_inner: u8 } }\n/// let p = Pagination { gone_field: 1 };\n/// let _ = (p.gone_field, GoneVariant, gone_inner);\n/// match v {\n///     Some(gone_data) if gone_check(gone_data) => {}\n///     _ => {}\n/// }\n/// tokio::select! {\n///     gone_res = gone_fut => { gone_res; }\n/// }\n/// info_span!(\"x\", gone_key = \"yes\");\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize)> = found(&repo).into_iter().map(|m| (m.0, m.2)).collect();
+    assert_eq!(
+        rows,
+        [
+            ("fixture::gone_check".to_owned(), 7),
+            ("fixture::gone_fut".to_owned(), 11)
+        ]
+    );
+}
+
+/// The removed functions `names` a compiled doc example spelled as `example` still reports,
+/// with the example line each is on.
+fn example_reports(names: &[&str], example: &str) -> Vec<(String, usize)> {
+    let repo = Repo::new();
+    let mut lib = String::new();
+    for name in names {
+        lib.push_str("pub fn ");
+        lib.push_str(name);
+        lib.push_str("() {}\n");
+    }
+    repo.write("src/lib.rs", &lib);
+    repo.commit("start");
+    let mut doc = String::new();
+    for line in example.lines() {
+        doc.push_str("/// ");
+        doc.push_str(line);
+        doc.push('\n');
+    }
+    repo.write(
+        "src/lib.rs",
+        &format!("/// ```\n{doc}/// ```\npub struct Kept;\n"),
+    );
+    repo.commit("drop them");
+    let mut rows: Vec<(String, usize)> = found(&repo)
+        .into_iter()
+        .map(|m| (m.0.trim_start_matches("fixture::").to_owned(), m.2 - 1))
+        .collect();
+    rows.sort_by(|a, b| (a.1, &a.0).cmp(&(b.1, &b.0)));
+    rows
+}
+
+#[test]
+fn impl_generic_parameters_are_local_to_the_compiled_example() {
+    assert_eq!(
+        example_reports(
+            &["RetiredProbe842", "free_probe_842"],
+            "struct Container<T>(T);\nimpl<RetiredProbe842> Container<RetiredProbe842> {}\nfree_probe_842();",
+        ),
+        [("free_probe_842".to_owned(), 3)]
+    );
+}
+
+#[test]
+fn only_the_fields_and_variants_an_example_declares_are_its_own() {
+    let names = [
+        "gone_w",
+        "gone_mod",
+        "GoneMapV",
+        "GoneVar",
+        "GoneSecond",
+        "gone_named",
+        "gone_lit",
+        "gone_v",
+    ];
+    let example = "struct W<T> where T: Fn([u8; 2]) -> u8 { gone_w: T, f: gone_mod::Ty, m: HashMap<u8, GoneMapV> }\nenum E { #[default] GoneVar, Tup(u8, GoneSecond), Named { gone_named: u8 } }\nstruct Unit;\nlet _ = Other { gone_lit: 1 };\nlet _ = (gone_w, GoneVar, gone_named, gone_mod, GoneMapV, GoneSecond);\nstruct V where [u8; { 1 }]: Copy { gone_v: u8 }\nlet _ = gone_v;\nstruct Trailing";
+    let rows = example_reports(&names, example);
+    let row = |name: &str, line| (name.to_owned(), line);
+    assert_eq!(
+        rows,
+        [
+            row("GoneMapV", 1),
+            row("GoneSecond", 2),
+            row("gone_lit", 4),
+            row("GoneMapV", 5),
+            row("GoneSecond", 5),
+            row("gone_mod", 5)
+        ]
+    );
+}
+
+#[test]
+fn match_and_select_patterns_end_at_their_guard_future_or_arrow() {
+    let names = [
+        "gone_inside",
+        "gone_a",
+        "gone_guard",
+        "gone_body",
+        "gone_z",
+        "gone_b",
+        "gone_block",
+        "gone_c",
+        "gone_then",
+        "gone_else",
+        "gone_rest",
+        "gone_res",
+        "gone_fut",
+        "gone_cond",
+        "gone_v",
+        "gone_rx",
+        "gone_handle",
+        "gone_last",
+    ];
+    let example = "match run(|| { gone_inside() }) {\n    Some(gone_a) if gone_guard(gone_a) => gone_body(gone_a, gone_z),\n    Pair(gone_b, _) => { gone_block(gone_b); match q { _ => 1 } }\n    Other { gone_c, .. } => if gone_c { gone_then() } else { gone_else() },\n    1..=5 | gone_rest => gone_rest,\n}\ntokio::select! {\n    gone_res = gone_fut(), if gone_cond => { gone_res; }\n    Some(gone_v) = gone_rx => gone_handle(gone_v),\n    else => gone_last(),\n}";
+    let rows = example_reports(&names, example);
+    let row = |name: &str, line| (name.to_owned(), line);
+    assert_eq!(
+        rows,
+        [
+            row("gone_inside", 1),
+            row("gone_body", 2),
+            row("gone_guard", 2),
+            row("gone_z", 2),
+            row("gone_block", 3),
+            row("gone_else", 4),
+            row("gone_then", 4),
+            row("gone_cond", 8),
+            row("gone_fut", 8),
+            row("gone_handle", 9),
+            row("gone_rx", 9),
+            row("gone_last", 10)
+        ]
+    );
+}
+
+#[test]
+fn only_a_single_eq_at_the_top_of_macro_arguments_binds() {
+    let names = [
+        "gone_key",
+        "gone_eq",
+        "gone_arrow",
+        "gone_nested",
+        "gone_member",
+        "gone_ne",
+        "gone_late",
+        "gone_tight",
+    ];
+    let example = "info_span!(\"x\", gone_key = \"yes\", gone_eq == 1, gone_arrow => 2, f(gone_nested = 1), s.gone_member = 1, gone_late = 2, gone_tight=3);\nlet _ = (gone_key, gone_ne != 1, gone_late, gone_tight);";
+    let rows = example_reports(&names, example);
+    let row = |name: &str, line| (name.to_owned(), line);
+    assert_eq!(
+        rows,
+        [
+            row("gone_arrow", 1),
+            row("gone_eq", 1),
+            row("gone_member", 1),
+            row("gone_nested", 1),
+            row("gone_ne", 2)
+        ]
+    );
+}
+
+#[test]
+fn the_prose_of_a_doc_comment_sees_the_names_its_examples_declare() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone_reader() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// A `gone_reader` function may only read owned data.\n///\n/// ```\n/// fn gone_reader() {}\n/// ```\npub fn kept() {}\n\n/// Calls `gone_reader`.\npub fn other() {}\n",
+    );
+    repo.commit("drop gone_reader");
+
+    let rows: Vec<(String, usize)> = found(&repo).into_iter().map(|m| (m.0, m.2)).collect();
+    assert_eq!(rows, [("fixture::gone_reader".to_owned(), 8)]);
 }
 
 #[test]

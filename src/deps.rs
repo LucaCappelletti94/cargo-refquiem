@@ -183,7 +183,6 @@ fn fetched(
     for key in ["optional", "path", "workspace", "public"] {
         spec.remove(key);
     }
-    let mut label = String::from("requirement");
     if let Some((version, source)) = lock
         .as_ref()
         .and_then(|l| locked(l, &member.package, package))
@@ -195,7 +194,6 @@ fn fetched(
             spec.remove("tag");
             spec.insert("git".to_owned(), Value::from(url));
             spec.insert("rev".to_owned(), Value::from(rev));
-            label = rev.chars().take(12).collect();
         } else {
             spec.insert("version".to_owned(), Value::from(format!("={version}")));
             if let Some(source) = source.filter(|s| !CRATES_IO.contains(&s.as_str()))
@@ -204,17 +202,22 @@ fn fetched(
                 let index = source.strip_prefix("registry+").unwrap_or(&source);
                 spec.insert("registry-index".to_owned(), Value::from(index));
             }
-            label = version;
         }
     }
-    let dir = scratch.dir.join("deps").join(format!("{package}-{label}"));
     let mut manifest: Table = "[package]\nname = \"refquiem-dependency\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[lib]\npath = \"lib.rs\"\n\n[workspace]\n"
         .parse()
         .expect("the dependency manifest skeleton is valid TOML");
     let mut dependencies = Table::new();
     dependencies.insert(dependency.key.clone(), Value::Table(spec));
     manifest.insert("dependencies".to_owned(), Value::Table(dependencies));
-    write(&dir.join("Cargo.toml"), manifest.to_string().as_bytes())?;
+    let bytes = manifest.to_string().into_bytes();
+    let id = gix::objs::compute_hash(gix::hash::Kind::Sha1, gix::objs::Kind::Blob, &bytes)
+        .map_err(|source| Error::Hash {
+            path: "dependency manifest".to_owned(),
+            source,
+        })?;
+    let dir = scratch.dir.join("deps").join(id.to_string());
+    write(&dir.join("Cargo.toml"), &bytes)?;
     write(&dir.join("lib.rs"), b"")?;
     let metadata = metadata(&dir.join("Cargo.toml"), scratch.workspace_dir)?;
     // The manifest has exactly one dependency, named as its dependent spells it.
