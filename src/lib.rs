@@ -4,6 +4,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 mod cache;
+mod entry;
 mod error;
 mod git;
 mod index;
@@ -92,6 +93,16 @@ pub enum ItemKind {
     AssociatedType,
     /// A name created by `use`.
     Reexport,
+    /// A workspace member package.
+    Package,
+    /// A dependency of a workspace member, by key or by renamed package name.
+    Dependency,
+    /// A Cargo feature of a workspace member.
+    Feature,
+    /// A binary target.
+    Binary,
+    /// An example target.
+    Example,
 }
 
 impl ItemKind {
@@ -116,7 +127,21 @@ impl ItemKind {
             Self::AssociatedConst => "associated const",
             Self::AssociatedType => "associated type",
             Self::Reexport => "re-export",
+            Self::Package => "package",
+            Self::Dependency => "dependency",
+            Self::Feature => "feature",
+            Self::Binary => "binary",
+            Self::Example => "example",
         }
+    }
+
+    /// Whether this kind names a manifest entry rather than an item of the code.
+    #[must_use]
+    pub fn is_manifest_entry(self) -> bool {
+        matches!(
+            self,
+            Self::Package | Self::Dependency | Self::Feature | Self::Binary | Self::Example
+        )
     }
 }
 
@@ -206,10 +231,12 @@ pub struct Mention {
 /// A removed name and its remaining mentions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Group {
-    /// The full path of the removed name.
+    /// The full path of a removed item, or the name of a removed manifest entry.
     pub path: String,
     /// Its kind.
     pub kind: ItemKind,
+    /// For a manifest entry in a workspace of several members, the package it belonged to.
+    pub member: Option<String>,
     /// The change that removed it, unknown when no commit of the range shows the removal.
     pub removed_in: Option<RemovedIn>,
     /// Its mentions at head, by file and position.
@@ -243,12 +270,23 @@ impl Report {
             plural(mentions, "mention", "mentions"),
         );
         for group in &self.groups {
-            let _ = write!(out, "\n`{}` ({})", group.path, group.kind.describe());
+            let _ = write!(out, "\n`{}` ({}", group.path, group.kind.describe());
+            if let Some(member) = &group.member {
+                let _ = write!(out, " of `{member}`");
+            }
+            out.push(')');
+            let verb = if group.kind.is_manifest_entry() {
+                "removed"
+            } else {
+                "deleted"
+            };
             match &group.removed_in {
                 Some(RemovedIn::Commit(id)) => {
-                    let _ = write!(out, ", deleted in {}", id.get(..7).unwrap_or(id));
+                    let _ = write!(out, ", {verb} in {}", id.get(..7).unwrap_or(id));
                 }
-                Some(RemovedIn::WorkingTree) => out.push_str(", deleted in the working tree"),
+                Some(RemovedIn::WorkingTree) => {
+                    let _ = write!(out, ", {verb} in the working tree");
+                }
                 None => {}
             }
             out.push('\n');

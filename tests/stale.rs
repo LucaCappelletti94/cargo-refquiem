@@ -95,6 +95,23 @@ fn relocating_an_impl_through_an_import_preserves_its_public_method() {
 }
 
 #[test]
+fn private_imports_resolve_deref_owners_and_targets() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct Raw;\npub struct Container(Raw);\nimpl Container { pub fn stderr(&self) {} pub fn gone(&self) {} }\n",
+    );
+    repo.commit("direct methods");
+    repo.write(
+        "src/lib.rs",
+        "pub struct Raw;\nimpl Raw { pub fn stderr(&self) {} }\npub struct Container(Raw);\nmod implementation {\n    use super::{Container, Raw};\n    impl core::ops::Deref for Container {\n        type Target = Raw;\n        fn deref(&self) -> &Raw { &self.0 }\n    }\n}\n",
+    );
+    repo.write("README.md", "`Container::stderr` and `Container::gone`.\n");
+    repo.commit("implement deref through private imports");
+    assert_eq!(removed(&repo.run()), ["fixture::Container::gone"]);
+}
+
+#[test]
 fn removed_method_mentioned_in_a_doc_comment_is_reported() {
     let repo = Repo::new();
     repo.write("src/lib.rs", PARSER);
@@ -396,6 +413,24 @@ fn a_type_alias_keeps_the_members_of_its_target_alive() {
     repo.commit("rename behind an alias");
 
     assert_eq!(removed(&repo.run()), [] as [&str; 0]);
+}
+
+#[test]
+fn methods_reached_through_deref_stay_alive_on_the_dereferencing_type() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct Raw;\npub struct Container;\nimpl Container {\n    pub fn stderr(&self) {}\n    pub fn gone(&self) {}\n}\n",
+    );
+    repo.commit("methods on the container");
+    repo.write(
+        "src/lib.rs",
+        "pub struct Raw;\nimpl Raw {\n    pub fn stderr(&self) {}\n}\npub struct Container(Raw);\nimpl core::ops::Deref for Container {\n    type Target = Raw;\n    fn deref(&self) -> &Raw {\n        &self.0\n    }\n}\n",
+    );
+    repo.write("README.md", "`Container::stderr` and `Container::gone`.\n");
+    repo.commit("stderr moves behind Deref");
+
+    assert_eq!(removed(&repo.run()), ["fixture::Container::gone"]);
 }
 
 #[test]

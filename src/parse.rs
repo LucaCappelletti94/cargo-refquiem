@@ -26,6 +26,8 @@ pub(crate) struct FileItems {
     pub(crate) invocations: Vec<Invocation>,
     /// `macro_rules!` definitions.
     pub(crate) macro_rules: Vec<MacroRules>,
+    /// `Deref` impls with a plain path target.
+    pub(crate) derefs: Vec<DerefImpl>,
 }
 
 /// A named item.
@@ -88,6 +90,15 @@ pub(crate) struct MacroRules {
     pub(crate) name: String,
     pub(crate) idents: Vec<String>,
     pub(crate) exported: bool,
+}
+
+/// An `impl Deref for SelfTy { type Target = Target; }`, whose target's members the self type
+/// reaches by auto-deref.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct DerefImpl {
+    pub(crate) module: Vec<String>,
+    pub(crate) self_ty: Vec<String>,
+    pub(crate) target: Vec<String>,
 }
 
 /// The declarations of `source`, or the parser's message when it is not valid Rust.
@@ -289,21 +300,27 @@ fn impl_block(item: &syn::ItemImpl, module: &[String], out: &mut FileItems) {
             invocation(out, module, &m.mac);
         }
     }
-    if item.trait_.is_some() {
-        return;
-    }
-    let Type::Path(self_ty) = &*item.self_ty else {
+    let Some(segments) = type_path(&item.self_ty) else {
         return;
     };
-    if self_ty.qself.is_some() {
+    if let Some((trait_path, _)) = &item.trait_ {
+        let is_deref = trait_path
+            .segments
+            .last()
+            .is_some_and(|s| s.ident == "Deref");
+        let target = item.items.iter().find_map(|impl_item| match impl_item {
+            ImplItem::Type(t) if t.ident == "Target" => type_path(&t.ty),
+            _ => None,
+        });
+        if is_deref && let Some(target) = target {
+            out.derefs.push(DerefImpl {
+                module: module.to_vec(),
+                self_ty: segments,
+                target,
+            });
+        }
         return;
     }
-    let segments: Vec<String> = self_ty
-        .path
-        .segments
-        .iter()
-        .map(|s| strip_raw(&s.ident.to_string()).to_owned())
-        .collect();
     let items = item
         .items
         .iter()
@@ -322,21 +339,31 @@ fn impl_block(item: &syn::ItemImpl, module: &[String], out: &mut FileItems) {
     });
 }
 
+/// The segments of a path type without `qself` or generic arguments.
+fn type_path(ty: &Type) -> Option<Vec<String>> {
+    let Type::Path(path) = ty else {
+        return None;
+    };
+    if path.qself.is_some() {
+        return None;
+    }
+    Some(
+        path.path
+            .segments
+            .iter()
+            .map(|s| strip_raw(&s.ident.to_string()).to_owned())
+            .collect(),
+    )
+}
+
 /// A type alias declares its name and, for a plain path target, aliases the target's members.
 fn type_alias(item: &syn::ItemType, module: &[String], out: &mut FileItems) {
     let name = item.ident.to_string();
     decl(out, module, &name, ItemKind::TypeAlias);
-    if let Type::Path(target) = &*item.ty
-        && target.qself.is_none()
-    {
+    if let Some(source) = type_path(&item.ty) {
         out.uses.push(Use {
             module: module.to_vec(),
-            source: target
-                .path
-                .segments
-                .iter()
-                .map(|s| strip_raw(&s.ident.to_string()).to_owned())
-                .collect(),
+            source,
             name: Some(strip_raw(&name).to_owned()),
         });
     }
