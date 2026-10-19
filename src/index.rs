@@ -29,18 +29,20 @@ pub(crate) struct Index {
     pub(crate) params: HashSet<Sym>,
 }
 
-/// A `use` creating a path: the module it sits in, the imported path, the created name or
-/// `None` for a glob.
-type UseDecl = (Vec<Sym>, Vec<Sym>, Option<Sym>);
+/// A named or glob re-export with its module, source, alias and visibility.
+type UseDecl = (Vec<Sym>, Vec<Sym>, Option<Sym>, bool);
 
 /// A `Deref` impl: the module it sits in, the dereferencing type and the target as written.
 type DerefDecl = (Vec<Sym>, Vec<Sym>, Vec<Sym>);
 
+/// A named import, its module, source and local name.
+type Import = (Vec<Sym>, Vec<Sym>, Sym);
+
 /// One file read as one module of one crate, reusable across snapshots.
 struct Contribution {
     paths: Vec<PathId>,
-    /// Modules declared without `pub`, recorded when only public items count.
-    private_modules: Vec<PathId>,
+    hidden: Vec<PathId>,
+    exposed: Vec<PathId>,
     visits: Vec<Rc<Visit>>,
     uses: Vec<UseDecl>,
     invocations: Vec<(PathId, Sym, Vec<Sym>)>,
@@ -67,7 +69,8 @@ struct Visit {
 /// The public paths of one library, before re-exports between libraries are resolved.
 pub(crate) struct Library {
     paths: HashSet<PathId>,
-    private_modules: Vec<PathId>,
+    hidden: Vec<PathId>,
+    exposed: Vec<PathId>,
     uses: Vec<UseDecl>,
     derefs: Vec<DerefDecl>,
     /// Identifiers its item-position macros may turn into items, in any module.
@@ -80,7 +83,7 @@ impl Library {
     pub(crate) fn use_roots(&self) -> impl Iterator<Item = Sym> {
         self.uses
             .iter()
-            .filter_map(|(_, source, _)| source.first().copied())
+            .filter_map(|(_, source, _, _)| source.first().copied())
     }
 }
 
@@ -206,7 +209,12 @@ impl Indexer {
         let reached = self.reach(snapshot, stack, head, &mut index)?;
         let uses: Vec<&UseDecl> = reached.iter().flat_map(|c| &c.uses).collect();
         let derefs: Vec<&DerefDecl> = reached.iter().flat_map(|c| &c.derefs).collect();
-        self.resolve_aliases(&mut index.paths, &uses, &derefs, &crates);
+        let mut hidden = hidden_paths(
+            reached
+                .iter()
+                .map(|c| (c.hidden.as_slice(), c.exposed.as_slice())),
+        );
+        self.resolve_aliases(&mut index.paths, &uses, &derefs, &crates, &mut hidden);
         if head {
             index.alive = macro_idents(&reached);
             index.params = reached
@@ -281,9 +289,13 @@ impl Indexer {
         Ok(Library {
             macro_idents: macro_idents(&reached).into_values().flatten().collect(),
             paths: index.paths,
-            private_modules: reached
+            hidden: reached
                 .iter()
-                .flat_map(|c| c.private_modules.iter().copied())
+                .flat_map(|c| c.hidden.iter().copied())
+                .collect(),
+            exposed: reached
+                .iter()
+                .flat_map(|c| c.exposed.iter().copied())
                 .collect(),
             uses: reached
                 .iter()
@@ -296,8 +308,7 @@ impl Indexer {
         })
     }
 
-    /// The paths of `libraries` that start with one of `roots` and lie outside every private
-    /// module, after resolving the re-exports between all of them.
+    /// Publicly reachable paths from `roots` after resolving library re-exports.
     pub(crate) fn public_paths(&mut self, libraries: &[Library], roots: &[Sym]) -> HashSet<PathId> {
         let mut paths: HashSet<PathId> = libraries
             .iter()
@@ -311,18 +322,21 @@ impl Indexer {
             .collect();
         let uses: Vec<&UseDecl> = libraries.iter().flat_map(|l| &l.uses).collect();
         let derefs: Vec<&DerefDecl> = libraries.iter().flat_map(|l| &l.derefs).collect();
-        self.resolve_aliases(&mut paths, &uses, &derefs, &crates);
-        let private: HashSet<PathId> = libraries
-            .iter()
-            .flat_map(|library| library.private_modules.iter().copied())
-            .collect();
+        let mut hidden = hidden_paths(
+            libraries
+                .iter()
+                .map(|l| (l.hidden.as_slice(), l.exposed.as_slice())),
+        );
+        let private = hidden.clone();
+        self.resolve_aliases(&mut paths, &uses, &derefs, &crates, &mut hidden);
         paths.retain(|&id| {
             let segments = self.interner.segments(id);
             roots.contains(&segments[0])
-                && !(2..=segments.len()).any(|len| {
+                && !hidden.contains(&id)
+                && !(2..segments.len()).any(|len| {
                     self.interner
                         .find_path(&segments[..len])
-                        .is_some_and(|prefix| private.contains(&prefix))
+                        .is_some_and(|prefix| private.contains(&prefix) || hidden.contains(&prefix))
                 })
         });
         paths
@@ -345,7 +359,8 @@ impl Indexer {
             Ok(items) => self.build(visit, items),
             Err(message) => Contribution {
                 paths: Vec::new(),
-                private_modules: Vec::new(),
+                hidden: Vec::new(),
+                exposed: Vec::new(),
                 visits: Vec::new(),
                 uses: Vec::new(),
                 invocations: Vec::new(),
@@ -364,38 +379,46 @@ impl Indexer {
         let crate_sym = module[0];
         let counts = |public: bool| public || !visit.public_only;
         let mut paths = Vec::new();
-        let mut private_modules = Vec::new();
+        let mut hidden = Vec::new();
+        let mut exposed = Vec::new();
         for decl in &items.items {
-            // A private module stays, so that re-exports out of it resolve, and is dropped
-            // with everything below it once they have.
-            let private_module = decl.kind == ItemKind::Module && !counts(decl.public);
-            if !counts(decl.public) && !private_module {
-                continue;
-            }
             let path = self.within(&module, &decl.path);
             let id = self.interner.path(&path, decl.kind);
-            paths.push(id);
-            if private_module {
-                private_modules.push(id);
+            if decl.public {
+                exposed.push(id);
+            } else {
+                hidden.push(id);
+            }
+            if counts(decl.public) || decl.kind == ItemKind::Module {
+                paths.push(id);
             }
         }
+        let imports = self.imports(&module, items, &paths);
         for block in &items.impls {
             let within = self.within(&module, &block.module);
-            let self_ty: Vec<Sym> = self.syms(&block.self_ty);
+            let self_ty = imported(&imports, &within, self.syms(&block.self_ty));
             let Some(mut base) = self.resolve(&within, &self_ty, crate_sym) else {
                 continue;
             };
             for (name, kind, public) in &block.items {
                 if counts(*public) {
                     base.push(self.interner.sym(name));
-                    paths.push(self.interner.path(&base, *kind));
+                    let id = self.interner.path(&base, *kind);
+                    paths.push(id);
+                    if *public {
+                        exposed.push(id);
+                    } else {
+                        hidden.push(id);
+                    }
                     base.pop();
                 }
             }
         }
         for rules in items.macro_rules.iter().filter(|rules| rules.exported) {
             let name = self.interner.sym(&rules.name);
-            paths.push(self.interner.path(&[crate_sym, name], ItemKind::Macro));
+            let id = self.interner.path(&[crate_sym, name], ItemKind::Macro);
+            paths.push(id);
+            exposed.push(id);
         }
 
         let visits = self.visits(visit, &module, items);
@@ -406,7 +429,9 @@ impl Indexer {
             .filter(|u| counts(u.public))
             .map(|u| {
                 let name = u.name.as_deref().map(|n| self.interner.sym(n));
-                (self.within(&module, &u.module), self.syms(&u.source), name)
+                let within = self.within(&module, &u.module);
+                let source = imported(&imports, &within, self.syms(&u.source));
+                (within, source, name, u.public)
             })
             .collect();
         let invocations = items
@@ -428,12 +453,15 @@ impl Indexer {
             .iter()
             .map(|d| {
                 let within = self.within(&module, &d.module);
-                (within, self.syms(&d.self_ty), self.syms(&d.target))
+                let self_ty = imported(&imports, &within, self.syms(&d.self_ty));
+                let target = imported(&imports, &within, self.syms(&d.target));
+                (within, self_ty, target)
             })
             .collect();
         Contribution {
             paths,
-            private_modules,
+            hidden,
+            exposed,
             visits,
             uses,
             invocations,
@@ -494,6 +522,29 @@ impl Indexer {
         visits
     }
 
+    fn imports(&mut self, module: &[Sym], items: &FileItems, paths: &[PathId]) -> Vec<Import> {
+        let declared: HashSet<PathId> = paths.iter().copied().collect();
+        items
+            .uses
+            .iter()
+            .chain(&items.imports)
+            .filter_map(|u| {
+                let name = self.interner.sym(u.name.as_deref()?);
+                let mut within = self.within(module, &u.module);
+                within.push(name);
+                if self
+                    .interner
+                    .find_path(&within)
+                    .is_some_and(|id| declared.contains(&id))
+                {
+                    return None;
+                }
+                within.pop();
+                Some((within, self.syms(&u.source), name))
+            })
+            .collect()
+    }
+
     fn syms(&mut self, names: &[String]) -> Vec<Sym> {
         names.iter().map(|name| self.interner.sym(name)).collect()
     }
@@ -544,12 +595,26 @@ impl Indexer {
         uses: &[&UseDecl],
         derefs: &[&DerefDecl],
         crates: &[Sym],
+        hidden: &mut HashSet<PathId>,
     ) {
         const ROUNDS: usize = 8;
+        let mut origins = HashMap::new();
+        let mut public_aliases = HashSet::new();
+        for (module, _, name, public) in uses {
+            if let Some(name) = name
+                && *public
+            {
+                let mut alias = module.clone();
+                alias.push(*name);
+                let id = self.interner.path(&alias, ItemKind::Reexport);
+                hidden.remove(&id);
+                public_aliases.insert(id);
+            }
+        }
         for _ in 0..ROUNDS {
             let before = paths.len();
             let children = self.children(paths);
-            for (module, source, name) in uses {
+            for (module, source, name, public) in uses {
                 let target = self
                     .resolve_use(module, source, crates, paths)
                     .and_then(|resolved| self.interner.find_path(&resolved))
@@ -557,12 +622,30 @@ impl Indexer {
                 if let Some(name) = name {
                     let mut alias = module.clone();
                     alias.push(*name);
-                    paths.insert(self.interner.path(&alias, ItemKind::Reexport));
+                    let id = self.interner.path(&alias, ItemKind::Reexport);
+                    let hide = !public && !public_aliases.contains(&id);
+                    if paths.insert(id) && hide {
+                        hidden.insert(id);
+                    }
                     if let Some(target) = target {
-                        self.copy_below(target, alias, &children, paths);
+                        let stands_for = origin(&origins, target);
+                        origins.entry(id).or_insert(stands_for);
+                        self.copy_below(
+                            (target, alias, hide),
+                            &children,
+                            paths,
+                            &mut origins,
+                            hidden,
+                        );
                     }
                 } else if let Some(target) = target {
-                    self.copy_below(target, module.clone(), &children, paths);
+                    self.copy_below(
+                        (target, module.clone(), !public),
+                        &children,
+                        paths,
+                        &mut origins,
+                        hidden,
+                    );
                 }
             }
             for (module, self_ty, target) in derefs {
@@ -580,7 +663,13 @@ impl Indexer {
                 if let Some(target) = target
                     && owner_known
                 {
-                    self.copy_below(target, owner, &children, paths);
+                    self.copy_below(
+                        (target, owner, false),
+                        &children,
+                        paths,
+                        &mut origins,
+                        hidden,
+                    );
                 }
             }
             if paths.len() == before {
@@ -616,21 +705,32 @@ impl Indexer {
         crates.contains(&first).then(|| source.to_vec())
     }
 
-    /// Re-roots every path strictly below `from` under `to`.
+    /// Copies descendants without visiting a declared origin twice on one path.
     fn copy_below(
         &mut self,
-        from: PathId,
-        to: Vec<Sym>,
+        copy: (PathId, Vec<Sym>, bool),
         children: &HashMap<PathId, Vec<PathId>>,
         paths: &mut HashSet<PathId>,
+        origins: &mut HashMap<PathId, PathId>,
+        hidden: &mut HashSet<PathId>,
     ) {
-        let mut stack = vec![(from, to)];
+        let (from, to, hide) = copy;
+        let cross_crate = self.interner.segments(from)[0] != to[0];
+        let chain: Vec<PathId> = (1..=to.len())
+            .filter_map(|len| self.interner.find_path(&to[..len]))
+            .map(|id| origin(origins, id))
+            .collect();
+        let mut stack = vec![(from, to, chain)];
         let mut guard = HashSet::new();
-        while let Some((source, prefix)) = stack.pop() {
+        while let Some((source, prefix, chain)) = stack.pop() {
             if !guard.insert(source) {
                 continue;
             }
             for &child in children.get(&source).into_iter().flatten() {
+                let private = hidden.contains(&child);
+                if private && cross_crate {
+                    continue;
+                }
                 let last = *self
                     .interner
                     .segments(child)
@@ -639,8 +739,17 @@ impl Indexer {
                 let mut path = prefix.clone();
                 path.push(last);
                 let kind = self.interner.kind(child);
-                paths.insert(self.interner.path(&path, kind));
-                stack.push((child, path));
+                let id = self.interner.path(&path, kind);
+                if paths.insert(id) && (hide || private) {
+                    hidden.insert(id);
+                }
+                let child_origin = origin(origins, child);
+                origins.entry(id).or_insert(child_origin);
+                if !chain.contains(&child_origin) {
+                    let mut deeper = chain.clone();
+                    deeper.push(child_origin);
+                    stack.push((child, path, deeper));
+                }
             }
         }
     }
@@ -663,6 +772,36 @@ impl Indexer {
         }
         children
     }
+}
+
+/// The declared path represented by an alias or copied path.
+fn origin(origins: &HashMap<PathId, PathId>, id: PathId) -> PathId {
+    origins.get(&id).copied().unwrap_or(id)
+}
+
+/// Paths hidden by declarations and exposed by none.
+fn hidden_paths<'a>(lists: impl Iterator<Item = (&'a [PathId], &'a [PathId])>) -> HashSet<PathId> {
+    let mut hidden = HashSet::new();
+    let mut exposed = HashSet::new();
+    for (hides, exposes) in lists {
+        hidden.extend(hides.iter().copied());
+        exposed.extend(exposes.iter().copied());
+    }
+    hidden.retain(|id| !exposed.contains(id));
+    hidden
+}
+
+/// Resolves a written first segment through the named imports of its module.
+fn imported(imports: &[Import], module: &[Sym], mut path: Vec<Sym>) -> Vec<Sym> {
+    for _ in 0..imports.len() {
+        let Some((_, source, _)) = imports.iter().find(|(within, source, name)| {
+            within == module && path.first() == Some(name) && source.first() != Some(name)
+        }) else {
+            break;
+        };
+        path.splice(..1, source.iter().copied());
+    }
+    path
 }
 
 /// The directory owned by `file` for `mod` declarations nested in the inline modules `inline`.
