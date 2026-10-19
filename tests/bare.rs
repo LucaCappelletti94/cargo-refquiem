@@ -1098,3 +1098,247 @@ fn the_prose_of_a_doc_comment_sees_the_names_its_examples_declare() {
     let rows: Vec<(String, usize)> = found(&repo).into_iter().map(|m| (m.0, m.2)).collect();
     assert_eq!(rows, [("fixture::gone_reader".to_owned(), 8)]);
 }
+
+#[test]
+fn a_doc_example_binds_only_the_names_its_patterns_take() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct gone_a;\npub struct gone_b;\npub struct gone_c;\npub struct gone_d;\npub struct gone_rhs;\npub struct GoneUp;\npub struct _gone;\npub struct gone_m;\npub fn gone_call() {}\npub struct gone_p;\npub struct gone_b2;\npub struct gone_c2;\npub struct gone_pair;\npub struct r#loop;\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// let ((gone_a, gone_b), (gone_c, gone_d)) = 1;\n/// let (x) = (gone_rhs,);\n/// let (GoneUp) = 1;\n/// let _gone = 1;\n/// let y = move |gone_m| gone_m;\n/// let f = one(gone_call);\n/// let f2 = |gone_p, | gone_b2;\n/// let g = |gone_c2\n/// fixture::gone_pair;\n/// let r#loop = 1;\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let block = context(Source::DocComment, Kind::CodeBlock { compiled: true });
+    let rows: Vec<(String, usize, usize, Context, String)> = found(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.2, m.3, m.4, m.5))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (
+                "fixture::gone_rhs".to_owned(),
+                3,
+                16,
+                block,
+                "gone_rhs".to_owned()
+            ),
+            (
+                "fixture::GoneUp".to_owned(),
+                4,
+                10,
+                block,
+                "GoneUp".to_owned()
+            ),
+            (
+                "fixture::gone_call".to_owned(),
+                7,
+                17,
+                block,
+                "gone_call".to_owned()
+            ),
+            (
+                "fixture::gone_b2".to_owned(),
+                8,
+                25,
+                block,
+                "gone_b2".to_owned()
+            ),
+            (
+                "fixture::gone_pair".to_owned(),
+                10,
+                5,
+                block,
+                "fixture::gone_pair".to_owned()
+            ),
+            ("fixture::loop".to_owned(), 11, 11, block, "loop".to_owned()),
+        ]
+    );
+}
+
+#[test]
+fn a_flag_value_is_spelled_and_words_after_it_still_count() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct old_feature;\npub struct gone_flag;\npub struct x;\n",
+    );
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub struct x;\n");
+    repo.write(
+        "README.md",
+        "# Setup\nUse `x` and --features old_feature and gone_flag\n",
+    );
+    repo.commit("drop the names");
+
+    let rows: Vec<(String, usize, usize, Context, String)> = found(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.2, m.3, m.4, m.5))
+        .collect();
+    assert_eq!(
+        rows,
+        [(
+            "fixture::gone_flag".to_owned(),
+            2,
+            40,
+            context(Source::Markdown, Kind::Text),
+            "gone_flag".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn a_format_argument_in_braces_is_not_a_bare_name() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub struct gone_name;\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "pub fn show() -> String {\n    format!(\"x {gone_name}\")\n}\n",
+    );
+    repo.commit("drop it");
+
+    assert_eq!(found(&repo), []);
+}
+
+#[test]
+fn a_digit_started_hyphenated_name_counts_in_running_text() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "#[derive(serde::Serialize)]\npub struct Config {\n    #[serde(rename = \"1-2\")]\n    pub a: u8,\n}\n",
+    );
+    repo.commit("renamed");
+    repo.write(
+        "src/lib.rs",
+        "#[derive(serde::Serialize)]\npub struct Config {\n    pub b: u8,\n}\n",
+    );
+    repo.write("README.md", "Send 1-2 to the endpoint.\n");
+    repo.commit("drop the field");
+
+    let rows: Vec<(String, usize, usize, Context, String)> = found(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.2, m.3, m.4, m.5))
+        .collect();
+    assert_eq!(
+        rows,
+        [(
+            "fixture::Config::\"1-2\"".to_owned(),
+            1,
+            6,
+            context(Source::Markdown, Kind::Text),
+            "1-2".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn words_glued_to_addresses_and_colons_are_not_bare_names() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub struct old_name;\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub struct Kept;\n");
+    repo.write(
+        "README.md",
+        "Mail old_name@example.com and read v2.old_name/docs.\nCheck old_name.foo and copy v2.old_name:thing out.\nUse old_name::<u8> or old_name:thing here.\n",
+    );
+    repo.commit("drop old_name");
+
+    let rows: Vec<(String, usize, usize, Context, String)> = found(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.2, m.3, m.4, m.5))
+        .collect();
+    assert_eq!(
+        rows,
+        [(
+            "fixture::old_name".to_owned(),
+            3,
+            23,
+            context(Source::Markdown, Kind::Text),
+            "old_name".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn a_code_span_holding_two_words_is_not_a_bare_name() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "#[derive(serde::Serialize)]\npub struct Config {\n    #[serde(rename = \"a b\")]\n    pub a: u8,\n}\n",
+    );
+    repo.commit("renamed");
+    repo.write(
+        "src/lib.rs",
+        "#[derive(serde::Serialize)]\npub struct Config {\n    pub b: u8,\n}\n",
+    );
+    repo.write("README.md", "See `a b` in the payload.\n");
+    repo.commit("drop the field");
+
+    assert_eq!(found(&repo), []);
+}
+
+#[test]
+fn a_mixed_case_english_word_in_prose_is_not_a_bare_name() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub struct PhD;\npub struct MyGone;\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "A PhD student and MyGone.\n");
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize)> = found(&repo).into_iter().map(|m| (m.0, m.3)).collect();
+    assert_eq!(rows, [("fixture::MyGone".to_owned(), 19)]);
+}
+
+#[test]
+fn a_doc_example_that_binds_nothing_names_every_identifier() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn called() {}\npub fn gone_value() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// called(gone_value);\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize, usize)> =
+        found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
+    assert_eq!(
+        rows,
+        [
+            ("fixture::called".to_owned(), 2, 5),
+            ("fixture::gone_value".to_owned(), 2, 12)
+        ]
+    );
+}
+
+#[test]
+fn a_bitwise_or_in_a_doc_example_opens_no_closure() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn gone_left() {}\npub fn gone_right() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// gone_left | gone_right;\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize, usize)> =
+        found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
+    assert_eq!(
+        rows,
+        [
+            ("fixture::gone_left".to_owned(), 2, 5),
+            ("fixture::gone_right".to_owned(), 2, 17)
+        ]
+    );
+}

@@ -97,6 +97,12 @@ pub enum Error {
         /// The parser's message.
         message: String,
     },
+    /// A Markdown reader failed.
+    #[error("Markdown parser failed while reading {path}")]
+    Markdown {
+        /// The input file.
+        path: String,
+    },
     /// `cargo metadata` failed on a manifest refquiem wrote to locate dependency sources.
     #[error("running cargo metadata on {path}")]
     Metadata {
@@ -112,4 +118,7 @@ pub enum Error {
         /// The dependency key.
         name: String,
     },
+    /// The thread a scan runs on could not start.
+    #[error("starting the scan thread")]
+    Thread(#[source] std::io::Error),
 }

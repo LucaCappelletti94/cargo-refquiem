@@ -11,6 +11,9 @@ use ra_ap_rustc_lexer::{
 
 use crate::{Context, Kind, Source};
 
+#[derive(Debug)]
+pub(crate) struct MarkdownError;
+
 /// What a mention names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Named {
@@ -105,9 +108,8 @@ const KEYWORDS: [&str; 52] = [
     "typeof", "unsafe", "unsized", "use", "virtual", "where", "while", "yield",
 ];
 
-/// Every mention in a Rust source file: comments, doc comments read as Markdown, and string
-/// literals.
-pub(crate) fn rust(source: &str) -> Vec<Spelled> {
+/// Every mention in a Rust source file's comments, documentation and strings.
+pub(crate) fn rust(source: &str) -> Result<Vec<Spelled>, MarkdownError> {
     let skip = ra_ap_rustc_lexer::strip_shebang(source).unwrap_or(0);
     let mut tokens = Vec::new();
     let mut offset = skip;
@@ -129,14 +131,12 @@ pub(crate) fn rust(source: &str) -> Vec<Spelled> {
                 doc_style: Some(style),
             } => {
                 let mut lines = vec![(offset, len)];
-                let mut next = i + 1;
-                while let Some(&(o, l, k)) = tokens.get(next) {
+                for (next, &(o, l, k)) in tokens.iter().enumerate().skip(i + 1) {
                     match k {
-                        TokenKind::Whitespace => next += 1,
+                        TokenKind::Whitespace => {}
                         TokenKind::LineComment { doc_style: Some(s) } if s == style => {
                             lines.push((o, l));
-                            next += 1;
-                            i = next - 1;
+                            i = next;
                         }
                         _ => break,
                     }
@@ -147,7 +147,7 @@ pub(crate) fn rust(source: &str) -> Vec<Spelled> {
                     |at| doc.file_offset(at),
                     Source::DocComment,
                     &mut out,
-                );
+                )?;
             }
             TokenKind::BlockComment {
                 doc_style: Some(_),
@@ -159,7 +159,7 @@ pub(crate) fn rust(source: &str) -> Vec<Spelled> {
                     |at| doc.file_offset(at),
                     Source::DocComment,
                     &mut out,
-                );
+                )?;
             }
             TokenKind::LineComment { doc_style: None } | TokenKind::BlockComment { .. } => {
                 scan(text, offset, comment(), &mut out);
@@ -190,7 +190,7 @@ pub(crate) fn rust(source: &str) -> Vec<Spelled> {
         }
         i += 1;
     }
-    out
+    Ok(out)
 }
 
 /// The identifier span of a string literal body, excluding its quotes.
@@ -235,10 +235,10 @@ impl Attribute {
 }
 
 /// Every mention in a Markdown file.
-pub(crate) fn markdown_file(source: &str) -> Vec<Spelled> {
+pub(crate) fn markdown_file(source: &str) -> Result<Vec<Spelled>, MarkdownError> {
     let mut out = Vec::new();
-    markdown(source, |at| at, Source::Markdown, &mut out);
-    out
+    markdown(source, |at| at, Source::Markdown, &mut out)?;
+    Ok(out)
 }
 
 fn comment() -> Context {
@@ -331,14 +331,30 @@ fn keep_label(link: BrokenLink<'_>) -> Option<(CowStr<'_>, CowStr<'_>)> {
 }
 
 /// Mentions in Markdown `text`, whose offsets `map` turns into file offsets.
-fn markdown(text: &str, map: impl Fn(usize) -> usize, source: Source, out: &mut Vec<Spelled>) {
+fn markdown(
+    text: &str,
+    map: impl Fn(usize) -> usize,
+    source: Source,
+    out: &mut Vec<Spelled>,
+) -> Result<(), MarkdownError> {
+    let found =
+        std::panic::catch_unwind(|| markdown_mentions(text, source)).map_err(|_| MarkdownError)?;
+    for mut path in found {
+        path.start = map(path.start);
+        path.end = map(path.end);
+        out.push(path);
+    }
+    Ok(())
+}
+
+/// Mentions in Markdown `text`, at offsets into `text`.
+fn markdown_mentions(text: &str, source: Source) -> Vec<Spelled> {
     let in_context = |kind| Context { source, kind };
     let mut events =
         Parser::new_with_broken_link_callback(text, Options::empty(), Some(keep_label))
             .into_offset_iter();
     let mut block: Option<Block> = None;
     let mut in_label_link = false;
-    let mut in_autolink = false;
     let mut found = Vec::new();
     let mut declared = HashSet::new();
     for (event, range) in events.by_ref() {
@@ -362,7 +378,6 @@ fn markdown(text: &str, map: impl Fn(usize) -> usize, source: Source, out: &mut 
                     in_context(Kind::Link),
                     &mut found,
                 );
-                in_autolink = link_type == LinkType::Autolink;
             }
             Event::Start(Tag::Image { dest_url, .. }) => {
                 let raw = &text[range.clone()];
@@ -374,7 +389,7 @@ fn markdown(text: &str, map: impl Fn(usize) -> usize, source: Source, out: &mut 
                     &mut found,
                 );
             }
-            Event::End(TagEnd::Link) => (in_label_link, in_autolink) = (false, false),
+            Event::End(TagEnd::Link) => in_label_link = false,
             Event::Code(_) if !in_label_link => {
                 let raw = &text[range.clone()];
                 let inner = raw.trim_start_matches('`');
@@ -386,7 +401,8 @@ fn markdown(text: &str, map: impl Fn(usize) -> usize, source: Source, out: &mut 
                     &mut found,
                 );
             }
-            Event::Text(_) if !in_label_link && !in_autolink => {
+            // Label and autolink text repeats its link at the same offset, which grouping drops.
+            Event::Text(_) => {
                 let kind = match &mut block {
                     Some(block) => {
                         block.read(range.clone());
@@ -421,11 +437,7 @@ fn markdown(text: &str, map: impl Fn(usize) -> usize, source: Source, out: &mut 
         let prose = matches!(spelled.context.kind, Kind::Text | Kind::CodeSpan);
         !(prose && matches!(&spelled.named, Named::Name { word, .. } if declared.contains(word.as_str())))
     });
-    for mut path in found {
-        path.start = map(path.start);
-        path.end = map(path.end);
-        out.push(path);
-    }
+    found
 }
 
 /// Fence languages of data formats whose keys and values serde may spell.
@@ -1536,10 +1548,7 @@ fn page_path(dest: &str) -> Option<(Vec<String>, usize)> {
 pub(crate) fn paths(text: &str, base: usize, context: Context) -> Vec<Spelled> {
     let mut out = Vec::new();
     let mut i = 0;
-    while i < text.len() {
-        let Some(c) = text[i..].chars().next() else {
-            break;
-        };
+    while let Some(c) = text[i..].chars().next() {
         let previous = text[..i].chars().next_back();
         let boundary = previous.is_none_or(|p| !is_id_continue(p) && p != ':' && p != '#');
         let leading_colon = boundary && text[i..].starts_with("::") && starts_ident(&text[i + 2..]);
@@ -1555,12 +1564,10 @@ pub(crate) fn paths(text: &str, base: usize, context: Context) -> Vec<Spelled> {
                 cursor = after;
                 let mut probe = cursor;
                 if text[probe..].starts_with('<') {
-                    match skip_angles(text, probe) {
-                        Some(after_angles) if text[after_angles..].starts_with("::") => {
-                            probe = after_angles;
-                        }
-                        _ => break,
-                    }
+                    let Some(after_angles) = skip_angles(text, probe) else {
+                        break;
+                    };
+                    probe = after_angles;
                 }
                 if !text[probe..].starts_with("::") {
                     break;
@@ -1592,7 +1599,8 @@ pub(crate) fn paths(text: &str, base: usize, context: Context) -> Vec<Spelled> {
                     context,
                 });
             }
-            i = end.max(i + c.len_utf8());
+            // The path's first identifier ends past `i`.
+            i = end;
         } else {
             i += c.len_utf8();
         }

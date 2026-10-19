@@ -1,0 +1,173 @@
+//! Paths in prose and code spans, with generic arguments, raw identifiers and boundaries.
+
+mod common;
+
+use common::Repo;
+use refquiem::{Context, Kind, Source};
+
+/// `(removed path, file, line, column, context, text)` for every mention, sorted.
+fn found(repo: &Repo) -> Vec<(String, String, usize, usize, Context, String)> {
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let mut out: Vec<_> = report
+        .groups
+        .iter()
+        .flat_map(|group| {
+            group.mentions.iter().map(|m| {
+                (
+                    group.path.clone(),
+                    m.file.clone(),
+                    m.line,
+                    m.column,
+                    m.context,
+                    m.text.clone(),
+                )
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| (&a.1, a.2, a.3).cmp(&(&b.1, b.2, b.3)));
+    out
+}
+
+fn markdown(kind: Kind) -> Context {
+    Context {
+        source: Source::Markdown,
+        kind,
+    }
+}
+
+#[test]
+fn a_leading_colon_path_at_the_start_of_text_is_found() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub mod gone {\n    pub struct Thing;\n}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub struct Kept;\n");
+    repo.write("README.md", "::gone::Thing here.\n");
+    repo.commit("drop gone");
+
+    assert_eq!(
+        found(&repo),
+        [(
+            "fixture::gone::Thing".to_owned(),
+            "README.md".to_owned(),
+            1,
+            1,
+            markdown(Kind::Text),
+            "::gone::Thing".to_owned(),
+        )]
+    );
+}
+
+#[test]
+fn a_path_glued_to_a_hash_is_not_found() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub mod gone {\n    pub struct Thing;\n}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub struct Kept;\n");
+    repo.write("README.md", "Jump to #gone::Thing for details.\n");
+    repo.commit("drop gone");
+
+    assert_eq!(found(&repo), []);
+}
+
+#[test]
+fn a_path_with_generic_arguments_between_segments_is_found() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub enum Pick {\n    None,\n}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub struct Kept;\n");
+    repo.write("README.md", "The `Pick<T>::None` variant.\n");
+    repo.commit("drop Pick");
+
+    assert_eq!(
+        found(&repo),
+        [(
+            "fixture::Pick::None".to_owned(),
+            "README.md".to_owned(),
+            1,
+            6,
+            markdown(Kind::CodeSpan),
+            "Pick<T>::None".to_owned(),
+        )]
+    );
+}
+
+#[test]
+fn an_angle_with_parentheses_breaks_a_path() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod gone {\n    pub mod mid {\n        pub struct end;\n    }\n}\n",
+    );
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub struct Kept;\n");
+    repo.write("README.md", "See `gone<f()>::mid::end`.\n");
+    repo.commit("drop gone");
+
+    assert_eq!(
+        found(&repo),
+        [(
+            "fixture::gone::mid::end".to_owned(),
+            "README.md".to_owned(),
+            1,
+            15,
+            markdown(Kind::CodeSpan),
+            "::mid::end".to_owned(),
+        )]
+    );
+}
+
+#[test]
+fn a_path_spelled_with_a_raw_identifier_is_found() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub mod m {\n    pub struct r#loop;\n}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub struct Kept;\n");
+    repo.write("README.md", "The `m::r#loop` item.\n");
+    repo.commit("drop loop");
+
+    assert_eq!(
+        found(&repo),
+        [(
+            "fixture::m::loop".to_owned(),
+            "README.md".to_owned(),
+            1,
+            6,
+            markdown(Kind::CodeSpan),
+            "m::r#loop".to_owned(),
+        )]
+    );
+}
+
+#[test]
+fn a_path_with_a_turbofish_between_segments_is_found() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct Holder;\nimpl Holder {\n    pub fn make() {}\n}\n",
+    );
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub struct Holder;\n");
+    repo.write(
+        "README.md",
+        "`fixture::Holder::<u8>::make()` and `Holder::<u8>::make`\n",
+    );
+    repo.commit("drop make");
+
+    let row = |column, text: &str| {
+        (
+            "fixture::Holder::make".to_owned(),
+            "README.md".to_owned(),
+            1,
+            column,
+            markdown(Kind::CodeSpan),
+            text.to_owned(),
+        )
+    };
+    assert_eq!(
+        found(&repo),
+        [
+            row(2, "fixture::Holder::<u8>::make"),
+            row(38, "Holder::<u8>::make")
+        ]
+    );
+}

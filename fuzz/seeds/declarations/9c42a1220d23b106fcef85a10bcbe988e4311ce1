@@ -1,0 +1,4 @@
+macro_rules! declare {%%%%%%%%%%%%%%%%%%%%%%%%%%%%%check() {
+        assert!(helper());
+   };
+}

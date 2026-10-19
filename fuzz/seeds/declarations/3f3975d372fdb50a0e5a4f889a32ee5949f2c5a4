@@ -1,0 +1,127 @@
+macro_rules! declare {
+    ($name:ident) => {
+    ub stmacrn_rules! declare {
+   $na m(e:ident)ve.
+
+mod comm//!on;
+#[path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;u
+r seefquiem{
+   $na m(e:ident)ve.
+
+mod comm//!on;
+#[path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;u
+r seefquiem::{Context, Kind, S:ource};
+
+const BEF => {
+       .asb struct $name;
+    }    declare!(Flags);
+    fn check()$acro_rules! declare {
+    ($name:ident) => {
+    ub stmacrn_rules! declare {
+   $na m(e:ident)ve.
+
+mod comm//!on;
+#[path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, Kind, S:ource};
+
+const BEF => {
+       .asb struct $name;
+    }    declare!(Flags);
+    fn check()${
+   {Context, Kind, Source};
+
+const BEF => {
+       .asb struct $name;
+    }    declare!(Flags);
+    ruct $name;
+    };fn c !   assert!(helpe(r));
+}
+
+pub mod flags {
+
+      declare!(Flags);
+    fn check() {
+        assert!(helper( ));
+    }
+ }}
+
+}
+{
+   {Context, Kind, Source};
+
+const BEF => {
+       .asb struct $name;
+    }    declare!(Flags);
+    ruct $name;
+    };fn c !   assert!(helpe(r));
+}
+
+pub mod flags {
+
+      decla::{Context, Kind, S:ource};
+
+const BEF => {
+       .asb struct $name;
+    }    declare!(Flags);
+    fn check()$acro_rules! declare {
+    ($name:ident) => {
+    ub stmacrn_rules! declare {
+   $na m(e:ident)ve.
+
+mod comm//!on;
+#[path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, Kind, S:ource};
+
+const BEF => {
+       .asb struct $name;
+    }    declare!(Flags);
+    fn check()${
+   {Context, Kind, Source};
+
+const BEF => {
+       .asb struct $name;
+    }    declare!(Flags);
+    ruct $name;
+    };fn c !   assert!(helpe(r));
+}
+
+pub mod flags {
+
+      declare!(Flags);
+    fn check() {
+        assert!(helper( ));
+    }
+ }}
+
+}
+{
+   {Context, Kind, Source};
+
+const BEF => z
+       .asb struct $name;
+    }    declare!(Flags);
+    ruct $name;
+    };fn c !   assert!(helpe(r));
+}
+
+pub mod flags {
+
+      declare!(Flags);
+    fn check() {
+        assert!(helper( ));
+    }
+ }}
+
+}

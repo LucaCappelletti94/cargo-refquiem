@@ -1,0 +1,8 @@
+#[desIr(eveide::ialize)]
+#[serde(ren::rc::)]
+#[rr(eveide::Serialize)]
+#[serde(renamlize)]
+#[serde]
+pub enum Mode {
+  Short,
+}

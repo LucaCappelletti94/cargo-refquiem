@@ -762,3 +762,16 @@ fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     assert!(!files.is_empty(), "no cache files under {}", dir.display());
     files
 }
+
+#[test]
+fn files_inside_the_git_directory_are_never_read() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub struct Gone;\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "");
+    repo.commit("drop Gone");
+    std::fs::write(repo.path().join(".git/notes.md"), "`fixture::Gone`\n").unwrap();
+
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    assert!(report.is_clean(), "{}", report.human());
+}

@@ -1,0 +1,11 @@
+mcro_raules! declare {
+  n a$ me {
+  n a$ m(e:ident) => {
+        pub st0bct $n;me;
+    };
+}
+
+pu1b mod flags {
+    derename_all = clare!(s
+F;a)lg    fn check()ssert!(hel(/*ERROR*/)per())}
+}

@@ -301,7 +301,7 @@ impl Collector {
     }
 
     fn mod_item(&mut self, item: &syn::ItemMod) {
-        let name = item.ident.to_string();
+        let name = strip_raw(&item.ident.to_string()).to_owned();
         self.push(&[&name], ItemKind::Module, is_pub(&item.vis));
         if let Some((_, items)) = &item.content {
             self.module.push(name);
@@ -526,7 +526,6 @@ fn bound_names(pattern: &syn::Pat, out: &mut Vec<String>) {
             .for_each(|field| bound_names(&field.pat, out)),
         syn::Pat::Reference(reference) => bound_names(&reference.pat, out),
         syn::Pat::Paren(paren) => bound_names(&paren.pat, out),
-        syn::Pat::Type(typed) => bound_names(&typed.pat, out),
         _ => {}
     }
 }

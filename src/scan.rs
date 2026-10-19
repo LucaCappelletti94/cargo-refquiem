@@ -310,7 +310,8 @@ fn find_mentions(
             text::rust(source)
         } else {
             text::markdown_file(source)
-        };
+        }
+        .map_err(|_| Error::Markdown { path: file.clone() })?;
         if spelled.is_empty() {
             continue;
         }

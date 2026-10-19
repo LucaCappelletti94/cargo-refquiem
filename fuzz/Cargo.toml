@@ -1,0 +1,37 @@
+# fuzz/seeds/ is committed, fuzz/corpus/ is generated locally and ignored.
+
+[package]
+name = "refquiem-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+refquiem = { path = "..", default-features = false, features = ["fuzzing"] }
+
+[workspace]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "rust"
+path = "fuzz_targets/rust.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "markdown"
+path = "fuzz_targets/markdown.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "declarations"
+path = "fuzz_targets/declarations.rs"
+test = false
+doc = false

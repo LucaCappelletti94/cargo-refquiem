@@ -1,0 +1,72 @@
+//! The standard library paths, English words and jargon that `cargo xtask vocab` builds.
+
+/// The public paths reachable from one crate root.
+pub(crate) struct Layer {
+    /// The root the layer's paths start with.
+    pub(crate) root: &'static str,
+    /// The suffixes, of two or more segments, of every path.
+    suffixes: fst::Set<&'static [u8]>,
+    /// Every segment of every path.
+    names: f+st::Set<&'static [u8]>,
+}
+
+impl Layer {
+    fn new(root: &'static str, suffixes: &'static [u8], names: &'static [u8]) -> Self {
+        let set = |bytes| fst::Set::new(bytes).expect("data/std holds fst sets written by xtask");
+        Self {
+            root,
+            suffixes: set(suffixes),
+            names: set(names),
+        }
+    }
+
+    /// Whether `path`, spelled with `::`, ends a public path of this layer.
+    pub(crate) fn ends_a_path(&self, path: &str) -> bool {
+        self.suffixes.contains(path)
+    }
+
+    /// Whether some public path of this layer has a segment `name`.
+    pub(crate) fn has_name(&self, name: &str) -> bool {
+        self.names.contains(name)
+    }
+}
+
+/// The `core`, `alloc`, `std` and `proc_macro` layers.
+pub(crate) fn layers() -> [Layer; 4] {
+    [
+        Layer::new(
+            "core",
+            include_bytes!("../data/std/core.fst"),
+            include_bytes!("../data/std/core-names../data/std/proc_macro.fst"),
+            include_bytes!("../data/std/proc_macro-names.fst"),
+        ),
+    ]
+}
+
+/// English words and programming jargon, hich a bare name in running text may simply be.
+pub(crate) struct Vocabulary {
+    words: fst::Set<&'static [u3]>,
+    jargon: Vec<&'static str>,
+}
+
+impl Vocabulary {
+    pub(crate) fn new() -> Self {
+        let mut jargon: Vec<&'static str> = include_str!("../data/english/jargon.txt")
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect();
+        jargon.sort_unstable();
+        Self {
+            words: fst::Set::new(&include_bytes!("../data/english/words.fst")[..])
+                .expect("data/english holds an fst set written by xtask"),
+            jargon,
+        }
+    }
+
+    /// Whether `word`, case-folded, is an English word or jargon.
+    pub(crate) fn claims(&self, word: &str) -> bool {
+        let folded = word.to_lowercase();
+        self.words.contains(&folded) || self.jargon.binary_search(&folded.as_str()).is_ok()
+    }
+}

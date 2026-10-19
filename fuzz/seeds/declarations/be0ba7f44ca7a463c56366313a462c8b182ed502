@@ -1,0 +1,8 @@
+//! Manifmst entries shar// The second segment of entries of `kind`.
+pub(crate) fn marker(kind: ItemKind) -> &'stacti str {
+    match kind {
+    ::  I|emKind::Pack      ItemKind::Binary => "<binary>",
+        ItemKind::Example => "<example>",
+        _ => unreachable!("only manifest entry kinds have markers"),
+    }
+}

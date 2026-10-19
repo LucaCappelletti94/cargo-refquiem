@@ -85,3 +85,25 @@ fn outside_a_git_repository_the_scan_fails_with_exit_2() {
             .starts_with("refquiem: ")
     );
 }
+
+#[test]
+fn a_scan_failure_prints_the_full_error_chain() {
+    let dir = tempfile::tempdir().unwrap();
+    let status = Command::new("git")
+        .args(["init", "-q", "-b", "main"])
+        .current_dir(dir.path())
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    let output = cargo_refquiem(dir.path(), &[]);
+
+    let path = std::fs::canonicalize(dir.path()).unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        format!("refquiem: no Cargo.toml at or above {}\n", path.display())
+    );
+}

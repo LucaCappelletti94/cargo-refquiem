@@ -46,6 +46,19 @@ fn context(source: Source, kind: Kind) -> Context {
     Context { source, kind }
 }
 
+#[test]
+fn unicode_blank_doc_lines_preserve_reference_offsets() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("public API");
+    repo.write(
+        "src/lib.rs",
+        "///\u{2003}\n///  `fixture::gone`\npub fn kept() {}\n",
+    );
+    let rows: Vec<_> = found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
+    assert_eq!(rows, [("fixture::gone".to_owned(), 2, 7)]);
+}
+
 /// `(removed path, file, line, column, context, text)` for every mention, sorted.
 fn found(repo: &Repo) -> Vec<(String, String, usize, usize, Context, String)> {
     let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
@@ -271,6 +284,287 @@ let q = fixture::images::postgres::Postgres::default();
                 6,
                 9,
                 "fixture::images::postgres::Postgres::default".to_owned()
+            ),
+        ]
+    );
+}
+
+const MANIFEST: &str = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
+
+#[test]
+fn inner_docs_followed_by_outer_docs_do_not_share_a_code_fence() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "//! names fixture::gone\n//! ```\n/// fence line names fixture::gone\nfn kept() {}\n",
+    );
+    repo.commit("drop gone");
+
+    let text = context(Source::DocComment, Kind::Text);
+    assert_eq!(
+        found(&repo),
+        [
+            (
+                "fixture::gone".to_owned(),
+                "src/lib.rs".to_owned(),
+                1,
+                11,
+                text,
+                "fixture::gone".to_owned()
+            ),
+            (
+                "fixture::gone".to_owned(),
+                "src/lib.rs".to_owned(),
+                3,
+                22,
+                text,
+                "fixture::gone".to_owned()
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_doc_comment_run_stops_at_the_next_attribute() {
+    let repo = Repo::new();
+    repo.vendor("gone_feature", "0.3.0", "");
+    repo.write(
+        "Cargo.toml",
+        &format!("{MANIFEST}\n[dependencies]\ngone_feature = \"0.3\"\n"),
+    );
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write("Cargo.toml", MANIFEST);
+    repo.write(
+        "src/lib.rs",
+        "/// names fixture::gone\n\
+         /// line two\n\
+         #[doc = \"see gone_feature\"]\n\
+         fn kept() {}\n",
+    );
+    repo.commit("drop gone and gone_feature");
+
+    let text = context(Source::DocComment, Kind::Text);
+    assert_eq!(
+        found(&repo),
+        [(
+            "fixture::gone".to_owned(),
+            "src/lib.rs".to_owned(),
+            1,
+            11,
+            text,
+            "fixture::gone".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn string_literals_inside_hash_attributes_are_macro_arguments() {
+    let repo = Repo::new();
+    for name in ["gone_a", "gone_b", "gone_c", "gone_d"] {
+        repo.vendor(name, "0.3.0", "");
+    }
+    repo.write(
+        "Cargo.toml",
+        &format!(
+            "{MANIFEST}\n\
+             [dependencies]\n\
+             gone_a = \"0.3\"\n\
+             gone_b = \"0.3\"\n\
+             gone_c = \"0.3\"\n\
+             gone_d = \"0.3\"\n"
+        ),
+    );
+    repo.write("src/lib.rs", "");
+    repo.commit("start");
+    repo.write("Cargo.toml", MANIFEST);
+    repo.write(
+        "src/lib.rs",
+        "#![doc = \"gone_a\"]\n\
+         \n\
+         #[doc = \"note\"]\n\
+         static B: &str = \"gone_b::Item\";\n\
+         \n\
+         static A: [&str; 1] = [\"gone_c::Item\"];\n\
+         \n\
+         #[my_attr([x] \"gone_d\")]\n\
+         fn f() {}\n",
+    );
+    repo.commit("drop gone_a through gone_d");
+
+    let literal = context(Source::StringLiteral, Kind::Text);
+    assert_eq!(
+        found(&repo),
+        [
+            (
+                "gone_b".to_owned(),
+                "src/lib.rs".to_owned(),
+                4,
+                19,
+                literal,
+                "gone_b::Item".to_owned()
+            ),
+            (
+                "gone_c".to_owned(),
+                "src/lib.rs".to_owned(),
+                6,
+                25,
+                literal,
+                "gone_c::Item".to_owned()
+            )
+        ]
+    );
+}
+
+#[test]
+fn a_decorated_block_doc_fences_its_content_as_a_code_block() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "pub fn a() {}\n\n/**\n * ```\n * names fixture::gone\n */\npub fn kept() {}\n",
+    );
+    repo.commit("drop gone");
+
+    let block = context(Source::DocComment, Kind::CodeBlock { compiled: true });
+    assert_eq!(
+        found(&repo),
+        [(
+            "fixture::gone".to_owned(),
+            "src/lib.rs".to_owned(),
+            5,
+            10,
+            block,
+            "fixture::gone".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn an_indented_block_doc_line_keeps_its_indent() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/**\n    names fixture::gone\n */\npub fn kept() {}\n",
+    );
+    repo.commit("drop gone");
+
+    let text = context(Source::DocComment, Kind::Text);
+    assert_eq!(
+        found(&repo),
+        [(
+            "fixture::gone".to_owned(),
+            "src/lib.rs".to_owned(),
+            2,
+            11,
+            text,
+            "fixture::gone".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn the_doc_indent_is_the_shortest_line_indent() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/**\n        fixture::gone\n    ab\n */\npub fn kept() {}\n",
+    );
+    repo.commit("drop gone");
+
+    let block = context(Source::DocComment, Kind::CodeBlock { compiled: true });
+    assert_eq!(
+        found(&repo),
+        [(
+            "fixture::gone".to_owned(),
+            "src/lib.rs".to_owned(),
+            2,
+            9,
+            block,
+            "fixture::gone".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn an_uneven_doc_line_keeps_the_mention_out_of_code() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/**\n       fixture::gone\n    ab\n */\npub fn kept() {}\n",
+    );
+    repo.commit("drop gone");
+
+    let text = context(Source::DocComment, Kind::Text);
+    assert_eq!(
+        found(&repo),
+        [(
+            "fixture::gone".to_owned(),
+            "src/lib.rs".to_owned(),
+            2,
+            8,
+            text,
+            "fixture::gone".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn rustdoc_fence_attributes_mark_the_block_compiled() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```rust\n/// fixture::gone();\n/// ```\n///\n/// ```rust,E0432\n/// fixture::gone();\n/// ```\n///\n/// ```rust,{x}\n/// fixture::gone();\n/// ```\n///\n/// ```rust,Ex\n/// fixture::gone();\n/// ```\npub fn kept() {}\n",
+    );
+    repo.commit("drop gone");
+
+    let compiled = context(Source::DocComment, Kind::CodeBlock { compiled: true });
+    let uncompiled = context(Source::DocComment, Kind::CodeBlock { compiled: false });
+    assert_eq!(
+        found(&repo),
+        [
+            (
+                "fixture::gone".to_owned(),
+                "src/lib.rs".to_owned(),
+                2,
+                5,
+                compiled,
+                "fixture::gone".to_owned()
+            ),
+            (
+                "fixture::gone".to_owned(),
+                "src/lib.rs".to_owned(),
+                6,
+                5,
+                compiled,
+                "fixture::gone".to_owned()
+            ),
+            (
+                "fixture::gone".to_owned(),
+                "src/lib.rs".to_owned(),
+                10,
+                5,
+                compiled,
+                "fixture::gone".to_owned()
+            ),
+            (
+                "fixture::gone".to_owned(),
+                "src/lib.rs".to_owned(),
+                14,
+                5,
+                uncompiled,
+                "fixture::gone".to_owned()
             ),
         ]
     );

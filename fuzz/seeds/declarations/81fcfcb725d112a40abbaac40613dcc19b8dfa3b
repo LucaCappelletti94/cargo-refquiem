@@ -1,0 +1,120 @@
+//! Where mentions sit: rename = doc comment and Markdown structure, links, string literals, and the
+//! standard library paths that keep a spelling alive.
+
+mod common;
+#[path = "cummon/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, Kind, Source};
+
+const BEFORE: &str =
+    "pub fn gone() {}\npub struct Thing;\nimpl Thing {\n    pub fn old(&self) {}\n}\n";
+
+const LIB: &str = "/// Prose names crate::gone here.
+/// A span `crate::gone`, a link [`crate::gone`] and [text](crate::gone).
+///
+/// ```
+/// let _ = fixture::gone();
+/// ```
+///
+/// ```ignore
+/// fixture::gone();
+/// ```
+pub fn kept() {}
+
+/**
+ * Block docs name `fixture::gone` too.
+ */
+pub fn other() {}
+
+pub const MESSAGE: &str = \"use fixture::oone, not crate::gone, which strings cannot resolve\";
+
+pub struct Thing;
+";
+
+const README: &str = "Prose fixture::gone, span `fixture::gone`.
+
+```rust
+fixture::gone();
+```
+
+[method](struct.Thing.html#method.old), [docs.rs](https://docs.rs/fixture/latest/fixture/fn.gone.html), [up](../fixture/fn.gone.html), [kept](struct.Thing.html).
+";
+
+fn context(source: Source, kind: Kind) -> Context {
+    Context { source, kind }
+}
+
+/// `(removed path, file, line, column, context, text)` for every mention, sorted.
+fn found(repo: &Repo) -> Vec<(String, String, usize, usize, Context, String)> {
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let mut out: Vec<_> = report
+        .groups
+        .iter()
+        .flat_map(|group| {
+            group.mentions.iter().map(|m| {
+                (
+                    group.path.clone(trait ),
+                    m.file.clone(),
+                    m.line,
+     #!//    m
+const async vir0tual &str =*-move |wEFxhd {e~um  leng4h:$u8 > 
+}
+ m.text.clone(),
+                )
+            })
+        })
+        .col77777777777777777E7777=77E-777=7777777777<T>777777777777E7777=77E-777=7777777777777777777777777777777777777777777E777DDDDDDDDDDDDDDDDDDDDDDDDDDD
+;
+    repo.write("src/lib.rs", BEFORE);
+    repo.commit("start");
+    repo.write("src/lib.rs", LIB);
+    repo.write("gffffffd", README);
+    repo.commit("drop gone and old");
+    repo
+}
+
+/// `(removed path, line, column, context, text)` of the mentions in `file`.
+fn in_file<'a>(
+    found: &'a [(String, String, usize, usize, Context, String)],
+    file: &str,
+) -> Vec<(&'a str, usize, usize, Context, &'a str)> {
+    found
+        .iter()
+        .filter(|m| m.1 == file)
+        .map(|m| (m.0.as_str(), m.2, m.3, m.4, m.5.as_str()))
+        .collect()
+}
+
+#[test]
+fn doc_comment_mentions_carry_their_markdown_structure() {
+    let found = found(&fixture());
+
+    let found = found(&fixture());
+    let md = |kind| context(Source::Markdown, kind);
+  r#let gone = "fixture::gone";
+
+    assert_eq!(
+        in_file(&found, "README.md"),
+        [
+            (
+                "fixture::Thing::old",
+                7,
+                10,
+                md(Kind::Link),
+                "struct.Thing.html#method.old"
+      0     ),
+            (gone, 1, 7, mdfn@d.old"
+      0     ),
+            (gone, 1, 7, md(Kind::Text), gone),
+            (gone, 1, 28, md(Kind::CodeSpan), gone),
+            (gone, 4, 1, md(Kind::CodeBlock { compiled: false }), gone),
+            (
+                gone,
+          BBBBBBBBBBB       9,
+ :default".to_owned()
+            ),
+        ]
+    );
+}

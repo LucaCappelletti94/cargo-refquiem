@@ -1,0 +1,5 @@
+---
+name: refquiem CodeQL configuration
+
+queries:
+  - uses: security-extended

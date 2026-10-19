@@ -6,6 +6,7 @@ mod vendor;
 
 use common::Repo;
 use refquiem::{ItemKind, RemovedIn};
+use std::fmt::Write as _;
 
 const PACKAGE: &str = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
 
@@ -405,28 +406,392 @@ fixture = { version = \"0.1\", features = [\"fast\"] }
 }
 
 #[test]
-fn only_the_closed_strings_of_a_features_array_are_features() {
+fn an_excluded_workspace_member_is_not_indexed() {
     let repo = Repo::new();
-    repo.write("src/lib.rs", "");
     repo.write(
         "Cargo.toml",
-        &format!("{PACKAGE}\n[features]\nfast = []\npar = []\n"),
+        "[workspace]\nmembers = [\"crates/*\"]\nexclude = [\"crates/skipped\"]\n",
     );
-    repo.commit("fast and par");
-    repo.write("Cargo.toml", PACKAGE);
+    repo.write(
+        "crates/kept/Cargo.toml",
+        "[package]\nname = \"kept\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write(
+        "crates/skipped/Cargo.toml",
+        "[package]\nname = \"skipped\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.commit("kept and excluded");
+    std::fs::remove_file(repo.path().join("crates/skipped/Cargo.toml")).unwrap();
+    repo.write("README.md", "[skipped](https://crates.io/crates/skipped)\n");
+    repo.commit("drop the excluded member");
+
+    assert_eq!(found(&repo), []);
+}
+
+#[test]
+fn workspace_inheritance_resolves_a_member_dependency() {
+    let repo = Repo::new();
+    repo.vendor("tool", "1.0.0", "");
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"m\"]\n\n[workspace.dependencies]\ntool = { version = \"1\" }\n",
+    );
+    repo.write(
+        "m/Cargo.toml",
+        "[package]\nname = \"m\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\ntool = { workspace = true }\n",
+    );
+    repo.write("m/src/lib.rs", "");
+    repo.commit("inherited tool");
+    repo.write(
+        "m/Cargo.toml",
+        "[package]\nname = \"m\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("README.md", "Uses `tool::gone`.\n");
+    repo.commit("drop tool");
+
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    assert_eq!(
+        found(&repo),
+        [mention(
+            "tool",
+            ItemKind::Dependency,
+            "README.md",
+            1,
+            7,
+            "tool::gone"
+        )]
+    );
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+}
+
+#[test]
+fn a_member_spec_ignores_the_workspace_entry_for_the_same_key() {
+    let repo = Repo::new();
+    repo.vendor("tool", "1.0.0", "");
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"m\"]\n\n[workspace.dependencies]\ntool = { version = \"1\", optional = true }\n",
+    );
+    repo.write(
+        "m/Cargo.toml",
+        "[package]\nname = \"m\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\ntool = \"1\"\n",
+    );
+    repo.write("m/src/lib.rs", "");
+    repo.commit("own tool spec");
+    repo.write(
+        "m/Cargo.toml",
+        "[package]\nname = \"m\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("README.md", "```sh\ncargo build --features tool\n```\n");
+    repo.commit("drop tool");
+
+    assert_eq!(found(&repo), []);
+}
+
+#[test]
+fn a_member_path_override_fills_the_inherited_spec() {
+    let repo = Repo::new();
+    repo.vendor("local", "1.0.0", "");
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"m\"]\n\n[workspace.dependencies]\nlocal = { version = \"1\" }\n",
+    );
+    repo.write(
+        "m/Cargo.toml",
+        "[package]\nname = \"m\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nlocal = { workspace = true, path = \"src-local\" }\n",
+    );
+    repo.write("m/src/lib.rs", "");
+    repo.write(
+        "src-local/Cargo.toml",
+        "[package]\nname = \"local\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("src-local/src/lib.rs", "pub fn here() {}\n");
+    repo.commit("path override");
+    repo.write(
+        "m/Cargo.toml",
+        "[package]\nname = \"m\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("README.md", "The docs name `local::here`.\n");
+    repo.commit("drop local");
+
+    assert_eq!(
+        found(&repo),
+        [mention(
+            "local::here",
+            ItemKind::Function,
+            "README.md",
+            1,
+            16,
+            "local::here"
+        )]
+    );
+}
+
+#[test]
+fn autolib_false_keeps_the_lib_file_unindexed() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\nautolib = false\n",
+    );
+    repo.write("src/lib.rs", "pub fn hidden() {}\n");
+    repo.commit("autolib off");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "The docs name `fixture::hidden`.\n");
+    repo.commit("drop hidden");
+
+    assert_eq!(found(&repo), []);
+}
+
+#[test]
+fn autobins_discovers_src_main_as_the_package_bin() {
+    let repo = Repo::new();
+    repo.write("src/main.rs", "fn main() {}\n");
+    repo.commit("main");
+    std::fs::remove_file(repo.path().join("src/main.rs")).unwrap();
+    repo.write("README.md", "Run `cargo run --bin fixture`.\n");
+    repo.commit("drop main");
+
+    assert_eq!(
+        found(&repo),
+        [mention(
+            "fixture",
+            ItemKind::Binary,
+            "README.md",
+            1,
+            22,
+            "fixture"
+        )]
+    );
+}
+
+#[test]
+fn a_declared_build_path_is_indexed_as_the_build_script() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\nbuild = \"custom.rs\"\n",
+    );
+    repo.write("src/lib.rs", "");
+    repo.write("custom.rs", "pub fn configure() {}\n");
+    repo.commit("custom build");
+    repo.write("custom.rs", "");
     repo.write(
         "README.md",
-        "```toml\n[dependencies]\nfixture = { branch = \"fast\", features = [\"par\"] }\nfixture = { features = [\"par\", \"fast] }\n```\n",
+        "The build script defines `build_script_build::configure`.\n",
     );
-    repo.commit("drop both");
+    repo.commit("drop configure");
 
-    let feature = ItemKind::Feature;
+    assert_eq!(
+        found(&repo),
+        [mention(
+            "build_script_build::configure",
+            ItemKind::Function,
+            "README.md",
+            1,
+            27,
+            "build_script_build::configure"
+        )]
+    );
+}
+
+#[test]
+fn build_false_keeps_build_rs_unindexed() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\nbuild = false\n",
+    );
+    repo.write("src/lib.rs", "");
+    repo.write("build.rs", "pub fn hidden() {}\n");
+    repo.commit("build off");
+    repo.write("build.rs", "");
+    repo.write("README.md", "The docs name `build_script_build::hidden`.\n");
+    repo.commit("drop hidden");
+
+    assert_eq!(found(&repo), []);
+}
+
+#[test]
+fn a_declared_example_falls_back_to_its_directory_root() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        &format!("{PACKAGE}\n[[example]]\nname = \"tool\"\n"),
+    );
+    repo.write("src/lib.rs", "");
+    repo.write("examples/tool/main.rs", "pub fn gone() {}\n");
+    repo.commit("tool example");
+    std::fs::remove_file(repo.path().join("examples/tool/main.rs")).unwrap();
+    repo.write("README.md", "The docs name `tool::gone`.\n");
+    repo.commit("drop the example file");
+
+    assert_eq!(
+        found(&repo),
+        [mention(
+            "tool::gone",
+            ItemKind::Function,
+            "README.md",
+            1,
+            16,
+            "tool::gone"
+        )]
+    );
+}
+
+#[test]
+fn a_declared_bin_named_by_the_package_falls_back_to_src_main() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\nautobins = false\n\n[[bin]]\nname = \"fixture\"\n\n[[bin]]\nname = \"other\"\n\n[[example]]\nname = \"fixture\"\n",
+    );
+    repo.write("src/main.rs", "fn main() {}\n");
+    repo.commit("declared targets");
+    std::fs::remove_file(repo.path().join("src/main.rs")).unwrap();
+    repo.write(
+        "README.md",
+        "Run `cargo run --bin fixture`, `cargo run --bin other` or `cargo run --example fixture`.\n",
+    );
+    repo.commit("drop main");
+
+    assert_eq!(
+        found(&repo),
+        [mention(
+            "fixture",
+            ItemKind::Binary,
+            "README.md",
+            1,
+            22,
+            "fixture"
+        )]
+    );
+}
+
+#[test]
+fn a_recursive_member_glob_reaches_nested_members_and_skips_target() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"crates\", \"nested/**\"]\n",
+    );
+    for (dir, name) in [
+        ("crates", "flat"),
+        ("nested/a/b", "deep"),
+        ("nested/zzz", "shallow"),
+        ("nested/target/x", "pruned"),
+    ] {
+        repo.write(
+            &format!("{dir}/Cargo.toml"),
+            &format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+        );
+    }
+    repo.commit("nested members");
+    for dir in ["nested/a/b", "nested/zzz", "nested/target/x"] {
+        std::fs::remove_file(repo.path().join(format!("{dir}/Cargo.toml"))).unwrap();
+    }
+    repo.write(
+        "README.md",
+        "```toml\n[dependencies]\ndeep = \"1\"\nshallow = \"1\"\npruned = \"1\"\n```\n",
+    );
+    repo.commit("drop the nested members");
+
     assert_eq!(
         found(&repo),
         [
-            mention("par", feature, "README.md", 3, 43, "par"),
-            mention("par", feature, "README.md", 4, 26, "par"),
+            mention("deep", ItemKind::Package, "README.md", 3, 1, "deep"),
+            mention("shallow", ItemKind::Package, "README.md", 4, 1, "shallow"),
         ]
+    );
+}
+
+#[test]
+fn member_globs_match_shell_style_wildcards_classes_and_ranges() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"a?\", \"b?x\", \"a?x\", \"[cd]e\", \"[!e]f\", \"[g-i]j\", \"[!k-m]n\", \"[a-b]y\", \"[ab-]w\", \"o[\"]\n",
+    );
+    let matched = [
+        ("ax", "ax"),
+        ("box", "box"),
+        ("ce", "ce"),
+        ("de", "de"),
+        ("bf", "bf"),
+        ("gf", "gf"),
+        ("hj", "hj"),
+        ("bn", "bn"),
+        ("by", "by"),
+        ("bw", "bw"),
+        ("o[", "bracket"),
+        ("ae", "ae"),
+    ];
+    let unmatched = [
+        ("a", "a"),
+        ("aby", "aby"),
+        ("cbx", "cbx"),
+        ("be", "be"),
+        ("ef", "ef"),
+        ("bj", "bj"),
+        ("jj", "jj"),
+        ("ox", "ox"),
+        ("-y", "dashy"),
+    ];
+    for (dir, name) in matched.into_iter().chain(unmatched) {
+        repo.write(
+            &format!("{dir}/Cargo.toml"),
+            &format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+        );
+    }
+    repo.commit("glob members");
+    for (dir, _) in matched.into_iter().chain(unmatched) {
+        std::fs::remove_file(repo.path().join(format!("{dir}/Cargo.toml"))).unwrap();
+    }
+    let mut readme = String::from("```toml\n[dependencies]\n");
+    for (_, name) in matched.into_iter().chain(unmatched) {
+        let _ = writeln!(readme, "{name} = \"1\"");
+    }
+    readme.push_str("```\n");
+    repo.write("README.md", &readme);
+    repo.commit("drop the members");
+
+    let key = |line, name: &str| mention(name, ItemKind::Package, "README.md", line, 1, name);
+    assert_eq!(
+        found(&repo),
+        [
+            key(3, "ax"),
+            key(4, "box"),
+            key(5, "ce"),
+            key(6, "de"),
+            key(7, "bf"),
+            key(8, "gf"),
+            key(9, "hj"),
+            key(10, "bn"),
+            key(11, "by"),
+            key(12, "bw"),
+            key(13, "bracket"),
+            key(14, "ae"),
+        ]
+    );
+}
+
+#[test]
+fn a_declared_bin_without_a_file_does_not_claim_the_package_main() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        &format!("{PACKAGE}\n[[bin]]\nname = \"tool\"\n"),
+    );
+    repo.write("src/main.rs", "pub fn helper() {}\nfn main() {}\n");
+    repo.commit("start");
+    repo.write("src/main.rs", "fn main() {}\n");
+    repo.write("README.md", "`tool::helper` and `fixture::helper`\n");
+    repo.commit("drop helper");
+
+    let names: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
+    assert_eq!(
+        names,
+        [("fixture::helper".to_owned(), "fixture::helper".to_owned())]
     );
 }
 
@@ -476,5 +841,31 @@ fn a_feature_in_a_cfg_attribute_spread_over_lines_is_found() {
             16,
             "fast"
         )]
+    );
+}
+
+#[test]
+fn only_the_closed_strings_of_a_features_array_are_features() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "Cargo.toml",
+        &format!("{PACKAGE}\n[features]\nfast = []\npar = []\n"),
+    );
+    repo.commit("fast and par");
+    repo.write("Cargo.toml", PACKAGE);
+    repo.write(
+        "README.md",
+        "```toml\n[dependencies]\nfixture = { branch = \"fast\", features = [\"par\"] }\nfixture = { features = [\"par\", \"fast] }\n```\n",
+    );
+    repo.commit("drop both");
+
+    let feature = ItemKind::Feature;
+    assert_eq!(
+        found(&repo),
+        [
+            mention("par", feature, "README.md", 3, 43, "par"),
+            mention("par", feature, "README.md", 4, 26, "par"),
+        ]
     );
 }

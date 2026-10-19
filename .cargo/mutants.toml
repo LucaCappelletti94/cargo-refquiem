@@ -1,0 +1,31 @@
+profile = "mutants"
+gitignore = true
+# Compiled only with the `fuzzing` feature, which the fuzz targets exercise.
+exclude_globs = ["src/fuzzing.rs"]
+# Equivalent mutants, pinned by column and function so edits above them keep matching.
+exclude_re = [
+    # `registry-index` set to crates.io's own index resolves to the same source.
+    'src/deps\.rs:\d+:53: delete ! in fetched',
+    # At head `deps::head` reads the same manifests and fails on the same error.
+    'replace match guard !head with true in Indexer::index',
+    # Which module a file reached twice keeps is arbitrary.
+    'src/index\.rs:\d+:21: replace && with \|\| in Indexer::reach',
+    # An empty or `.` glob segment only adds a round that matches the same directories.
+    'src/manifest\.rs:\d+:64: replace && with \|\| in expand',
+    # The git object cache size only changes speed.
+    'src/scan\.rs:\d+:(40|47): replace \* with [+/] in run',
+    # The token after the last doc line is the newline the outer loop skips anyway.
+    'src/text\.rs:\d+:38: replace - with / in rust',
+    # The shrunk or shifted `{...}` span still covers every word between the braces.
+    'src/text\.rs:\d+:48: replace \+ with [-*] in spelled',
+    'src/text\.rs:\d+:40: replace \+ with \* in spelled',
+    # The extra span is empty, and an empty word names nothing.
+    'src/text\.rs:\d+:25: replace < with <= in runs',
+    'src/text\.rs:\d+:18: replace > with >= in split_list',
+    # A one-character shift never crosses the newline that bounds the `cfg` check.
+    'src/text\.rs:\d+:65: replace \+ with [-*] in cfg_features',
+    # For a well-formed header the quotient and the difference are both one.
+    'src/text\.rs:\d+:54: replace - with / in toml',
+    # The character before `[` is never a quote.
+    'src/text\.rs:\d+:27: replace \+ with [-*] in requested_features',
+]
