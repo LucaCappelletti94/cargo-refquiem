@@ -258,3 +258,146 @@ fn a_job_summary_that_cannot_be_written_fails_the_run() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("summary-dir"), "{stderr}");
 }
+
+/// A code span in the job summary must survive backticks and newlines in file names.
+#[test]
+fn the_job_summary_survives_backticks_and_newlines_in_file_names() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    std::fs::write(repo.path().join("src/lib.rs"), "").unwrap();
+    repo.write("bt`k.md", "`fixture::gone`\n");
+    repo.write("nl\nx.md", "`fixture::gone`\n");
+    repo.commit("drop gone");
+    let summary = repo.path().join("summary.md");
+
+    let output = cargo_refquiem(repo.path(), &["--github"], Some(&summary));
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("::error file=nl%0Ax.md,line=1,col=2,title=refquiem::"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("::error file=bt`k.md,line=1,col=2,title=refquiem::"),
+        "{stdout}"
+    );
+    let summary = std::fs::read_to_string(&summary).unwrap();
+    assert_eq!(
+        summary.lines().filter(|line| line.starts_with('|')).count(),
+        3,
+        "{summary}"
+    );
+    let row = summary
+        .lines()
+        .find(|line| line.starts_with('|') && line.contains("nl x.md"))
+        .unwrap_or("");
+    assert!(row.contains("``bt`k.md:1:2``"), "{summary}");
+}
+
+/// The job summary's skipped list must survive a backtick in a dependency key.
+#[test]
+fn the_job_summary_survives_a_backtick_in_a_dependency_key() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n\"weird:`key\" = { package = \"absent-xyz-123\", version = \"1\" }\n",
+    );
+    repo.commit("a key cargo rejects");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.commit("drop the key");
+    let summary = repo.path().join("summary.md");
+
+    let output = cargo_refquiem(repo.path(), &["--github"], Some(&summary));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains(
+            "::warning title=refquiem::removed dependency `weird:`key` could not be resolved"
+        ),
+        "{stdout}"
+    );
+    let summary = std::fs::read_to_string(&summary).unwrap();
+    assert!(
+        summary.ends_with("\n### Skipped dependencies\n\n- ``weird:`key`` could not be resolved\n"),
+        "{summary}"
+    );
+}
+
+/// The summary rendered by a Markdown parser must keep the code spans whose text begins or
+/// ends with a backtick, and the table row of a file name that begins with a backtick.
+#[test]
+fn the_job_summary_renders_edge_backtick_names_in_the_table() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    std::fs::write(repo.path().join("src/lib.rs"), "").unwrap();
+    repo.write("`x.md", "`fixture::gone`\n");
+    repo.write(" sp.md", "`fixture::gone`\n");
+    repo.write("plain.md", "`fixture::gone`\n");
+    repo.commit("drop gone");
+    let summary = repo.path().join("summary.md");
+
+    let output = cargo_refquiem(repo.path(), &["--github"], Some(&summary));
+    assert_eq!(output.status.code(), Some(1));
+    let summary = std::fs::read_to_string(&summary).unwrap();
+    let mut parser =
+        pulldown_cmark::Parser::new_ext(&summary, pulldown_cmark::Options::ENABLE_TABLES);
+    let mut rows = 0;
+    let mut codes = Vec::new();
+    while let Some(event) = parser.next() {
+        match event {
+            pulldown_cmark::Event::Start(pulldown_cmark::Tag::TableRow) => rows += 1,
+            pulldown_cmark::Event::Code(code) => codes.push(code.to_string()),
+            _ => {}
+        }
+    }
+    assert_eq!(rows, 1, "{summary}");
+    assert!(codes.contains(&"`x.md:1:2".to_owned()), "{summary:?}");
+    assert!(codes.contains(&" sp.md:1:2".to_owned()), "{summary:?}");
+    assert!(codes.contains(&"plain.md:1:2".to_owned()), "{summary:?}");
+    assert!(codes.contains(&"fixture::gone".to_owned()), "{summary:?}");
+}
+
+/// The rendered skipped list must keep code spans whose text begins or ends with a backtick
+/// and must keep leading and trailing spaces of a dependency key.
+#[test]
+fn the_job_summary_renders_edge_backtick_and_space_keys() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n\"`x\" = { package = \"absent-xyz-101\", version = \"1\" }\n\"x`\" = { package = \"absent-xyz-102\", version = \"1\" }\n\" x\" = { package = \"absent-xyz-103\", version = \"1\" }\n\"x \" = { package = \"absent-xyz-104\", version = \"1\" }\n\"ok\" = { package = \"absent-xyz-105\", version = \"1\" }\n",
+    );
+    repo.commit("keys cargo rejects");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.commit("drop the keys");
+    let summary = repo.path().join("summary.md");
+
+    cargo_refquiem(repo.path(), &["--github"], Some(&summary));
+    let summary = std::fs::read_to_string(&summary).unwrap();
+    let codes: Vec<String> =
+        pulldown_cmark::Parser::new_ext(&summary, pulldown_cmark::Options::ENABLE_TABLES)
+            .filter_map(|event| match event {
+                pulldown_cmark::Event::Code(code) => Some(code.to_string()),
+                _ => None,
+            })
+            .collect();
+    let mut expected = vec![
+        "`x".to_owned(),
+        "x`".to_owned(),
+        " x".to_owned(),
+        "x ".to_owned(),
+        "ok".to_owned(),
+    ];
+    expected.sort();
+    let mut codes = codes;
+    codes.sort();
+    assert_eq!(codes, expected, "{summary:?}");
+}
