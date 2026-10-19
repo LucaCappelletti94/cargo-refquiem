@@ -136,3 +136,15 @@ fn marker_text_inside_markdown_code_is_not_a_suppression() {
     );
     assert_eq!(report.unused_markers, []);
 }
+
+#[test]
+fn a_nested_html_comment_preserves_mentions_after_the_comment() {
+    let repo = removed();
+    repo.write("README.md", "<!-- a <!-- b -->\n\nUse `fixture::Gone`.\n");
+    repo.commit("drop the structures");
+
+    let report = refquiem::run(&Options::new(repo.path().to_path_buf())).unwrap();
+    assert_eq!(reported(&report), [("README.md".to_owned(), 3)]);
+    assert_eq!(report.groups[0].path, "fixture::Gone");
+    assert_eq!(report.unused_markers, []);
+}

@@ -48,17 +48,14 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Install cargo-mutants
-        run: cargo install cargo-mutants --locked
+      - name: Install mutation tools
+        run: |
+          cargo install cargo-mutants --git https://github.com/sourcefrog/cargo-mutants --rev b00aff0c6ca0670bccdf4eb2ece9e15c4c35c8b9 --locked
+          cargo install cargo-nextest --locked
 
       - name: Run mutants
-        # Exit 3 means only timeouts, and a mutant that hangs the suite is detected. A mutant
-        # that allocates without end is killed inside the memory cap and fails its tests,
-        # instead of taking the runner down with it.
         run: |
-          status=0
           sudo -E env "PATH=$PATH" "HOME=$HOME" systemd-run --scope --quiet \
             --uid="$(id -u)" --gid="$(id -g)" \
             -p MemoryMax=12G -p MemorySwapMax=0 -p OOMPolicy=continue \
-            taskset --cpu-list 0,1 cargo mutants --jobs 2 --cap-lints true --shard ${{ matrix.shard }}/8 || status=$?
-          test "$status" -eq 0 -o "$status" -eq 3
+            taskset --cpu-list 0,1 cargo mutants --jobs 2 --cap-lints true --shard ${{ matrix.shard }}/8

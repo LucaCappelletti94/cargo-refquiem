@@ -27,10 +27,11 @@ pub(crate) struct Target {
     pub(crate) kind: TargetKind,
 }
 
-/// A dependency, by the key code names it with and the package it renames, if any.
+/// A dependency's manifest key and explicit package identity.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Dependency {
     pub(crate) key: String,
+    /// An explicit `package` also selects the dependency key as its crate name.
     pub(crate) package: Option<String>,
     /// The directory of a `path` dependency, from the repository root.
     pub(crate) path: Option<String>,
@@ -198,7 +199,6 @@ fn dependencies(
             let package = spec
                 .get("package")
                 .and_then(toml::Value::as_str)
-                .filter(|package| *package != key)
                 .map(str::to_owned);
             let path = spec
                 .get("path")
