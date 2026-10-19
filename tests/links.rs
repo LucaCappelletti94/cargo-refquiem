@@ -177,7 +177,7 @@ fn docs_rs_about_and_release_pages_are_not_crate_links() {
 }
 
 #[test]
-fn crate_link_names_keep_hyphens_and_underscores() {
+fn published_crate_names_with_hyphens_and_underscores_are_not_dependencies() {
     let repo = Repo::new();
     repo.vendor("gone-crate", "0.1.0", "");
     repo.vendor("under_score", "0.1.0", "");
@@ -192,25 +192,35 @@ fn crate_link_names_keep_hyphens_and_underscores() {
         "Cargo.toml",
         "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
-    repo.write(
-        "README.md",
-        "[a](https://docs.rs/gone-crate) and [b](https://docs.rs/under_score)\n",
-    );
+    let links = "[a](https://docs.rs/gone-crate) and [b](https://docs.rs/under_score)\n";
+    repo.write("README.md", links);
     repo.commit("drop both");
 
-    let url = "https://docs.rs/gone-crate";
-    let other = "https://docs.rs/under_score";
+    assert_eq!(found(&repo), []);
+    repo.write(
+        "README.md",
+        &format!(
+            "{links}\n```toml\n[dependencies]\ngone-crate = \"0.1\"\nunder_score = \"0.1\"\n```\n"
+        ),
+    );
     assert_eq!(
         found(&repo),
         [
-            mention("gone-crate", ItemKind::Dependency, "README.md", 1, 5, url),
+            mention(
+                "gone-crate",
+                ItemKind::Dependency,
+                "README.md",
+                5,
+                1,
+                "gone-crate"
+            ),
             mention(
                 "under_score",
                 ItemKind::Dependency,
                 "README.md",
+                6,
                 1,
-                41,
-                other
+                "under_score"
             ),
         ]
     );

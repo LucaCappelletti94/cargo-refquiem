@@ -52,7 +52,83 @@ fn mention(
 }
 
 #[test]
-fn a_removed_dependency_is_found_in_paths_links_badges_and_toml_keys() {
+fn historical_dependency_names_cannot_overwrite_files_outside_the_cache() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "");
+    repo.write("victim-requirement/Cargo.toml", "protected manifest");
+    repo.write("victim-requirement/lib.rs", "protected source");
+    let package = repo.path().join("victim").display().to_string();
+    let package = toml::Value::String(package);
+    repo.write(
+        "Cargo.toml",
+        &format!("{PACKAGE}\n[dependencies]\nevil = {{ package = {package}, version = \"1\" }}\n"),
+    );
+    repo.commit("historical dependency");
+    repo.write("Cargo.toml", PACKAGE);
+    repo.commit("remove dependency");
+    refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("victim-requirement/Cargo.toml")).unwrap(),
+        "protected manifest"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("victim-requirement/lib.rs")).unwrap(),
+        "protected source"
+    );
+}
+
+#[test]
+fn historical_locked_versions_cannot_overwrite_files_outside_the_cache() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "");
+    repo.write("victim-locked/Cargo.toml", "protected manifest");
+    repo.write("victim-locked/lib.rs", "protected source");
+    let lock = "version = 3\n\n[[package]]\nname = \"fixture\"\nversion = \"0.1.0\"\ndependencies = [\"evil ../../../../../victim-locked\"]\n\n[[package]]\nname = \"evil\"\nversion = \"../../../../../victim-locked\"\n";
+    repo.write(
+        "Cargo.toml",
+        &format!("{PACKAGE}\n[dependencies]\nevil = \"1\"\n"),
+    );
+    repo.write("Cargo.lock", lock);
+    repo.commit("historical dependency");
+    repo.write("Cargo.toml", PACKAGE);
+    std::fs::remove_file(repo.path().join("Cargo.lock")).unwrap();
+    repo.commit("remove dependency");
+    refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("victim-locked/Cargo.toml")).unwrap(),
+        "protected manifest"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("victim-locked/lib.rs")).unwrap(),
+        "protected source"
+    );
+}
+
+#[test]
+fn published_crate_links_survive_dependency_removal() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "Cargo.toml",
+        &format!("{PACKAGE}\n[dependencies]\nserde = \"1\"\n"),
+    );
+    repo.commit("dependency");
+    repo.write("Cargo.toml", PACKAGE);
+    let links = "[Serde](https://docs.rs/serde/latest/serde/)\nhttps://crates.io/crates/serde\n[![serde](https://img.shields.io/crates/v/serde.svg)](https://lib.rs/crates/serde)\n";
+    repo.write("README.md", links);
+    repo.commit("recommend published crate without depending on it");
+    assert_eq!(found(&repo), Vec::new());
+
+    repo.write(
+        "README.md",
+        &format!("{links}\n`serde::Serialize`\n\n```toml\n[dependencies]\nserde = \"1\"\n```\n"),
+    );
+    let texts: Vec<_> = found(&repo).into_iter().map(|mention| mention.5).collect();
+    assert_eq!(texts, ["serde::Serialize", "serde"]);
+}
+
+#[test]
+fn a_removed_dependency_is_found_in_paths_and_toml_keys() {
     let repo = Repo::new();
     repo.vendor("structopt", "0.3.0", "");
     repo.vendor("clap", "4.0.0", "");
@@ -90,33 +166,9 @@ clap = \"4\"
                 "structopt",
                 dependency,
                 "README.md",
-                1,
-                12,
-                "https://img.shields.io/crates/v/structopt.svg"
-            ),
-            mention(
-                "structopt",
-                dependency,
-                "README.md",
-                1,
-                60,
-                "https://crates.io/crates/structopt"
-            ),
-            mention(
-                "structopt",
-                dependency,
-                "README.md",
                 3,
                 6,
                 "structopt::StructOpt"
-            ),
-            mention(
-                "structopt",
-                dependency,
-                "README.md",
-                4,
-                6,
-                "https://docs.rs/structopt"
             ),
             mention("structopt", dependency, "README.md", 8, 1, "structopt"),
         ]
@@ -136,7 +188,7 @@ clap = \"4\"
 }
 
 #[test]
-fn a_renamed_dependency_is_stale_under_its_key_and_its_package_name() {
+fn a_renamed_dependency_is_stale_under_its_key() {
     let repo = Repo::new();
     repo.vendor("clap", "4.0.0", "");
     repo.write("src/lib.rs", "");
@@ -153,16 +205,7 @@ fn a_renamed_dependency_is_stale_under_its_key_and_its_package_name() {
     repo.commit("drop clap");
 
     let names: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
-    assert_eq!(
-        names,
-        [
-            ("cli".to_owned(), "cli::Parser".to_owned()),
-            (
-                "clap".to_owned(),
-                "https://crates.io/crates/clap".to_owned()
-            ),
-        ]
-    );
+    assert_eq!(names, [("cli".to_owned(), "cli::Parser".to_owned())]);
 }
 
 #[test]
@@ -315,7 +358,7 @@ fn removed_binaries_and_examples_are_found_in_cargo_commands() {
 }
 
 #[test]
-fn a_renamed_package_leaves_its_old_crate_links_stale() {
+fn a_renamed_package_keeps_published_crate_links_valid() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "");
     repo.commit("fixture");
@@ -329,9 +372,7 @@ fn a_renamed_package_leaves_its_old_crate_links_stale() {
     );
     repo.commit("rename package");
 
-    let names: Vec<(String, ItemKind, usize)> =
-        found(&repo).into_iter().map(|m| (m.0, m.1, m.4)).collect();
-    assert_eq!(names, [("fixture".to_owned(), ItemKind::Package, 1)]);
+    assert_eq!(found(&repo), Vec::new());
 }
 
 #[test]
@@ -651,32 +692,15 @@ fn a_recursive_member_glob_reaches_nested_members_and_skips_target() {
     }
     repo.write(
         "README.md",
-        "[deep](https://crates.io/crates/deep)\n\
-         [shallow](https://crates.io/crates/shallow)\n\
-         [pruned](https://crates.io/crates/pruned)\n",
+        "```toml\n[dependencies]\ndeep = \"1\"\nshallow = \"1\"\npruned = \"1\"\n```\n",
     );
     repo.commit("drop the nested members");
 
-    let link = ItemKind::Package;
     assert_eq!(
         found(&repo),
         [
-            mention(
-                "deep",
-                link,
-                "README.md",
-                1,
-                8,
-                "https://crates.io/crates/deep"
-            ),
-            mention(
-                "shallow",
-                link,
-                "README.md",
-                2,
-                11,
-                "https://crates.io/crates/shallow"
-            ),
+            mention("deep", ItemKind::Package, "README.md", 3, 1, "deep"),
+            mention("shallow", ItemKind::Package, "README.md", 4, 1, "shallow"),
         ]
     );
 }
@@ -723,43 +747,30 @@ fn member_globs_match_shell_style_wildcards_classes_and_ranges() {
     for (dir, _) in matched.into_iter().chain(unmatched) {
         std::fs::remove_file(repo.path().join(format!("{dir}/Cargo.toml"))).unwrap();
     }
-    let mut readme = String::new();
-    for (dir, name) in matched.into_iter().chain(unmatched) {
-        let _ = dir;
-        let _ = writeln!(readme, "[{name}](https://crates.io/crates/{name})");
+    let mut readme = String::from("```toml\n[dependencies]\n");
+    for (_, name) in matched.into_iter().chain(unmatched) {
+        let _ = writeln!(readme, "{name} = \"1\"");
     }
+    readme.push_str("```\n");
     repo.write("README.md", &readme);
     repo.commit("drop the members");
 
-    let package = ItemKind::Package;
-    let link = |line: usize,
-                column: usize,
-                name: &str|
-     -> (String, ItemKind, String, usize, usize, String) {
-        mention(
-            name,
-            package,
-            "README.md",
-            line,
-            column,
-            &format!("https://crates.io/crates/{name}"),
-        )
-    };
+    let key = |line, name: &str| mention(name, ItemKind::Package, "README.md", line, 1, name);
     assert_eq!(
         found(&repo),
         [
-            link(1, 6, "ax"),
-            link(2, 7, "box"),
-            link(3, 6, "ce"),
-            link(4, 6, "de"),
-            link(5, 6, "bf"),
-            link(6, 6, "gf"),
-            link(7, 6, "hj"),
-            link(8, 6, "bn"),
-            link(9, 6, "by"),
-            link(10, 6, "bw"),
-            link(11, 11, "bracket"),
-            link(12, 6, "ae"),
+            key(3, "ax"),
+            key(4, "box"),
+            key(5, "ce"),
+            key(6, "de"),
+            key(7, "bf"),
+            key(8, "gf"),
+            key(9, "hj"),
+            key(10, "bn"),
+            key(11, "by"),
+            key(12, "bw"),
+            key(13, "bracket"),
+            key(14, "ae"),
         ]
     );
 }
