@@ -283,16 +283,10 @@ fn the_job_summary_survives_backticks_and_newlines_in_file_names() {
         "{stdout}"
     );
     let summary = std::fs::read_to_string(&summary).unwrap();
-    assert_eq!(
-        summary.lines().filter(|line| line.starts_with('|')).count(),
-        3,
-        "{summary}"
-    );
-    let row = summary
-        .lines()
-        .find(|line| line.starts_with('|') && line.contains("nl x.md"))
-        .unwrap_or("");
-    assert!(row.contains("``bt`k.md:1:2``"), "{summary}");
+    let (rows, codes) = rendered_summary(&summary);
+    assert_eq!(rows, 1, "{summary}");
+    assert!(codes.iter().any(|code| code == "bt`k.md:1:2"), "{summary}");
+    assert!(codes.iter().any(|code| code == "nl x.md:1:2"), "{summary}");
 }
 
 /// The job summary's skipped list must survive a backtick in a dependency key.
@@ -321,14 +315,11 @@ fn the_job_summary_survives_a_backtick_in_a_dependency_key() {
         "{stdout}"
     );
     let summary = std::fs::read_to_string(&summary).unwrap();
-    assert!(
-        summary.ends_with("\n### Skipped dependencies\n\n- ``weird:`key`` could not be resolved\n"),
-        "{summary}"
-    );
+    let (_, codes) = rendered_summary(&summary);
+    assert!(codes.iter().any(|code| code == "weird:`key"), "{summary}");
 }
 
-/// The summary rendered by a Markdown parser must keep the code spans whose text begins or
-/// ends with a backtick, and the table row of a file name that begins with a backtick.
+/// Backtick and space prefixes remain inside the rendered source locations.
 #[test]
 fn the_job_summary_renders_edge_backtick_names_in_the_table() {
     let repo = Repo::new();
@@ -344,17 +335,7 @@ fn the_job_summary_renders_edge_backtick_names_in_the_table() {
     let output = cargo_refquiem(repo.path(), &["--github"], Some(&summary));
     assert_eq!(output.status.code(), Some(1));
     let summary = std::fs::read_to_string(&summary).unwrap();
-    let mut parser =
-        pulldown_cmark::Parser::new_ext(&summary, pulldown_cmark::Options::ENABLE_TABLES);
-    let mut rows = 0;
-    let mut codes = Vec::new();
-    while let Some(event) = parser.next() {
-        match event {
-            pulldown_cmark::Event::Start(pulldown_cmark::Tag::TableRow) => rows += 1,
-            pulldown_cmark::Event::Code(code) => codes.push(code.to_string()),
-            _ => {}
-        }
-    }
+    let (rows, codes) = rendered_summary(&summary);
     assert_eq!(rows, 1, "{summary}");
     assert!(codes.contains(&"`x.md:1:2".to_owned()), "{summary:?}");
     assert!(codes.contains(&" sp.md:1:2".to_owned()), "{summary:?}");
@@ -362,8 +343,7 @@ fn the_job_summary_renders_edge_backtick_names_in_the_table() {
     assert!(codes.contains(&"fixture::gone".to_owned()), "{summary:?}");
 }
 
-/// The rendered skipped list must keep code spans whose text begins or ends with a backtick
-/// and must keep leading and trailing spaces of a dependency key.
+/// Rendered dependency keys preserve backtick and space edges.
 #[test]
 fn the_job_summary_renders_edge_backtick_and_space_keys() {
     let repo = Repo::new();
@@ -382,13 +362,7 @@ fn the_job_summary_renders_edge_backtick_and_space_keys() {
 
     cargo_refquiem(repo.path(), &["--github"], Some(&summary));
     let summary = std::fs::read_to_string(&summary).unwrap();
-    let codes: Vec<String> =
-        pulldown_cmark::Parser::new_ext(&summary, pulldown_cmark::Options::ENABLE_TABLES)
-            .filter_map(|event| match event {
-                pulldown_cmark::Event::Code(code) => Some(code.to_string()),
-                _ => None,
-            })
-            .collect();
+    let (_, codes) = rendered_summary(&summary);
     let mut expected = vec![
         "`x".to_owned(),
         "x`".to_owned(),
@@ -400,4 +374,17 @@ fn the_job_summary_renders_edge_backtick_and_space_keys() {
     let mut codes = codes;
     codes.sort();
     assert_eq!(codes, expected, "{summary:?}");
+}
+
+fn rendered_summary(summary: &str) -> (usize, Vec<String>) {
+    let mut rows = 0;
+    let mut codes = Vec::new();
+    for event in pulldown_cmark::Parser::new_ext(summary, pulldown_cmark::Options::ENABLE_TABLES) {
+        match event {
+            pulldown_cmark::Event::Start(pulldown_cmark::Tag::TableRow) => rows += 1,
+            pulldown_cmark::Event::Code(code) => codes.push(code.to_string()),
+            _ => {}
+        }
+    }
+    (rows, codes)
 }

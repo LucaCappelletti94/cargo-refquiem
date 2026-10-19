@@ -10,7 +10,16 @@ use crate::Error;
 pub(crate) const FILE_NAME: &str = ".refquiem.toml";
 
 /// Excludes every scan applies before the configured ones.
-const DEFAULT_EXCLUDES: [&str; 2] = ["CHANGELOG*", "changelog/"];
+const DEFAULT_EXCLUDES: [&str; 8] = [
+    "CHANGELOG*",
+    "RELEASES*",
+    "RELEASE-NOTES*",
+    "RELEASE_NOTES*",
+    "NEWS*",
+    "HISTORY*",
+    "CHANGES*",
+    "changelog/",
+];
 
 /// Parameters from a config file.
 #[derive(Debug, Default, serde::Deserialize)]
