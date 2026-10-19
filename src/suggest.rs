@@ -30,11 +30,7 @@ pub(crate) fn suggest(
         .paths
         .iter()
         .copied()
-        .filter(|&id| {
-            interner.kind(id) == kind
-                && !before.paths.contains(&id)
-                && first_seen.get(&id).is_none_or(|&at| at < first)
-        })
+        .filter(|&id| interner.kind(id) == kind && first_seen.get(&id).is_none_or(|&at| at < first))
         .collect();
     let split = |id: PathId| {
         interner
@@ -145,15 +141,17 @@ fn rewrite(path: &str, suggested: &str, written: &str, kind: ItemKind) -> Option
     })) {
         return None;
     }
-    let extra = if rust {
-        2 * suffix
-            .split("::")
-            .filter(|word| crate::text::KEYWORDS.contains(word))
-            .count()
-    } else {
-        0
-    };
-    let mut new = String::with_capacity(suffix.len() + extra);
+    let mut new = String::with_capacity(
+        suffix.len()
+            + if rust {
+                2 * suffix
+                    .split("::")
+                    .filter(|word| crate::text::KEYWORDS.contains(word))
+                    .count()
+            } else {
+                0
+            },
+    );
     for (at, word) in suffix.split("::").enumerate() {
         if at > 0 {
             new.push_str("::");
