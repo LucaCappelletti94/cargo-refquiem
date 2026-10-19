@@ -22,7 +22,7 @@ pub(crate) struct FileItems {
     pub(crate) impls: Vec<Impl>,
     /// Re-exports and renaming imports.
     pub(crate) uses: Vec<Use>,
-    /// Plain private imports, which only resolve the names written in their module.
+    /// Plain private imports used to resolve written names within their module.
     pub(crate) imports: Vec<Use>,
     /// `mod name;` declarations whose body lives in another file.
     pub(crate) mods: Vec<ModDecl>,
@@ -79,11 +79,12 @@ pub(crate) struct Impl {
     pub(crate) module: Vec<String>,
     /// The self type's path segments without generic arguments.
     pub(crate) self_ty: Vec<String>,
+    pub(crate) trait_path: Option<Vec<String>>,
     /// Each item's name, kind, whether it is visible, and an inherent method's signature.
     pub(crate) items: Vec<(String, ItemKind, bool, Option<String>)>,
 }
 
-/// A `use` that creates a path.
+/// A named import, type alias or glob re-export.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Use {
     pub(crate) module: Vec<String>,
@@ -574,6 +575,7 @@ impl Collector<'_> {
         self.out.impls.push(Impl {
             module: self.module.clone(),
             self_ty: segments,
+            trait_path: item.trait_.as_ref().map(|(path, _)| path_segments(path)),
             items,
         });
     }

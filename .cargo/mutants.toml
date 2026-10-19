@@ -20,8 +20,6 @@ exclude_re = [
     'src/scan\.rs:\d+:(40|47): replace \* with [+/] in run',
     # The token after the last doc line is the newline the outer loop skips anyway.
     'src/text\.rs:\d+:38: replace - with / in rust',
-    # Every line's leading whitespace is at least the common indent.
-    'src/text\.rs:\d+:45: replace - with \+ in Doc::unindent',
     # The shrunk or shifted `{...}` span still covers every word between the braces.
     'src/text\.rs:\d+:48: replace \+ with [-*] in spelled',
     'src/text\.rs:\d+:40: replace \+ with \* in spelled',

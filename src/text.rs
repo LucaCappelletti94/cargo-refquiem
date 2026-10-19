@@ -11,6 +11,9 @@ use ra_ap_rustc_lexer::{
 
 use crate::{Context, Kind, Source};
 
+#[derive(Debug)]
+pub(crate) struct MarkdownError;
+
 /// What a mention names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Named {
@@ -97,7 +100,7 @@ const MEMBER_KINDS: [&str; 6] = [
 ];
 
 /// Rust's strict and reserved keywords, which as plain identifier tokens name no item.
-const KEYWORDS: [&str; 52] = [
+pub(crate) const KEYWORDS: [&str; 52] = [
     "abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "crate",
     "do", "dyn", "else", "enum", "extern", "false", "final", "fn", "for", "gen", "if", "impl",
     "in", "let", "loop", "macro", "match", "mod", "move", "mut", "override", "priv", "pub", "ref",
@@ -105,15 +108,30 @@ const KEYWORDS: [&str; 52] = [
     "typeof", "unsafe", "unsized", "use", "virtual", "where", "while", "yield",
 ];
 
-/// Every mention in a Rust source file: comments, doc comments read as Markdown, and string
-/// literals. Plain comments holding nothing but Rust code are skipped unless
-/// `scan_commented_code`.
-pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Vec<Spelled> {
+/// Mentions and suppression markers located in one source file.
+pub(crate) struct Read {
+    pub(crate) mentions: Vec<Spelled>,
+    pub(crate) markers: Vec<MarkerName>,
+}
+
+/// Every mention in a Rust source file's comments, documentation and strings.
+pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Result<Read, MarkdownError> {
     let skip = ra_ap_rustc_lexer::strip_shebang(source).unwrap_or(0);
     let mut tokens = Vec::new();
+    let mut markers = Vec::new();
     let mut offset = skip;
     for token in ra_ap_rustc_lexer::tokenize(&source[skip..], FrontmatterAllowed::Yes) {
         let len = usize::try_from(token.len).expect("token lengths fit in usize");
+        if matches!(
+            token.kind,
+            TokenKind::LineComment { .. }
+                | TokenKind::BlockComment {
+                    doc_style: Some(_),
+                    ..
+                }
+        ) {
+            marker_names(&source[offset..offset + len], offset, &mut markers);
+        }
         tokens.push((offset, len, token.kind));
         offset += len;
     }
@@ -128,7 +146,7 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Vec<Spelled> {
             && let Some((style, _, docs)) = doc_attribute(source, &tokens, i)
             && !docs.is_empty()
         {
-            i = doc_run(source, &tokens, i, style, scan_commented_code, &mut out) + 1;
+            i = doc_run(source, &tokens, i, style, scan_commented_code, &mut out)? + 1;
             continue;
         }
         attribute.step(kind);
@@ -137,7 +155,7 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Vec<Spelled> {
             TokenKind::LineComment {
                 doc_style: Some(style),
             } => {
-                i = doc_run(source, &tokens, i, style, scan_commented_code, &mut out);
+                i = doc_run(source, &tokens, i, style, scan_commented_code, &mut out)?;
             }
             TokenKind::BlockComment {
                 doc_style: Some(_),
@@ -149,25 +167,10 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Vec<Spelled> {
                     |at| doc.file_offset(at),
                     Source::DocComment,
                     &mut out,
-                );
+                )?;
             }
             TokenKind::LineComment { doc_style: None } => {
-                let mut lines = vec![(offset, len)];
-                while let (Some(&(gap, gap_len, TokenKind::Whitespace)), Some(&(o, l, next))) =
-                    (tokens.get(i + 1), tokens.get(i + 2))
-                    && next == (TokenKind::LineComment { doc_style: None })
-                    && source[gap..gap + gap_len].matches('\n').count() == 1
-                {
-                    lines.push((o, l));
-                    i += 2;
-                }
-                let body: Vec<&str> = lines.iter().map(|&(o, l)| &source[o + 2..o + l]).collect();
-                if scan_commented_code || !is_code(&body.join("\n")) {
-                    for &(o, l) in &lines {
-                        scan(&source[o..o + l], o, comment(), &mut out);
-                    }
-                    comment_examples(source, &lines, &mut out);
-                }
+                i = comment_run(source, &tokens, i, scan_commented_code, &mut out);
             }
             TokenKind::BlockComment { .. } => {
                 let body = text.strip_prefix("/*").unwrap_or(text);
@@ -190,10 +193,10 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Vec<Spelled> {
                     source: Source::StringLiteral,
                     kind: Kind::Text,
                 };
-                // A string inside an attribute is a macro argument, and a string holding one
-                // identifier is data, so neither has words that are names.
-                if attribute.inside() || one_identifier(text) {
+                if attribute.inside() {
                     spelled(text, offset, context, &mut out);
+                } else if let Some(span) = identifier_body(text) {
+                    out.push(name(text, offset, span, true, context));
                 } else {
                     scan(text, offset, context, &mut out);
                 }
@@ -202,7 +205,46 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Vec<Spelled> {
         }
         i += 1;
     }
-    out
+    Ok(Read {
+        mentions: out,
+        markers,
+    })
+}
+
+fn comment_run(
+    source: &str,
+    tokens: &[(usize, usize, TokenKind)],
+    start: usize,
+    scan_commented_code: bool,
+    out: &mut Vec<Spelled>,
+) -> usize {
+    let (offset, len, _) = tokens[start];
+    let mut lines = vec![(offset, len)];
+    let mut last = start;
+    while let (Some(&(gap, gap_len, TokenKind::Whitespace)), Some(&(o, l, next))) =
+        (tokens.get(last + 1), tokens.get(last + 2))
+        && next == (TokenKind::LineComment { doc_style: None })
+        && source[gap..gap + gap_len].matches('\n').count() == 1
+    {
+        lines.push((o, l));
+        last += 2;
+    }
+    let body: Vec<&str> = lines.iter().map(|&(o, l)| &source[o + 2..o + l]).collect();
+    if scan_commented_code || !is_code(&body.join("\n")) {
+        for &(o, l) in &lines {
+            scan(&source[o..o + l], o, comment(), out);
+        }
+        comment_examples(source, &lines, out);
+    }
+    last
+}
+
+/// The identifier span of a string literal body, excluding its quotes.
+fn identifier_body(text: &str) -> Option<(usize, usize)> {
+    let (open, close) = (text.find('"')?, text.rfind('"')?);
+    let body = text.get(open + 1..close)?;
+    let (_, after) = ident(body, 0)?;
+    (after == body.len()).then_some((open + 1, close))
 }
 
 /// Reads the doc comment of `style` starting at token `start`, a doc comment line or a doc
@@ -216,7 +258,7 @@ fn doc_run(
     style: DocStyle,
     scan_commented_code: bool,
     out: &mut Vec<Spelled>,
-) -> usize {
+) -> Result<usize, MarkdownError> {
     const PREFIX: usize = 3;
     let mut lines: Vec<(usize, &str)> = Vec::new();
     let mut plain = Vec::new();
@@ -261,13 +303,13 @@ fn doc_run(
         j += 1;
     }
     let doc = Doc::unindent(&lines);
-    markdown(&doc.text, |at| doc.file_offset(at), Source::DocComment, out);
+    markdown(&doc.text, |at| doc.file_offset(at), Source::DocComment, out)?;
     for (o, l) in plain {
         if scan_commented_code || !is_code(&source[o + 2..o + l]) {
             scan(&source[o..o + l], o, comment(), out);
         }
     }
-    last
+    Ok(last)
 }
 
 /// The style, closing bracket token and `doc = "…"` string literal tokens of the attribute whose
@@ -317,16 +359,6 @@ fn doc_attribute(
     None
 }
 
-/// Whether the body of string literal token `text`, between its first and last quote, is
-/// exactly one identifier.
-fn one_identifier(text: &str) -> bool {
-    let (Some(open), Some(close)) = (text.find('"'), text.rfind('"')) else {
-        return false;
-    };
-    let body = text.get(open + 1..close).unwrap_or_default();
-    ident(body, 0).is_some_and(|(_, after)| after == body.len())
-}
-
 /// Whether comment `body` is Rust code, items or the statements of a block, rather than prose.
 fn is_code(body: &str) -> bool {
     if let Ok(file) = syn::parse_str::<syn::File>(body) {
@@ -370,10 +402,13 @@ impl Attribute {
 }
 
 /// Every mention in a Markdown file.
-pub(crate) fn markdown_file(source: &str) -> Vec<Spelled> {
+pub(crate) fn markdown_file(source: &str) -> Result<Read, MarkdownError> {
     let mut out = Vec::new();
-    markdown(source, |at| at, Source::Markdown, &mut out);
-    out
+    let markers = markdown(source, |at| at, Source::Markdown, &mut out)?;
+    Ok(Read {
+        mentions: out,
+        markers,
+    })
 }
 
 fn comment() -> Context {
@@ -456,20 +491,27 @@ fn keep_label(link: BrokenLink<'_>) -> Option<(CowStr<'_>, CowStr<'_>)> {
 }
 
 /// Mentions in Markdown `text`, whose offsets `map` turns into file offsets.
-fn markdown(text: &str, map: impl Fn(usize) -> usize, source: Source, out: &mut Vec<Spelled>) {
-    // pulldown-cmark panics on some text (https://github.com/pulldown-cmark/pulldown-cmark/issues/1129).
-    let Ok(found) = std::panic::catch_unwind(|| markdown_mentions(text, source)) else {
-        return;
-    };
-    for mut path in found {
+fn markdown(
+    text: &str,
+    map: impl Fn(usize) -> usize,
+    source: Source,
+    out: &mut Vec<Spelled>,
+) -> Result<Vec<MarkerName>, MarkdownError> {
+    let mut found =
+        std::panic::catch_unwind(|| markdown_mentions(text, source)).map_err(|_| MarkdownError)?;
+    for mut path in found.mentions {
         path.start = map(path.start);
         path.end = map(path.end);
         out.push(path);
     }
+    for marker in &mut found.markers {
+        marker.start = map(marker.start);
+    }
+    Ok(found.markers)
 }
 
 /// Mentions in Markdown `text`, at offsets into `text`.
-fn markdown_mentions(text: &str, source: Source) -> Vec<Spelled> {
+fn markdown_mentions(text: &str, source: Source) -> Read {
     let in_context = |kind| Context { source, kind };
     let mut events =
         Parser::new_with_broken_link_callback(text, Options::empty(), Some(keep_label))
@@ -477,7 +519,8 @@ fn markdown_mentions(text: &str, source: Source) -> Vec<Spelled> {
     let mut block: Option<Block> = None;
     let mut in_label_link = false;
     let mut found = Vec::new();
-    let mut declared: HashSet<String> = HashSet::new();
+    let mut markers = Vec::new();
+    let mut declared = HashSet::new();
     for (event, range) in events.by_ref() {
         match event {
             Event::Start(Tag::CodeBlock(kind)) => block = Some(Block::new(&kind, source)),
@@ -540,6 +583,13 @@ fn markdown_mentions(text: &str, source: Source) -> Vec<Spelled> {
                     &mut found,
                 );
             }
+            Event::Html(_) | Event::InlineHtml(_) if source == Source::Markdown => {
+                for (relative, _) in text[range.clone()].match_indices("<!--") {
+                    let open = range.start + relative;
+                    let close = text[open..].find("-->").map_or(text.len(), |at| open + at);
+                    marker_names(&text[open..close], open, &mut markers);
+                }
+            }
             _ => {}
         }
     }
@@ -556,9 +606,12 @@ fn markdown_mentions(text: &str, source: Source) -> Vec<Spelled> {
     // A name an example of the same doc comment declares is that example's, in prose too.
     found.retain(|spelled| {
         let prose = matches!(spelled.context.kind, Kind::Text | Kind::CodeSpan);
-        !(prose && matches!(&spelled.named, Named::Name { word, .. } if declared.contains(word)))
+        !(prose && matches!(&spelled.named, Named::Name { word, .. } if declared.contains(word.as_str())))
     });
-    found
+    Read {
+        mentions: found,
+        markers,
+    }
 }
 
 /// Fence languages of data formats whose keys and values serde may spell.
@@ -750,13 +803,14 @@ fn attribute_arguments(code: &str, tokens: &[(usize, usize, TokenKind)]) -> Vec<
                         break;
                     }
                 }
-                _ if depth < 2 || derive.is_some() => {}
+
                 TokenKind::Ident
                     if &code[tokens[i].0..tokens[i].1] == "derive"
                         && kind(i + 1) == Some(TokenKind::OpenParen) =>
                 {
                     derive = Some(depth);
                 }
+                _ if depth < 2 || derive.is_some() => {}
                 _ => inside[i] = true,
             }
             i += 1;
@@ -845,8 +899,7 @@ fn binds(name: &str) -> bool {
     name.starts_with(|c: char| c.is_lowercase() || c == '_') && !matches!(name, "mut" | "ref")
 }
 
-/// Adds to `bound` the name, the generic parameters and, for `fn`, the parameter names of the
-/// item declaration opened by `keyword` at token `at`, and the generic parameters of an `impl`.
+/// Adds local item names, generic parameters and function parameters to `bound`.
 fn declaration<'c>(
     code: &'c str,
     tokens: &[(usize, usize, TokenKind)],
@@ -1876,37 +1929,6 @@ pub(crate) struct MarkerName {
     /// Byte offset of the name in the file.
     pub(crate) start: usize,
     pub(crate) name: String,
-}
-
-/// The marker names in the `//` and doc comments of a Rust file, or the HTML comments of a Markdown file.
-pub(crate) fn markers(source: &str, rust: bool) -> Vec<MarkerName> {
-    let mut out = Vec::new();
-    if rust {
-        let mut offset = ra_ap_rustc_lexer::strip_shebang(source).unwrap_or(0);
-        for token in ra_ap_rustc_lexer::tokenize(&source[offset..], FrontmatterAllowed::Yes) {
-            let len = usize::try_from(token.len).expect("token lengths fit in usize");
-            let comment = matches!(
-                token.kind,
-                TokenKind::LineComment { .. }
-                    | TokenKind::BlockComment {
-                        doc_style: Some(_),
-                        ..
-                    }
-            );
-            if comment {
-                marker_names(&source[offset..offset + len], offset, &mut out);
-            }
-            offset += len;
-        }
-    } else {
-        for (open, _) in source.match_indices("<!--") {
-            let close = source[open..]
-                .find("-->")
-                .map_or(source.len(), |i| open + i);
-            marker_names(&source[open..close], open, &mut out);
-        }
-    }
-    out
 }
 
 /// The names of every `refquiem: allow(...)` in `text`, which sits at `base`, skipping a

@@ -51,7 +51,83 @@ fn mention(
 }
 
 #[test]
-fn a_removed_dependency_is_found_in_paths_and_toml_keys_and_not_in_links_or_badges() {
+fn historical_dependency_names_cannot_overwrite_files_outside_the_cache() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "");
+    repo.write("victim-requirement/Cargo.toml", "protected manifest");
+    repo.write("victim-requirement/lib.rs", "protected source");
+    let package = repo.path().join("victim").display().to_string();
+    let package = toml::Value::String(package);
+    repo.write(
+        "Cargo.toml",
+        &format!("{PACKAGE}\n[dependencies]\nevil = {{ package = {package}, version = \"1\" }}\n"),
+    );
+    repo.commit("historical dependency");
+    repo.write("Cargo.toml", PACKAGE);
+    repo.commit("remove dependency");
+    refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("victim-requirement/Cargo.toml")).unwrap(),
+        "protected manifest"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("victim-requirement/lib.rs")).unwrap(),
+        "protected source"
+    );
+}
+
+#[test]
+fn historical_locked_versions_cannot_overwrite_files_outside_the_cache() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "");
+    repo.write("victim-locked/Cargo.toml", "protected manifest");
+    repo.write("victim-locked/lib.rs", "protected source");
+    let lock = "version = 3\n\n[[package]]\nname = \"fixture\"\nversion = \"0.1.0\"\ndependencies = [\"evil ../../../../../victim-locked\"]\n\n[[package]]\nname = \"evil\"\nversion = \"../../../../../victim-locked\"\n";
+    repo.write(
+        "Cargo.toml",
+        &format!("{PACKAGE}\n[dependencies]\nevil = \"1\"\n"),
+    );
+    repo.write("Cargo.lock", lock);
+    repo.commit("historical dependency");
+    repo.write("Cargo.toml", PACKAGE);
+    std::fs::remove_file(repo.path().join("Cargo.lock")).unwrap();
+    repo.commit("remove dependency");
+    refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("victim-locked/Cargo.toml")).unwrap(),
+        "protected manifest"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("victim-locked/lib.rs")).unwrap(),
+        "protected source"
+    );
+}
+
+#[test]
+fn published_crate_links_survive_dependency_removal() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "Cargo.toml",
+        &format!("{PACKAGE}\n[dependencies]\nserde = \"1\"\n"),
+    );
+    repo.commit("dependency");
+    repo.write("Cargo.toml", PACKAGE);
+    let links = "[Serde](https://docs.rs/serde/latest/serde/)\nhttps://crates.io/crates/serde\n[![serde](https://img.shields.io/crates/v/serde.svg)](https://lib.rs/crates/serde)\n";
+    repo.write("README.md", links);
+    repo.commit("recommend published crate without depending on it");
+    assert_eq!(found(&repo), Vec::new());
+
+    repo.write(
+        "README.md",
+        &format!("{links}\n`serde::Serialize`\n\n```toml\n[dependencies]\nserde = \"1\"\n```\n"),
+    );
+    let texts: Vec<_> = found(&repo).into_iter().map(|mention| mention.5).collect();
+    assert_eq!(texts, ["serde::Serialize", "serde"]);
+}
+
+#[test]
+fn a_removed_dependency_is_found_in_paths_and_toml_keys() {
     let repo = Repo::new();
     repo.vendor("structopt", "0.3.0", "");
     repo.vendor("clap", "4.0.0", "");
@@ -111,7 +187,7 @@ clap = \"4\"
 }
 
 #[test]
-fn a_renamed_dependency_is_stale_under_its_key_and_its_package_name() {
+fn a_renamed_dependency_is_stale_under_its_key() {
     let repo = Repo::new();
     repo.vendor("clap", "4.0.0", "");
     repo.write("src/lib.rs", "");

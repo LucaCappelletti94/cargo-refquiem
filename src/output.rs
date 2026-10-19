@@ -70,44 +70,50 @@ impl Report {
                 "| Removed name | Kind | Removed in | Became | Mentions |\n|---|---|---|---|---|\n",
             );
             for group in &self.groups {
-                let mut name = format!("`{}`", group.path);
+                let mut name = String::new();
+                span(&mut name, &group.path);
                 if let Some(member) = &group.member {
-                    let _ = write!(name, " of `{member}`");
+                    name.push_str(" of ");
+                    span(&mut name, member);
                 }
                 let removed_in = match &group.removed_in {
                     Some(RemovedIn::Commit(id)) => id.get(..7).unwrap_or(id),
                     Some(RemovedIn::WorkingTree) => "working tree",
                     None => "",
                 };
-                let mentions: Vec<String> = group
-                    .mentions
-                    .iter()
-                    .map(|m| format!("`{}:{}:{}`", m.file, m.line, m.column))
-                    .collect();
+                let mut mentions = String::new();
+                for (i, mention) in group.mentions.iter().enumerate() {
+                    if i > 0 {
+                        mentions.push_str("<br>");
+                    }
+                    span_position(&mut mentions, &mention.file, mention.line, mention.column);
+                }
                 let _ = writeln!(
                     out,
                     "| {} | {} | {removed_in} | {} | {} |",
                     cell(&name),
                     group.kind.describe(),
                     cell(&group.became().unwrap_or_default()),
-                    cell(&mentions.join("<br>"))
+                    cell(&mentions)
                 );
             }
         }
         if !self.unused_markers.is_empty() {
             out.push_str("\n### Unused suppression markers\n\n");
             for marker in &self.unused_markers {
-                let _ = writeln!(
-                    out,
-                    "- `{}:{}:{}` `refquiem: allow({})`",
-                    marker.file, marker.line, marker.column, marker.name
-                );
+                out.push_str("- ");
+                span_position(&mut out, &marker.file, marker.line, marker.column);
+                out.push_str(" `refquiem: allow(");
+                out.push_str(&marker.name);
+                out.push_str(")`\n");
             }
         }
         if !self.skipped.is_empty() {
             out.push_str("\n### Skipped dependencies\n\n");
             for skipped in &self.skipped {
-                let _ = writeln!(out, "- `{}` could not be resolved", skipped.dependency);
+                out.push_str("- ");
+                span(&mut out, &skipped.dependency);
+                out.push_str(" could not be resolved\n");
             }
         }
         out
@@ -124,6 +130,68 @@ fn escape(text: &str) -> String {
 /// A workflow command property value, which a `,` or `:` would also end.
 fn escape_property(text: &str) -> String {
     escape(text).replace(':', "%3A").replace(',', "%2C")
+}
+
+/// Writes a code span with padding that preserves backtick and space edges.
+fn span(out: &mut String, text: &str) {
+    let edge = |c: Option<char>| c.map(|c| if matches!(c, '\n' | '\r') { ' ' } else { c });
+    let first = edge(text.chars().next());
+    let last = edge(text.chars().next_back());
+    let all_space = text.chars().all(|c| matches!(c, ' ' | '\n' | '\r'));
+    let pad = !all_space
+        && (first.is_some_and(|c| c == '`')
+            || last.is_some_and(|c| c == '`')
+            || (first.is_some_and(|c| c == ' ') && last.is_some_and(|c| c == ' ')));
+    let run = text
+        .split(|c: char| c != '`')
+        .map(str::len)
+        .max()
+        .unwrap_or(0);
+    for _ in 0..=run {
+        out.push('`');
+    }
+    if pad {
+        out.push(' ');
+    }
+    for c in text.chars() {
+        out.push(if matches!(c, '\n' | '\r') { ' ' } else { c });
+    }
+    if pad {
+        out.push(' ');
+    }
+    for _ in 0..=run {
+        out.push('`');
+    }
+}
+
+/// The numeric suffix prevents the location from ending in a backtick.
+fn span_position(out: &mut String, file: &str, line: usize, column: usize) {
+    let first = file
+        .chars()
+        .next()
+        .map(|c| if matches!(c, '\n' | '\r') { ' ' } else { c });
+    let pad = first.is_some_and(|c| c == '`');
+    let run = file
+        .split(|c: char| c != '`')
+        .map(str::len)
+        .max()
+        .unwrap_or(0);
+    for _ in 0..=run {
+        out.push('`');
+    }
+    if pad {
+        out.push(' ');
+    }
+    for c in file.chars() {
+        out.push(if matches!(c, '\n' | '\r') { ' ' } else { c });
+    }
+    let _ = write!(out, ":{line}:{column}");
+    if pad {
+        out.push(' ');
+    }
+    for _ in 0..=run {
+        out.push('`');
+    }
 }
 
 /// A Markdown table cell, whose `|` would end it.

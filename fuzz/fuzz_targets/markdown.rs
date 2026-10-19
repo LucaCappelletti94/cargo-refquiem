@@ -9,7 +9,7 @@ fuzz_target!(
     |data: &[u8]| {
         if let Ok(source) = std::str::from_utf8(data) {
             let source = source.to_owned();
-            refquiem_fuzz::on_large_stack(move || refquiem::fuzzing::mentions(&source, false));
+            let _ = refquiem_fuzz::on_large_stack(move || refquiem::fuzzing::mentions(&source, false));
         }
     }
 );

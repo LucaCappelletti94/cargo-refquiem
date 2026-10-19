@@ -121,3 +121,18 @@ fn a_marker_holding_anything_but_names_or_paths_is_not_a_marker() {
     );
     assert_eq!(report.unused_markers, []);
 }
+
+#[test]
+fn marker_text_inside_markdown_code_is_not_a_suppression() {
+    let repo = removed();
+    repo.write(
+        "README.md",
+        "`<!-- refquiem: allow(Gone) -->`\n`fixture::Gone`\n\n```markdown\n<!-- refquiem: allow(Other) -->\nfixture::Other\n```\n",
+    );
+    let report = refquiem::run(&Options::new(repo.path().to_path_buf())).unwrap();
+    assert_eq!(
+        reported(&report),
+        [("README.md".to_owned(), 2), ("README.md".to_owned(), 6)]
+    );
+    assert_eq!(report.unused_markers, []);
+}
