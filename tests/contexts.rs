@@ -569,3 +569,30 @@ fn rustdoc_fence_attributes_mark_the_block_compiled() {
         ]
     );
 }
+
+#[test]
+fn attribute_boundaries_preserve_string_literal_mentions() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct Data { #[serde(rename = \"old-alias-842\")] pub value: u8 }\npub struct GoneThing;\npub struct ArrayThing;\n",
+    );
+    repo.commit("structure and serialized field");
+    repo.write(
+        "src/lib.rs",
+        "#![doc = \"old-alias-842\"]\n#[attr([inner] \"GoneThing went away\")]\npub struct Kept;\npub const DIRECT: &str = \"GoneThing went away\";\npub const ARRAY: [&str; 1] = [\"ArrayThing went away\"];\n",
+    );
+    repo.commit("drop the structures");
+
+    let mentions: Vec<_> = found(&repo)
+        .into_iter()
+        .map(|row| (row.0, row.2, row.5))
+        .collect();
+    assert_eq!(
+        mentions,
+        [
+            ("fixture::ArrayThing".to_owned(), 5, "ArrayThing".to_owned()),
+            ("fixture::GoneThing".to_owned(), 4, "GoneThing".to_owned()),
+        ]
+    );
+}
