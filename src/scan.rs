@@ -16,7 +16,7 @@ use crate::stdlib::Vocabulary;
 use crate::text::{self, Named, Spelled};
 use crate::{
     Context, Error, Group, ItemKind, Kind, Mention, Options, Range, RemovedIn, Report, Source,
-    UnusedMarker, entry, stdlib,
+    Suggestion, UnusedMarker, entry, stdlib, suggest,
 };
 
 /// What one commit of the range declares beyond head.
@@ -24,6 +24,28 @@ struct State {
     /// Paths of the commit that head lacks.
     missing: HashSet<PathId>,
     complete: bool,
+}
+
+struct IndexedRange {
+    slots: Vec<State>,
+    state_of: Vec<usize>,
+    first_seen: HashMap<PathId, usize>,
+}
+
+impl IndexedRange {
+    fn states(&self) -> Vec<&State> {
+        self.state_of
+            .iter()
+            .map(|&slot| &self.slots[slot])
+            .collect()
+    }
+}
+
+struct Suggestable {
+    group: usize,
+    path: PathId,
+    tree: ObjectId,
+    first: usize,
 }
 
 /// Where the scanned workspace sits inside the repository.
@@ -82,10 +104,11 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     };
     let dependencies = deps::head(&mut indexer, &*head_snapshot, &scratch)?;
 
-    let (slots, state_of) = index_range(&mut indexer, &repo, &commits, &layout, &head_index)?;
-    let states: Vec<&State> = state_of.iter().map(|&slot| &slots[slot]).collect();
+    let walk = index_range(&mut indexer, &repo, &commits, &layout, &head_index)?;
+    let states = walk.states();
 
-    let mut removed: Vec<PathId> = slots
+    let mut removed: Vec<PathId> = walk
+        .slots
         .iter()
         .flat_map(|s| s.missing.iter().copied())
         .collect::<HashSet<_>>()
@@ -96,7 +119,6 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let alive = [&head_index.paths, &dependencies.paths];
     let dependency_removals = deps::removed(&mut indexer, &repo, &removals, alive, &scratch)?;
     let dependency_items = dependency_removals.items;
-    indexer.save();
     let interner = &indexer.interner;
     removed.extend(dependency_items.keys().copied());
     removed.sort_by_cached_key(|&id| display(interner, id));
@@ -121,13 +143,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         &indexer.crates,
         &rooted,
     );
-    matcher.names.extend(
-        config
-            .allow
-            .iter()
-            .filter(|name| !name.contains("::"))
-            .filter_map(|name| interner.find_sym(name)),
-    );
+    matcher.add_vocabulary(&config.allow);
     let filter = filter(
         options,
         &config,
@@ -142,7 +158,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         &layout.target_prefix,
         &filter,
     )?;
-    let mut groups = groups(
+    let (mut groups, suggestable) = groups(
         interner,
         &entries,
         &history,
@@ -150,7 +166,21 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         mentions,
         &dependency_items,
     );
+    suggestions(
+        &mut indexer,
+        &repo,
+        &layout.workspace,
+        &head_index,
+        &suggestable,
+        &walk.first_seen,
+        &mut groups,
+    )?;
+    indexer.save();
     let unused_markers = suppress(&mut groups, markers, &config.allow);
+    suggest::replacements(&mut groups, |file| {
+        let id = head_snapshot.blob(file).ok()??;
+        String::from_utf8(head_snapshot.read(file, id).ok()?).ok()
+    });
     Ok(Report {
         groups,
         skipped: dependency_removals.skipped,
@@ -158,7 +188,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     })
 }
 
-/// Groups mentions by removed path and attributes their latest known removal.
+/// Groups mentions and identifies the historical indexes needed by suggestion rules.
 fn groups(
     interner: &Interner,
     entries: &Entries<'_>,
@@ -166,8 +196,9 @@ fn groups(
     removed: Vec<PathId>,
     mut mentions: HashMap<PathId, Vec<Mention>>,
     dependency_items: &HashMap<PathId, PathId>,
-) -> Vec<Group> {
+) -> (Vec<Group>, Vec<Suggestable>) {
     let mut groups = Vec::new();
+    let mut suggestable = Vec::new();
     for id in removed {
         let Some(mut found) = mentions.remove(&id) else {
             continue;
@@ -181,8 +212,19 @@ fn groups(
         } else {
             (display(interner, id), None)
         };
-        let removed_in = match dependency_items.get(&id) {
-            Some(&entry) => history.blame(&[id, entry]),
+        let dependency = dependency_items.get(&id).copied();
+        if dependency.unwrap_or(id) == id
+            && let Some((tree, first)) = history.first_tree(id)
+        {
+            suggestable.push(Suggestable {
+                group: groups.len(),
+                path: id,
+                tree,
+                first,
+            });
+        }
+        let removed_in = match dependency {
+            Some(entry) => history.blame(&[id, entry]),
             None => history.blame(&[id]),
         };
         groups.push(Group {
@@ -190,10 +232,65 @@ fn groups(
             kind,
             member,
             removed_in,
+            suggestion: None,
+            candidates: Vec::new(),
             mentions: found,
         });
     }
-    groups
+    (groups, suggestable)
+}
+
+/// Fills the suggestion or candidates of each group in `suggestable`, given by index with its
+/// removed path and the tree where that path first appeared.
+fn suggestions(
+    indexer: &mut Indexer,
+    repo: &gix::Repository,
+    workspace: &str,
+    head: &Index,
+    suggestable: &[Suggestable],
+    first_seen: &HashMap<PathId, usize>,
+    groups: &mut [Group],
+) -> Result<(), Error> {
+    let mut befores: HashMap<ObjectId, Index> = HashMap::new();
+    for input in suggestable {
+        if let std::collections::hash_map::Entry::Vacant(slot) = befores.entry(input.tree) {
+            slot.insert(indexer.index(&TreeSnapshot::new(repo, input.tree), workspace, false)?);
+        }
+    }
+    let interner = &indexer.interner;
+    for input in suggestable {
+        let outcome = suggest::suggest(
+            interner,
+            input.path,
+            head,
+            &befores[&input.tree],
+            first_seen,
+            input.first,
+        );
+        let group = &mut groups[input.group];
+        group.suggestion = outcome.suggestion.map(|(path, change)| Suggestion {
+            path: reported(interner, path),
+            change,
+        });
+        group.candidates = outcome
+            .candidates
+            .into_iter()
+            .map(|path| reported(interner, path))
+            .collect();
+        group.candidates.sort();
+    }
+    Ok(())
+}
+
+/// How path `id` reads in a group: its name for a manifest entry, else its full path.
+fn reported(interner: &Interner, id: PathId) -> String {
+    if interner.kind(id).is_manifest_entry() {
+        let name = interner.segments(id).last().copied();
+        name.map(|sym| interner.name(sym).to_owned())
+            .unwrap_or_default()
+    } else {
+        display(interner, id)
+    }
 }
 
 /// The config of the scan and its range, `since` from the config starting a full one.
@@ -237,25 +334,49 @@ fn index_range(
     commits: &[git::Commit],
     layout: &Layout,
     head_index: &Index,
-) -> Result<(Vec<State>, Vec<usize>), Error> {
+) -> Result<IndexedRange, Error> {
     let mut slots: Vec<State> = Vec::new();
     let mut state_of = Vec::with_capacity(commits.len());
-    let mut by_tree: HashMap<ObjectId, usize> = HashMap::new();
+    let mut first_seen: HashMap<PathId, usize> = HashMap::new();
+    let mut by_tree: HashMap<ObjectId, (Option<usize>, usize)> = commits
+        .iter()
+        .enumerate()
+        .map(|(at, commit)| (commit.tree, (None, at)))
+        .collect();
     for commit in commits {
-        if let Some(&slot) = by_tree.get(&commit.tree) {
+        let (slot, oldest) = by_tree
+            .get_mut(&commit.tree)
+            .expect("every tree was recorded");
+        if let Some(slot) = *slot {
             state_of.push(slot);
             continue;
         }
+        let oldest = *oldest;
         let snapshot = TreeSnapshot::new(repo, commit.tree);
         let index = indexer.index(&snapshot, &layout.workspace, false)?;
-        by_tree.insert(commit.tree, slots.len());
+        let mut missing = HashSet::new();
+        for &path in &index.paths {
+            if head_index.paths.contains(&path) {
+                first_seen
+                    .entry(path)
+                    .and_modify(|first| *first = (*first).max(oldest))
+                    .or_insert(oldest);
+            } else {
+                missing.insert(path);
+            }
+        }
+        *slot = Some(slots.len());
         state_of.push(slots.len());
         slots.push(State {
-            missing: index.paths.difference(&head_index.paths).copied().collect(),
+            missing,
             complete: index.complete,
         });
     }
-    Ok((slots, state_of))
+    Ok(IndexedRange {
+        slots,
+        state_of,
+        first_seen,
+    })
 }
 
 /// A name in a suppression marker of head.
@@ -462,6 +583,7 @@ fn find_mentions(
                 column,
                 text: source[path.start..path.end].to_owned(),
                 context: path.context,
+                replacement: None,
             });
         }
     }
@@ -598,6 +720,18 @@ impl History<'_> {
             })
             .map(RemovedAt::Commit)
     }
+
+    /// The first known introduction, when that tree and all older states are complete.
+    fn first_tree(&self, id: PathId) -> Option<(ObjectId, usize)> {
+        let at = self
+            .states
+            .iter()
+            .rposition(|state| state.missing.contains(&id))?;
+        self.states[at..]
+            .iter()
+            .all(|state| state.complete)
+            .then_some((self.commits[at].tree, at))
+    }
 }
 
 /// The `removed` paths in the order a bare name or suffix several of them end picks from:
@@ -657,6 +791,16 @@ struct Matcher<'a> {
 }
 
 impl<'a> Matcher<'a> {
+    fn add_vocabulary(&mut self, names: &[String]) {
+        let interner = self.interner;
+        self.names.extend(
+            names
+                .iter()
+                .filter(|name| !name.contains("::"))
+                .filter_map(|name| interner.find_sym(name)),
+        );
+    }
+
     /// Builds the matcher from the `removed` paths in their [`ranked`] order, where the
     /// `rooted` among them match only as whole paths from their crate root.
     fn new(

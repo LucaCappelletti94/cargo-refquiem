@@ -66,7 +66,9 @@ impl Report {
             out.push_str("No stale mentions\n");
         } else {
             let _ = writeln!(out, "{}\n", self.tally());
-            out.push_str("| Removed name | Kind | Removed in | Mentions |\n|---|---|---|---|\n");
+            out.push_str(
+                "| Removed name | Kind | Removed in | Became | Mentions |\n|---|---|---|---|---|\n",
+            );
             for group in &self.groups {
                 let mut name = String::new();
                 span(&mut name, &group.path);
@@ -88,9 +90,10 @@ impl Report {
                 }
                 let _ = writeln!(
                     out,
-                    "| {} | {} | {removed_in} | {} |",
+                    "| {} | {} | {removed_in} | {} | {} |",
                     cell(&name),
                     group.kind.describe(),
+                    cell(&group.became().unwrap_or_default()),
                     cell(&mentions)
                 );
             }

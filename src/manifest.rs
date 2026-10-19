@@ -37,7 +37,16 @@ pub(crate) struct Dependency {
     pub(crate) path: Option<String>,
     /// The specification as a table, workspace inheritance applied.
     pub(crate) spec: Table,
+    /// The tables it sits in, as [`NORMAL`], [`DEV`] and [`BUILD`] bits.
+    pub(crate) tables: u8,
 }
+
+/// The bit of `[dependencies]` in [`Dependency::tables`].
+pub(crate) const NORMAL: u8 = 1;
+/// The bit of `[dev-dependencies]`.
+pub(crate) const DEV: u8 = 2;
+/// The bit of `[build-dependencies]`.
+pub(crate) const BUILD: u8 = 4;
 
 /// One workspace member package.
 #[derive(Debug, Clone, PartialEq)]
@@ -143,16 +152,16 @@ fn dependencies(
     dir: &str,
     (workspace_dir, inherited): Inherited<'_>,
 ) -> (Vec<Dependency>, Vec<String>) {
-    const KINDS: [&str; 5] = [
-        "dependencies",
-        "dev-dependencies",
-        "dev_dependencies",
-        "build-dependencies",
-        "build_dependencies",
+    const KINDS: [(&str, u8); 5] = [
+        ("dependencies", NORMAL),
+        ("dev-dependencies", DEV),
+        ("dev_dependencies", DEV),
+        ("build-dependencies", BUILD),
+        ("build_dependencies", BUILD),
     ];
-    let mut tables: Vec<&Table> = KINDS
+    let mut tables: Vec<(u8, &Table)> = KINDS
         .iter()
-        .filter_map(|kind| manifest.get(*kind).and_then(toml::Value::as_table))
+        .filter_map(|&(kind, bit)| Some((bit, manifest.get(kind)?.as_table()?)))
         .collect();
     for platform in manifest
         .get("target")
@@ -164,44 +173,50 @@ fn dependencies(
         tables.extend(
             KINDS
                 .iter()
-                .filter_map(|kind| platform.get(*kind).and_then(toml::Value::as_table)),
+                .filter_map(|&(kind, bit)| Some((bit, platform.get(kind)?.as_table()?))),
         );
     }
     let mut dependencies: Vec<Dependency> = Vec::new();
     let mut optional = Vec::new();
-    for (key, own) in tables.into_iter().flatten() {
-        let own = as_spec(own);
-        let inherits = own.get("workspace").and_then(toml::Value::as_bool) == Some(true);
-        let (spec_dir, mut spec) = match inherited.and_then(|w| w.get(key)) {
-            Some(shared) if inherits => (workspace_dir, as_spec(shared)),
-            _ => (dir, own.clone()),
-        };
-        if inherits {
-            for (name, value) in own {
-                if name != "workspace" {
-                    spec.entry(name).or_insert(value);
+    for (bit, table) in tables {
+        for (key, own) in table {
+            if let Some(known) = dependencies.iter_mut().find(|d| d.key == *key) {
+                known.tables |= bit;
+            }
+            let own = as_spec(own);
+            let inherits = own.get("workspace").and_then(toml::Value::as_bool) == Some(true);
+            let (spec_dir, mut spec) = match inherited.and_then(|w| w.get(key)) {
+                Some(shared) if inherits => (workspace_dir, as_spec(shared)),
+                _ => (dir, own.clone()),
+            };
+            if inherits {
+                for (name, value) in own {
+                    if name != "workspace" {
+                        spec.entry(name).or_insert(value);
+                    }
                 }
             }
-        }
-        let package = spec
-            .get("package")
-            .and_then(toml::Value::as_str)
-            .map(str::to_owned);
-        let path = spec
-            .get("path")
-            .and_then(toml::Value::as_str)
-            .map(|path| join(spec_dir, path));
-        let is_optional = spec.get("optional").and_then(toml::Value::as_bool) == Some(true);
-        if is_optional && !optional.contains(key) {
-            optional.push(key.clone());
-        }
-        if !dependencies.iter().any(|d| d.key == *key) {
-            dependencies.push(Dependency {
-                key: key.clone(),
-                package,
-                path,
-                spec,
-            });
+            let package = spec
+                .get("package")
+                .and_then(toml::Value::as_str)
+                .map(str::to_owned);
+            let path = spec
+                .get("path")
+                .and_then(toml::Value::as_str)
+                .map(|path| join(spec_dir, path));
+            let is_optional = spec.get("optional").and_then(toml::Value::as_bool) == Some(true);
+            if is_optional && !optional.contains(key) {
+                optional.push(key.clone());
+            }
+            if !dependencies.iter().any(|d| d.key == *key) {
+                dependencies.push(Dependency {
+                    key: key.clone(),
+                    package,
+                    path,
+                    spec,
+                    tables: bit,
+                });
+            }
         }
     }
     (dependencies, optional)

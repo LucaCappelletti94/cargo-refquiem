@@ -43,6 +43,8 @@ pub(crate) struct Decl {
     pub(crate) kind: ItemKind,
     /// Whether the item is `pub`, members counting only when their owner is too.
     pub(crate) public: bool,
+    /// For a function or trait method, its parameter types and return type as normalized tokens.
+    pub(crate) signature: Option<String>,
 }
 
 /// An inherent impl block.
@@ -51,8 +53,8 @@ pub(crate) struct Impl {
     pub(crate) module: Vec<String>,
     /// The self type's path segments without generic arguments.
     pub(crate) self_ty: Vec<String>,
-    /// Each item's name, kind and whether it is `pub`.
-    pub(crate) items: Vec<(String, ItemKind, bool)>,
+    /// Each item's name, kind, whether it is `pub`, and a method's signature.
+    pub(crate) items: Vec<(String, ItemKind, bool, Option<String>)>,
 }
 
 /// A named import, type alias or glob re-export.
@@ -116,9 +118,13 @@ pub(crate) struct DerefImpl {
 pub(crate) fn parse(source: &str) -> Result<FileItems, String> {
     let parsed = syn::parse_file(source)
         .map(|file| {
+            // Spans count from the text `syn` parsed, after a byte order mark and a shebang.
+            let bom = if source.starts_with('\u{feff}') { 3 } else { 0 };
+            let skipped = bom + file.shebang.as_ref().map_or(0, String::len);
             let mut collector = Collector {
                 out: FileItems::default(),
                 module: Vec::new(),
+                source: source.get(skipped..).unwrap_or_default(),
             };
             collector.items(&file.items);
             collector.out
@@ -136,19 +142,25 @@ pub(crate) fn parse(source: &str) -> Result<FileItems, String> {
 type Member = (String, ItemKind, bool, Vec<String>);
 
 /// Walks a file's items, tracking the enclosing inline modules.
-struct Collector {
+struct Collector<'s> {
     out: FileItems,
     module: Vec<String>,
+    /// The text the spans count from.
+    source: &'s str,
 }
 
-impl Collector {
+impl Collector<'_> {
     fn items(&mut self, items: &[Item]) {
         for item in items {
             match item {
                 Item::Const(item) => self.decl(&item.ident.to_string(), ItemKind::Const, &item.vis),
                 Item::Enum(item) => self.enumeration(item),
                 Item::Fn(item) => {
-                    self.decl(&item.sig.ident.to_string(), ItemKind::Function, &item.vis);
+                    let name = item.sig.ident.to_string();
+                    self.decl(&name, ItemKind::Function, &item.vis);
+                    let end = item.block.brace_token.span.open().byte_range().start;
+                    let signature = self.signature(&item.sig, end);
+                    self.sign(&[&name], ItemKind::Function, signature);
                     self.params(&item.sig);
                 }
                 Item::ForeignMod(foreign) => self.foreign_items(&foreign.items),
@@ -195,9 +207,96 @@ impl Collector {
         if names.contains(&"_") {
             return;
         }
+        let path = self.path(names);
+        self.out.items.push(Decl {
+            path,
+            kind,
+            public,
+            signature: None,
+        });
+    }
+
+    /// `names` below the current module, raw identifiers stripped.
+    fn path(&self, names: &[&str]) -> Vec<String> {
         let mut path = self.module.clone();
         path.extend(names.iter().map(|name| strip_raw(name).to_owned()));
-        self.out.items.push(Decl { path, kind, public });
+        path
+    }
+
+    /// Records `signature` on the latest declaration of `names` with `kind`.
+    fn sign(&mut self, names: &[&str], kind: ItemKind, signature: String) {
+        let path = self.path(names);
+        if let Some(decl) = self
+            .out
+            .items
+            .iter_mut()
+            .rev()
+            .find(|decl| decl.kind == kind && decl.path == path)
+        {
+            decl.signature = Some(signature);
+        }
+    }
+
+    /// The parameter types and return type of `signature` as normalized tokens, `end` being
+    /// where the function's body or `;` starts.
+    fn signature(&self, signature: &syn::Signature, end: usize) -> String {
+        let close = signature.paren_token.span.close().byte_range().start;
+        let mut params = Vec::new();
+        for pair in signature.inputs.pairs() {
+            let stop = pair
+                .punct()
+                .map_or(close, |comma| comma.span.byte_range().start);
+            params.push(match pair.value() {
+                syn::FnArg::Receiver(receiver) => match &receiver.kind {
+                    syn::ReceiverKind::Typed(colon, _) => {
+                        self.tokens(colon.span.byte_range().end, stop)
+                    }
+                    syn::ReceiverKind::Reference(_, _, Some(_)) => "& mut self".to_owned(),
+                    syn::ReceiverKind::Reference(_, _, None) => "& self".to_owned(),
+                    _ => "self".to_owned(),
+                },
+                syn::FnArg::Typed(typed) => {
+                    self.tokens(typed.colon_token.span.byte_range().end, stop)
+                }
+            });
+        }
+        if signature.variadic.is_some() {
+            params.push("...".to_owned());
+        }
+        let output = match &signature.output {
+            syn::ReturnType::Default => String::new(),
+            syn::ReturnType::Type(arrow, _) => {
+                let stop = signature
+                    .generics
+                    .where_clause
+                    .as_ref()
+                    .map_or(end, |clause| clause.where_token.span.byte_range().start);
+                format!(" -> {}", self.tokens(arrow.spans[1].byte_range().end, stop))
+            }
+        };
+        format!("({}){output}", params.join(", "))
+    }
+
+    /// The tokens of the source between `start` and `stop`, joined by single spaces.
+    fn tokens(&self, start: usize, stop: usize) -> String {
+        let Some(text) = self.source.get(start..stop) else {
+            return String::new();
+        };
+        let mut out = Vec::new();
+        let mut at = 0;
+        for token in ra_ap_rustc_lexer::tokenize(text, ra_ap_rustc_lexer::FrontmatterAllowed::No) {
+            let len = usize::try_from(token.len).expect("token lengths fit in usize");
+            if !matches!(
+                token.kind,
+                ra_ap_rustc_lexer::TokenKind::Whitespace
+                    | ra_ap_rustc_lexer::TokenKind::LineComment { .. }
+                    | ra_ap_rustc_lexer::TokenKind::BlockComment { .. }
+            ) {
+                out.push(&text[at..at + len]);
+            }
+            at += len;
+        }
+        out.join(" ")
     }
 
     /// Declares `name` and its `members`, each with its serialized spellings.
@@ -265,7 +364,11 @@ impl Collector {
         for item in items {
             match item {
                 syn::ForeignItem::Fn(item) => {
-                    self.decl(&item.sig.ident.to_string(), ItemKind::Function, &item.vis);
+                    let name = item.sig.ident.to_string();
+                    self.decl(&name, ItemKind::Function, &item.vis);
+                    let end = item.semi_token.span.byte_range().start;
+                    let signature = self.signature(&item.sig, end);
+                    self.sign(&[&name], ItemKind::Function, signature);
                     self.params(&item.sig);
                 }
                 syn::ForeignItem::Static(item) => {
@@ -321,12 +424,23 @@ impl Collector {
 
     fn trait_item(&mut self, item: &syn::ItemTrait) {
         let mut members = Vec::new();
+        let mut signatures = Vec::new();
         for trait_item in &item.items {
             let (name, kind) = match trait_item {
                 TraitItem::Const(c) => (c.ident.to_string(), ItemKind::AssociatedConst),
                 TraitItem::Fn(f) => {
                     self.params(&f.sig);
-                    (f.sig.ident.to_string(), ItemKind::Method)
+                    let end = f.default.as_ref().map_or_else(
+                        || {
+                            f.semi_token
+                                .as_ref()
+                                .map_or(self.source.len(), |semi| semi.span.byte_range().start)
+                        },
+                        |block| block.brace_token.span.open().byte_range().start,
+                    );
+                    let name = f.sig.ident.to_string();
+                    signatures.push((name.clone(), self.signature(&f.sig, end)));
+                    (name, ItemKind::Method)
                 }
                 TraitItem::Type(t) => (t.ident.to_string(), ItemKind::AssociatedType),
                 TraitItem::Macro(m) => {
@@ -337,7 +451,11 @@ impl Collector {
             };
             members.push((name, kind, true, Vec::new()));
         }
-        self.owner(&item.ident.to_string(), ItemKind::Trait, &item.vis, members);
+        let trait_name = item.ident.to_string();
+        self.owner(&trait_name, ItemKind::Trait, &item.vis, members);
+        for (name, signature) in signatures {
+            self.sign(&[&trait_name, &name], ItemKind::Method, signature);
+        }
     }
 
     fn impl_block(&mut self, item: &syn::ItemImpl) {
@@ -373,14 +491,18 @@ impl Collector {
             .items
             .iter()
             .filter_map(|impl_item| match impl_item {
-                ImplItem::Const(c) => Some((&c.ident, ItemKind::AssociatedConst, &c.vis)),
-                ImplItem::Fn(f) => Some((&f.sig.ident, ItemKind::Method, &f.vis)),
-                ImplItem::Type(t) => Some((&t.ident, ItemKind::AssociatedType, &t.vis)),
+                ImplItem::Const(c) => Some((&c.ident, ItemKind::AssociatedConst, &c.vis, None)),
+                ImplItem::Fn(f) => {
+                    let end = f.block.brace_token.span.open().byte_range().start;
+                    let signature = self.signature(&f.sig, end);
+                    Some((&f.sig.ident, ItemKind::Method, &f.vis, Some(signature)))
+                }
+                ImplItem::Type(t) => Some((&t.ident, ItemKind::AssociatedType, &t.vis, None)),
                 _ => None,
             })
-            .map(|(ident, kind, vis)| {
+            .map(|(ident, kind, vis, signature)| {
                 let name = strip_raw(&ident.to_string()).to_owned();
-                (name, kind, is_pub(vis))
+                (name, kind, is_pub(vis), signature)
             })
             .collect();
         self.out.impls.push(Impl {

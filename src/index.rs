@@ -27,6 +27,10 @@ pub(crate) struct Index {
     pub(crate) libs: Vec<Sym>,
     /// The parameter names of every function, method and trait method.
     pub(crate) params: HashSet<Sym>,
+    /// The signature of every function, method and trait method, as the parser records it.
+    pub(crate) signatures: HashMap<PathId, Rc<str>>,
+    /// The dependency tables of every dependency entry, as [`manifest::NORMAL`] bits.
+    pub(crate) tables: HashMap<PathId, u8>,
 }
 
 /// A named or glob re-export with its module, source, alias and visibility.
@@ -49,6 +53,7 @@ struct Contribution {
     macro_rules: Vec<(Sym, Vec<Sym>)>,
     derefs: Vec<DerefDecl>,
     params: Vec<Sym>,
+    signatures: Vec<(PathId, Rc<str>)>,
     failure: Option<String>,
 }
 
@@ -127,29 +132,34 @@ impl Indexer {
         }
     }
 
-    /// Interns the manifest entries of `member` into `paths`.
-    fn entries(&mut self, member: &Member, paths: &mut HashSet<PathId>) {
+    /// Interns the manifest entries of `member` into `index`.
+    fn entries(&mut self, member: &Member, index: &mut Index) {
         let owner = self.interner.sym(&entry::member(&member.dir));
         let mut add = |interner: &mut Interner, kind: ItemKind, name: &str| {
             let path = [owner, interner.sym(entry::marker(kind)), interner.sym(name)];
-            paths.insert(interner.path(&path, kind));
+            let id = interner.path(&path, kind);
+            index.paths.insert(id);
+            id
         };
         add(&mut self.interner, ItemKind::Package, &member.package);
         for dependency in &member.dependencies {
-            add(&mut self.interner, ItemKind::Dependency, &dependency.key);
+            let id = add(&mut self.interner, ItemKind::Dependency, &dependency.key);
+            index.tables.insert(id, dependency.tables);
             if let Some(package) = &dependency.package {
-                add(&mut self.interner, ItemKind::Dependency, package);
+                let id = add(&mut self.interner, ItemKind::Dependency, package);
+                index.tables.insert(id, dependency.tables);
             }
         }
         for feature in &member.features {
             add(&mut self.interner, ItemKind::Feature, feature);
         }
         for target in &member.targets {
-            match target.kind {
-                TargetKind::Bin => add(&mut self.interner, ItemKind::Binary, &target.name),
-                TargetKind::Example => add(&mut self.interner, ItemKind::Example, &target.name),
-                TargetKind::Lib | TargetKind::Other => {}
-            }
+            let kind = match target.kind {
+                TargetKind::Bin => ItemKind::Binary,
+                TargetKind::Example => ItemKind::Example,
+                TargetKind::Lib | TargetKind::Other => continue,
+            };
+            add(&mut self.interner, kind, &target.name);
         }
     }
 
@@ -182,7 +192,7 @@ impl Indexer {
         let mut crates = Vec::new();
         let mut stack = Vec::new();
         for member in members {
-            self.entries(&member, &mut index.paths);
+            self.entries(&member, &mut index);
             self.members
                 .entry(member.dir)
                 .or_default()
@@ -256,6 +266,12 @@ impl Indexer {
                 continue;
             }
             index.paths.extend(contribution.paths.iter().copied());
+            index.signatures.extend(
+                contribution
+                    .signatures
+                    .iter()
+                    .map(|(id, signature)| (*id, Rc::clone(signature))),
+            );
             if head && !index.file_modules.contains_key(&visit.file) {
                 let module = self.interner.segments(visit.module).to_vec();
                 index.file_modules.insert(visit.file.clone(), module);
@@ -367,6 +383,7 @@ impl Indexer {
                 macro_rules: Vec::new(),
                 derefs: Vec::new(),
                 params: Vec::new(),
+                signatures: Vec::new(),
                 failure: Some(message.clone()),
             },
         });
@@ -379,6 +396,7 @@ impl Indexer {
         let crate_sym = module[0];
         let counts = |public: bool| public || !visit.public_only;
         let mut paths = Vec::new();
+        let mut signatures = Vec::new();
         let mut hidden = Vec::new();
         let mut exposed = Vec::new();
         for decl in &items.items {
@@ -391,6 +409,7 @@ impl Indexer {
             }
             if counts(decl.public) || decl.kind == ItemKind::Module {
                 paths.push(id);
+                signatures.extend(decl.signature.as_deref().map(|s| (id, Rc::from(s))));
             }
         }
         let imports = self.imports(&module, items, &paths);
@@ -400,11 +419,12 @@ impl Indexer {
             let Some(mut base) = self.resolve(&within, &self_ty, crate_sym) else {
                 continue;
             };
-            for (name, kind, public) in &block.items {
+            for (name, kind, public, signature) in &block.items {
                 if counts(*public) {
                     base.push(self.interner.sym(name));
                     let id = self.interner.path(&base, *kind);
                     paths.push(id);
+                    signatures.extend(signature.as_deref().map(|s| (id, Rc::from(s))));
                     if *public {
                         exposed.push(id);
                     } else {
@@ -468,6 +488,7 @@ impl Indexer {
             macro_rules,
             derefs,
             params: self.syms(&items.params),
+            signatures,
             failure: None,
         }
     }

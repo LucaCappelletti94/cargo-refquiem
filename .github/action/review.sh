@@ -58,13 +58,22 @@ if [ "$MODE" = post ]; then
     fi
   fi
 else
-  # One row per mention and per unused marker, the text it says and where.
+  # One row per mention and per unused marker, the text it says and where. A line with a
+  # rewrite becomes one row holding every message on it and the rewritten line.
   rows="$(jq -c '
-    (.groups[] | .headline as $h | .mentions[]
-      | {path: .file, line, column, text: "\($h), is still mentioned here."}),
-    (.unused_markers[]
-      | {path: .file, line, column,
-         text: "This `refquiem: allow(\(.name))` marker suppresses nothing."})' "$REPORT")"
+    [ (.groups[] | .headline as $h | .mentions[]
+        | {path: .file, line, column, text: "\($h), is still mentioned here.", replacement}),
+      (.unused_markers[]
+        | {path: .file, line, column,
+           text: "This `refquiem: allow(\(.name))` marker suppresses nothing.",
+           replacement: null}) ]
+    | group_by([.path, .line])
+    | .[]
+    | if any(.[]; .replacement != null)
+      then min_by(.column) + {
+        text: (map(.text) | unique | join("\n\n")),
+        replacement: (map(.replacement | values) | first)}
+      else .[] end' "$REPORT")"
   if [ -z "$rows" ]; then
     echo "refquiem: no stale mention, the review is not posted"
     finish skipped-clean
@@ -115,7 +124,15 @@ else
       out_of_range+="- \`$at\` $text"$'\n'
       continue
     fi
-    body="$text"$'\n\n'"$(footer "$at")"
+    body="$text"
+    replacement="$(jq -r '.replacement // empty' <<< "$row")"
+    if [ -n "$replacement" ]; then
+      # The fence outgrows every backtick run of the line it holds.
+      run="$(jq -r '[.replacement | scan("`+") | length] | max // 0' <<< "$row")"
+      fence="$(printf '%*s' "$(( run < 3 ? 3 : run + 1 ))" '' | tr ' ' '`')"
+      body+=$'\n\n'"${fence}suggestion"$'\n'"$replacement"$'\n'"$fence"
+    fi
+    body+=$'\n\n'"$(footer "$at")"
     if [ "$DRY_RUN" = true ]; then
       rendered+="#### \`$at\`"$'\n\n'"$body"$'\n\n'
     else

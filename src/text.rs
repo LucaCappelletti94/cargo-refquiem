@@ -100,7 +100,7 @@ const MEMBER_KINDS: [&str; 6] = [
 ];
 
 /// Rust's strict and reserved keywords, which as plain identifier tokens name no item.
-const KEYWORDS: [&str; 52] = [
+pub(crate) const KEYWORDS: [&str; 52] = [
     "abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "crate",
     "do", "dyn", "else", "enum", "extern", "false", "final", "fn", "for", "gen", "if", "impl",
     "in", "let", "loop", "macro", "match", "mod", "move", "mut", "override", "priv", "pub", "ref",

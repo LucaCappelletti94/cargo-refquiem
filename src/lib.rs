@@ -20,6 +20,7 @@ mod parse;
 mod scan;
 mod serde_names;
 mod stdlib;
+mod suggest;
 mod text;
 
 pub use error::Error;
@@ -256,6 +257,40 @@ pub struct Mention {
     pub text: String,
     /// Where it sits.
     pub context: Context,
+    /// The mention's line with every suggested rewrite on that line applied.
+    pub replacement: Option<String>,
+}
+
+/// How a suggested name relates to the removed one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Change {
+    /// The same name and kind under another parent.
+    Moved,
+    /// A near name of the same kind and parent.
+    Renamed,
+    /// The only new sibling with the same signature, or the only crate added to the same table.
+    Replaced,
+}
+
+impl Change {
+    /// The words that introduce the suggested name.
+    #[must_use]
+    pub fn describe(self) -> &'static str {
+        match self {
+            Self::Moved => "moved to",
+            Self::Renamed => "renamed to",
+            Self::Replaced => "replaced by",
+        }
+    }
+}
+
+/// The name a removed name most likely became.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Suggestion {
+    /// Its full path, or the name of a manifest entry.
+    pub path: String,
+    /// How it relates to the removed name.
+    pub change: Change,
 }
 
 /// A removed name and its remaining mentions.
@@ -269,19 +304,25 @@ pub struct Group {
     pub member: Option<String>,
     /// The change that removed it, unknown when no commit of the range shows the removal.
     pub removed_in: Option<RemovedIn>,
+    /// The name it most likely became.
+    pub suggestion: Option<Suggestion>,
+    /// The names it may have become when no single one stands out.
+    pub candidates: Vec<String>,
     /// Its mentions at head, by file and position.
     pub mentions: Vec<Mention>,
 }
 
-/// The fields, plus the `headline` a reader shows for the group.
+/// The fields, the suggestion as its path, plus the `headline` a reader shows for the group.
 impl serde::Serialize for Group {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct as _;
-        let mut group = serializer.serialize_struct("Group", 6)?;
+        let mut group = serializer.serialize_struct("Group", 8)?;
         group.serialize_field("path", &self.path)?;
         group.serialize_field("kind", &self.kind)?;
         group.serialize_field("member", &self.member)?;
         group.serialize_field("removed_in", &self.removed_in)?;
+        group.serialize_field("suggestion", &self.suggestion.as_ref().map(|s| &s.path))?;
+        group.serialize_field("candidates", &self.candidates)?;
         group.serialize_field("headline", &self.headline())?;
         group.serialize_field("mentions", &self.mentions)?;
         group.end()
@@ -389,7 +430,7 @@ impl Report {
 }
 
 impl Group {
-    /// The removed name with its kind, member and the change that removed it.
+    /// The removed name with its kind, member, the change that removed it and what it became.
     fn headline(&self) -> String {
         let mut out = format!("`{}` ({}", self.path, self.kind.describe());
         if let Some(member) = &self.member {
@@ -410,7 +451,24 @@ impl Group {
             }
             None => {}
         }
+        if let Some(became) = self.became() {
+            let _ = write!(out, ", {became}");
+        }
         out
+    }
+
+    /// What the removed name became, as `renamed to X` or `perhaps X or Y`.
+    fn became(&self) -> Option<String> {
+        if let Some(suggestion) = &self.suggestion {
+            return Some(format!(
+                "{} `{}`",
+                suggestion.change.describe(),
+                suggestion.path
+            ));
+        }
+        let (last, rest) = self.candidates.split_last()?;
+        let rest: Vec<String> = rest.iter().map(|c| format!("`{c}`")).collect();
+        Some(format!("perhaps {} or `{last}`", rest.join(", ")))
     }
 }
 
