@@ -1,0 +1,46 @@
+name: Dogfood post
+
+on:
+  workflow_run:
+    workflows: [Dogfood]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  post:
+    name: Post the review a fork pull request prepared
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      # The default branch, so the posting code never comes from the fork.
+      - uses: actions/checkout@v4
+      - name: Download the prepared review
+        id: download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          if gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name refquiem-payload --dir "$RUNNER_TEMP/refquiem-payload"; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "the run prepared no review"
+          fi
+      - uses: ./
+        id: refquiem
+        if: steps.download.outputs.found == 'true'
+        with:
+          mode: post
+          payload: ${{ runner.temp }}/refquiem-payload
+      - name: Check the review outcome
+        if: steps.download.outputs.found == 'true'
+        env:
+          STATUS: ${{ steps.refquiem.outputs.review-status }}
+        run: |
+          case "$STATUS" in
+            posted | skipped-stale) echo "the review ended $STATUS" ;;
+            *) echo "unexpected review outcome: $STATUS"; exit 1 ;;
+          esac

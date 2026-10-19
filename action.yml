@@ -1,0 +1,179 @@
+name: refquiem
+description: >-
+  Reports comments, docs, strings and Markdown that still mention the Rust items,
+  dependencies, features, binaries and examples your history removed.
+
+branding:
+  icon: 'book-open'
+  color: 'gray-dark'
+
+inputs:
+  version:
+    description: The refquiem version to install, empty for the latest
+    required: false
+    default: ''
+  install:
+    description: Install refquiem, false uses the cargo refquiem already on the path
+    required: false
+    default: 'true'
+  cwd:
+    description: The workspace directory to scan
+    required: false
+    default: ''
+  package:
+    description: Scan the workspace member with this name
+    required: false
+    default: ''
+  config:
+    description: The configuration file, by default .refquiem.toml at the workspace root
+    required: false
+    default: ''
+  since:
+    description: The revision a manual or scheduled audit starts from, empty for the whole history
+    required: false
+    default: ''
+  pr-number:
+    description: Post the findings as a review on this pull request instead of failing the job
+    required: false
+    default: ''
+  dry-run:
+    description: Render the review into the job summary without posting in any mode
+    required: false
+    default: 'false'
+  annotations:
+    description: Annotate every finding, which needs no token
+    required: false
+    default: 'true'
+  mode:
+    description: review posts the findings in one job, prepare writes the payload for a later job, post consumes it
+    required: false
+    default: 'review'
+  payload:
+    description: Directory holding the prepared review, written by prepare and read by post
+    required: false
+    default: ''
+
+outputs:
+  review-status:
+    description: How the review ended, posted, dry-run, prepared, skipped-clean, skipped-readonly, skipped-stale or failed
+    value: ${{ steps.review.outputs.status }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install refquiem
+      if: ${{ inputs.mode != 'post' && inputs.install == 'true' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        repo="LucaCappelletti94/cargo-refquiem"
+        tag=''
+        [ -n "$VERSION" ] && tag="v$VERSION"
+
+        # Keep these targets in sync with the release matrix in .github/workflows/release.yml.
+        case "$RUNNER_OS/$RUNNER_ARCH" in
+          Linux/X64)   target=x86_64-unknown-linux-gnu ;;
+          Linux/ARM64) target=aarch64-unknown-linux-gnu ;;
+          macOS/X64)   target=x86_64-apple-darwin ;;
+          macOS/ARM64) target=aarch64-apple-darwin ;;
+          Windows/X64) target=x86_64-pc-windows-msvc ;;
+          *)           target='' ;;
+        esac
+
+        if [ -n "$target" ]; then
+          asset="cargo-refquiem-$target.tar.gz"
+          dest="$RUNNER_TEMP/refquiem-bin"
+          mkdir -p "$dest"
+          # Action releases carry no binaries and GitHub marks the newest one Latest,
+          # so the newest release that ships the asset is resolved instead.
+          if [ -z "$tag" ]; then
+            tag="$(gh api "repos/$repo/releases?per_page=30" --paginate \
+              --jq ".[] | select(.draft == false and .prerelease == false) | select([.assets[].name] | index(\"$asset\")) | .tag_name" 2>/dev/null | head -n1)" || true
+          fi
+          args=(--repo "$repo" --pattern "$asset" --dir "$dest" --clobber)
+          [ -n "$tag" ] && args=("$tag" "${args[@]}")
+          if err="$(gh release download "${args[@]}" 2>&1)"; then
+            bin=cargo-refquiem
+            [ "$RUNNER_OS" = Windows ] && bin=cargo-refquiem.exe
+            tar -xzf "$dest/$asset" -C "$dest"
+            chmod +x "$dest/$bin" 2>/dev/null || true
+            echo "$dest" >> "$GITHUB_PATH"
+            echo "refquiem: installed the prebuilt $asset from $tag"
+            exit 0
+          fi
+          echo "refquiem: could not download $asset, falling back to source"
+          printf '%s\n' "$err" | sed 's/^/refquiem: /'
+        else
+          echo "refquiem: no prebuilt binary for $RUNNER_OS/$RUNNER_ARCH, falling back to source"
+        fi
+
+        install=(refquiem --locked)
+        [ -n "$VERSION" ] && install+=(--version "$VERSION")
+        cargo install "${install[@]}"
+
+    - name: Resolve the range
+      id: range
+      if: ${{ inputs.mode != 'post' }}
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      env:
+        INPUT_SINCE: ${{ inputs.since }}
+      run: bash "$GITHUB_ACTION_PATH/.github/action/range.sh"
+
+    - name: Scan for stale mentions
+      id: scan
+      if: ${{ inputs.mode != 'post' }}
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      env:
+        BASE: ${{ steps.range.outputs.base }}
+        HEAD: ${{ steps.range.outputs.head }}
+        SINCE: ${{ steps.range.outputs.since }}
+        PACKAGE: ${{ inputs.package }}
+        CONFIG: ${{ inputs.config }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        ANNOTATIONS: ${{ inputs.annotations }}
+      run: |
+        set -uo pipefail
+        args=()
+        [ -n "$BASE" ] && args+=(--base "$BASE" --head "$HEAD")
+        [ -n "$SINCE" ] && args+=(--since "$SINCE")
+        [ -n "$PACKAGE" ] && args+=(--package "$PACKAGE")
+        [ -n "$CONFIG" ] && args+=(--config "$CONFIG")
+        echo "version=$(cargo refquiem --version | awk '{ print $NF }')" >> "$GITHUB_OUTPUT"
+        github=()
+        [ "$ANNOTATIONS" = true ] && github+=(--github)
+        if [ -z "$PR_NUMBER" ] && [ "$DRY_RUN" != true ]; then
+          cargo refquiem "${github[@]}" "${args[@]}"
+          exit
+        fi
+        # A review reports the findings instead of failing the job.
+        cargo refquiem --json --no-fail "${args[@]}" > "$RUNNER_TEMP/refquiem-report.json" || exit
+        if [ "$ANNOTATIONS" = true ]; then
+          cargo refquiem --github --no-fail "${args[@]}" || exit
+        fi
+
+    - name: Review the findings on the pull request
+      id: review
+      if: ${{ inputs.mode == 'post' || inputs.pr-number != '' || inputs.dry-run == 'true' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        MODE: ${{ inputs.mode }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+        PAYLOAD: ${{ inputs.payload }}
+        VERSION: ${{ steps.scan.outputs.version }}
+        RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      run: |
+        export PAYLOAD="${PAYLOAD:-$RUNNER_TEMP/refquiem-payload}"
+        export REPORT="$RUNNER_TEMP/refquiem-report.json"
+        export STATUS="$RUNNER_TEMP/refquiem-review-status"
+        code=0
+        bash "$GITHUB_ACTION_PATH/.github/action/review.sh" || code=$?
+        echo "status=$(cat "$STATUS" 2>/dev/null || echo failed)" >> "$GITHUB_OUTPUT"
+        exit "$code"
