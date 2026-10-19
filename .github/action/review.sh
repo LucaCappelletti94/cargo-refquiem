@@ -19,6 +19,22 @@ finish() {
   exit "${2:-0}"
 }
 
+render_dry_run() {
+  if [ -n "$out_of_range" ]; then
+    rendered+=$'\n### Mentions outside the pull request diff\n\n'"$out_of_range"$'\n'
+  fi
+  {
+    echo
+    echo '### refquiem review, dry run'
+    echo
+    echo 'The review refquiem would post.'
+    echo
+    printf '%s' "$rendered"
+  } >> "$GITHUB_STEP_SUMMARY"
+  printf '%s' "$rendered"
+  finish dry-run
+}
+
 # Matches the HTTP status `$2` in the gh error output `$1`.
 http_status() { grep -qE "HTTP $2|\"status\": \"$2\"" <<< "$1"; }
 
@@ -166,16 +182,7 @@ else
   done <<< "$rows"
 
   if [ "$DRY_RUN" = true ]; then
-    {
-      echo
-      echo '### refquiem review, dry run'
-      echo
-      echo 'The comments refquiem would post, as if every file were in the pull request diff.'
-      echo
-      printf '%s' "$rendered"
-    } >> "$GITHUB_STEP_SUMMARY"
-    printf '%s' "$rendered"
-    finish dry-run
+    render_dry_run
   fi
 
   jq -n --arg pr "$pr" --arg head "$head_sha" --arg oor "$out_of_range" \
@@ -201,11 +208,16 @@ readonly_notice() {
 
 # The first post is the permission probe.
 failed=''
+rendered=''
 while IFS= read -r row; do
   [ -n "$row" ] || continue
   path="$(jq -r .path <<< "$row")"
   line="$(jq -r .line <<< "$row")"
   at="$path:$line:$(jq -r .column <<< "$row")"
+  if [ "$DRY_RUN" = true ]; then
+    rendered+="#### \`$at\`"$'\n\n'"$(jq -r .body <<< "$row")"$'\n\n'
+    continue
+  fi
   if ! err="$(jq -r .body <<< "$row" | gh api "repos/$repo/pulls/$pr/comments" \
     -f "commit_id=$head_sha" -f "path=$path" -F "line=$line" -f side=RIGHT -F 'body=@-' 2>&1)"; then
     if http_status "$err" 403; then
@@ -221,6 +233,9 @@ while IFS= read -r row; do
     fi
   fi
 done < "$comments"
+if [ "$DRY_RUN" = true ]; then
+  render_dry_run
+fi
 
 dismiss
 

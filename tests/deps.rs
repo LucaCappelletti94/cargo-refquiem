@@ -73,7 +73,7 @@ fn a_removed_dependency_is_read_from_the_registry_its_manifest_named() {
         "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
     lock(&repo);
-    repo.write("README.md", "The `LockedItem` item.\n");
+    repo.write("README.md", "The `locked_hdep::LockedItem` item.\n");
     repo.commit("drop locked-hdep");
 
     let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
@@ -86,7 +86,7 @@ fn a_removed_dependency_is_read_from_the_registry_its_manifest_named() {
         rows,
         [(
             "locked_hdep::LockedItem".to_owned(),
-            "LockedItem".to_owned()
+            "locked_hdep::LockedItem".to_owned(),
         )]
     );
     assert_eq!(report.skipped, []);
@@ -112,13 +112,16 @@ fn a_removed_dependency_is_pinned_to_the_version_its_member_locked() {
         "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
     lock(&repo);
-    repo.write("README.md", "`OldThing` and `NewThing`.\n");
+    repo.write("README.md", "`helper::OldThing` and `helper::NewThing`.\n");
     repo.commit("drop helper");
 
     let rows: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
     assert_eq!(
         rows,
-        [("helper::OldThing".to_owned(), "OldThing".to_owned())]
+        [
+            ("helper".to_owned(), "helper::NewThing".to_owned()),
+            ("helper::OldThing".to_owned(), "helper::OldThing".to_owned()),
+        ]
     );
 }
 
@@ -189,7 +192,7 @@ fn a_bare_name_in_a_data_example_names_only_serialized_spellings() {
 }
 
 #[test]
-fn a_bare_name_names_removed_entries_only_outside_data_examples() {
+fn a_removed_entry_is_named_by_its_toml_key_not_its_bare_name() {
     let repo = Repo::new();
     repo.write(
         "vendor/helper/Cargo.toml",
@@ -210,13 +213,13 @@ fn a_bare_name_names_removed_entries_only_outside_data_examples() {
     lock(&repo);
     repo.write(
         "README.md",
-        "The `helper` crate.\n\n```json\n{\"helper\": 1}\n```\n",
+        "The `helper` crate.\n\n```json\n{\"helper\": 1}\n```\n\n```toml\n[dependencies]\nhelper = \"1\"\n```\n",
     );
     repo.commit("drop helper");
 
     let rows: Vec<(String, String, usize)> =
         found(&repo).into_iter().map(|m| (m.0, m.1, m.2)).collect();
-    assert_eq!(rows, [("helper".to_owned(), "README.md".to_owned(), 1)]);
+    assert_eq!(rows, [("helper".to_owned(), "README.md".to_owned(), 9)]);
 }
 
 #[test]
@@ -379,7 +382,7 @@ fn a_removed_entry_is_labeled_by_the_package_that_owned_it() {
     lock(&repo);
     repo.write(
         "widget/README.md",
-        "The `helper` crate and `helper::Thing`.\n",
+        "```toml\n[dependencies]\nhelper = \"1\"\n```\n",
     );
     repo.commit("drop helper");
 
@@ -405,7 +408,10 @@ fn a_hyphenated_spelling_matches_a_name_with_underscores() {
         "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
     lock(&repo);
-    repo.write("README.md", "The `helper-lib` crate.\n");
+    repo.write(
+        "README.md",
+        "```toml\n[dependencies]\nhelper-lib = \"1\"\n```\n",
+    );
     repo.commit("drop helper_lib");
 
     let rows: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
@@ -550,7 +556,7 @@ fn a_workspace_in_a_subdirectory_is_exported_at_the_export_root() {
 }
 
 #[test]
-fn a_removed_dependency_named_alone_is_reported_as_the_dependency() {
+fn a_removed_dependency_and_its_items_are_reported_from_qualified_and_toml_names() {
     let repo = Repo::new();
     repo.write(
         "Cargo.toml",
@@ -569,7 +575,7 @@ fn a_removed_dependency_named_alone_is_reported_as_the_dependency() {
         "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
     lock(&repo);
-    repo.write("README.md", "`helper`\n");
+    repo.write("README.md", "The `helper` crate and its `helper::Thing` item.\n\n```toml\n[dependencies]\nhelper = \"1\"\n```\n");
     repo.commit("drop helper");
 
     let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
@@ -578,5 +584,11 @@ fn a_removed_dependency_named_alone_is_reported_as_the_dependency() {
         .iter()
         .map(|g| (g.path.as_str(), g.kind))
         .collect();
-    assert_eq!(groups, [("helper", ItemKind::Dependency)]);
+    assert_eq!(
+        groups,
+        [
+            ("helper", ItemKind::Dependency),
+            ("helper::Thing", ItemKind::Struct),
+        ]
+    );
 }

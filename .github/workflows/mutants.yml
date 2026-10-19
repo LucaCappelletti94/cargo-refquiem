@@ -16,6 +16,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: 2
 
 jobs:
   mutants:
@@ -59,5 +60,5 @@ jobs:
           sudo -E env "PATH=$PATH" "HOME=$HOME" systemd-run --scope --quiet \
             --uid="$(id -u)" --gid="$(id -g)" \
             -p MemoryMax=12G -p MemorySwapMax=0 -p OOMPolicy=continue \
-            cargo mutants --cap-lints true --shard ${{ matrix.shard }}/8 || status=$?
+            taskset --cpu-list 0,1 cargo mutants --jobs 2 --cap-lints true --shard ${{ matrix.shard }}/8 || status=$?
           test "$status" -eq 0 -o "$status" -eq 3
