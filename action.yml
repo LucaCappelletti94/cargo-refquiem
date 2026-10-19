@@ -37,7 +37,7 @@ inputs:
     required: false
     default: ''
   dry-run:
-    description: Render the review into the job summary instead of posting it
+    description: Render the review into the job summary without posting in any mode
     required: false
     default: 'false'
   annotations:

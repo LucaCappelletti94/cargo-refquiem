@@ -1337,3 +1337,48 @@ fn a_glob_of_another_crate_drops_a_member_that_turns_private_behind_an_alias() {
 
     assert_eq!(removed(&run(&repo)), ["glob::Alias::secret"]);
 }
+
+#[test]
+fn historical_trait_visibility_changes_the_copied_api() {
+    let repo = Repo::new();
+    repo.write("Cargo.toml", "[workspace]\nmembers = [\"a\", \"b\"]\n");
+    repo.write(
+        "a/Cargo.toml",
+        "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write(
+        "b/Cargo.toml",
+        "[package]\nname = \"b\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\na = { path = \"../a\" }\n",
+    );
+    repo.write("b/src/lib.rs", "pub use a::Widget;\n");
+    let declarations = "pub struct Widget;\npub trait Exposed { fn retired_probe_842(&self); }\ntrait Hidden { fn retired_probe_842(&self); }\n";
+    repo.write(
+        "a/src/lib.rs",
+        &format!(
+            "{declarations}\nimpl Exposed for Widget {{ fn retired_probe_842(&self) {{}} }}\n"
+        ),
+    );
+    repo.commit("public implementation");
+    repo.write(
+        "a/src/lib.rs",
+        &format!("{declarations}\nimpl Hidden for Widget {{ fn retired_probe_842(&self) {{}} }}\n"),
+    );
+    let hiding = repo.commit("private implementation");
+    repo.write("a/src/lib.rs", declarations);
+    repo.write("README.md", "`b::Widget::retired_probe_842`\n");
+    repo.commit("remove implementation");
+
+    let report = run(&repo);
+    let rows: Vec<_> = report
+        .groups
+        .iter()
+        .map(|group| (group.path.as_str(), group.removed_in.clone()))
+        .collect();
+    assert_eq!(
+        rows,
+        [(
+            "b::Widget::retired_probe_842",
+            Some(RemovedIn::Commit(hiding)),
+        )]
+    );
+}

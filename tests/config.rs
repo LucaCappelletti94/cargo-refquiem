@@ -30,6 +30,55 @@ fn removed_gone() -> Repo {
 }
 
 #[test]
+fn a_bare_allow_entry_keeps_serialized_names_alive() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "#[derive(serde::Serialize)]\npub struct Data { #[serde(rename = \"old_alias_842\")] pub value: u8 }\npub struct Gone;\n",
+    );
+    repo.commit("public names");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "`old_alias_842` and `fixture::Gone`\n");
+    let options = Options::new(repo.path().to_path_buf());
+    assert_eq!(
+        found(&options),
+        [
+            (
+                "fixture::Data::\"old_alias_842\"".to_owned(),
+                "README.md".to_owned()
+            ),
+            ("fixture::Gone".to_owned(), "README.md".to_owned()),
+        ]
+    );
+    repo.write(".refquiem.toml", "allow = [\"old_alias_842\"]\n");
+    assert_eq!(
+        found(&options),
+        [("fixture::Gone".to_owned(), "README.md".to_owned())]
+    );
+}
+
+#[test]
+fn release_histories_are_not_scanned_by_default() {
+    let repo = removed_gone();
+    for file in [
+        "RELEASES.md",
+        "docs/RELEASES-1.0.md",
+        "RELEASE-NOTES.md",
+        "RELEASE_NOTES.md",
+        "NEWS.md",
+        "HISTORY.md",
+        "CHANGES.md",
+    ] {
+        repo.write(file, "`fixture::Gone`\n");
+    }
+    repo.write("README.md", "`fixture::Gone`\n");
+    assert_eq!(
+        found(&Options::new(repo.path().to_path_buf())),
+        [("fixture::Gone".to_owned(), "README.md".to_owned())]
+    );
+}
+
+#[test]
 fn changelogs_are_not_scanned_by_default() {
     let repo = removed_gone();
     repo.write("CHANGELOG.md", "Removed `fixture::Gone`.\n");

@@ -1,6 +1,8 @@
 //! Link destinations, rustdoc page URLs and code spans, and where each mention points.
 
 mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
 
 use common::Repo;
 use refquiem::ItemKind;
@@ -151,6 +153,77 @@ fn link_paths_must_start_at_the_destination_start() {
     repo.commit("drop gone");
 
     assert_eq!(found(&repo), []);
+}
+
+#[test]
+fn docs_rs_about_and_release_pages_are_not_crate_links() {
+    let repo = Repo::new();
+    repo.vendor("releases", "0.1.0", "");
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\
+         [dependencies]\nreleases = \"0.1\"\n",
+    );
+    repo.commit("releases");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("README.md", "[docs](https://docs.rs/releases)\n");
+    repo.commit("drop releases");
+
+    assert_eq!(found(&repo), []);
+}
+
+#[test]
+fn published_crate_names_with_hyphens_and_underscores_are_not_dependencies() {
+    let repo = Repo::new();
+    repo.vendor("gone-crate", "0.1.0", "");
+    repo.vendor("under_score", "0.1.0", "");
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\
+         [dependencies]\ngone-crate = \"0.1\"\nunder_score = \"0.1\"\n",
+    );
+    repo.commit("both");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    let links = "[a](https://docs.rs/gone-crate) and [b](https://docs.rs/under_score)\n";
+    repo.write("README.md", links);
+    repo.commit("drop both");
+
+    assert_eq!(found(&repo), []);
+    repo.write(
+        "README.md",
+        &format!(
+            "{links}\n```toml\n[dependencies]\ngone-crate = \"0.1\"\nunder_score = \"0.1\"\n```\n"
+        ),
+    );
+    assert_eq!(
+        found(&repo),
+        [
+            mention(
+                "gone-crate",
+                ItemKind::Dependency,
+                "README.md",
+                5,
+                1,
+                "gone-crate"
+            ),
+            mention(
+                "under_score",
+                ItemKind::Dependency,
+                "README.md",
+                6,
+                1,
+                "under_score"
+            ),
+        ]
+    );
 }
 
 #[test]

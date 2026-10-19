@@ -86,7 +86,7 @@ fn a_removed_dependency_is_read_from_the_registry_its_manifest_named() {
         rows,
         [(
             "locked_hdep::LockedItem".to_owned(),
-            "locked_hdep::LockedItem".to_owned()
+            "locked_hdep::LockedItem".to_owned(),
         )]
     );
     assert_eq!(report.skipped, []);
@@ -120,7 +120,7 @@ fn a_removed_dependency_is_pinned_to_the_version_its_member_locked() {
         rows,
         [
             ("helper".to_owned(), "helper::NewThing".to_owned()),
-            ("helper::OldThing".to_owned(), "helper::OldThing".to_owned())
+            ("helper::OldThing".to_owned(), "helper::OldThing".to_owned()),
         ]
     );
 }
@@ -243,6 +243,38 @@ fn a_bare_name_in_a_data_example_names_only_serialized_spellings() {
     repo.commit("drop gone");
 
     assert_eq!(found(&repo), []);
+}
+
+#[test]
+fn a_removed_entry_is_named_by_its_toml_key_not_its_bare_name() {
+    let repo = Repo::new();
+    repo.write(
+        "vendor/helper/Cargo.toml",
+        "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("vendor/helper/src/lib.rs", "pub struct Thing;\n");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
+    );
+    repo.write("src/lib.rs", "");
+    lock(&repo);
+    repo.commit("with helper");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    lock(&repo);
+    std::fs::remove_dir_all(repo.path().join("vendor/helper")).unwrap();
+    repo.write(
+        "README.md",
+        "The `helper` crate.\n\n```json\n{\"helper\": 1}\n```\n\n```toml\n[dependencies]\nhelper = \"1\"\n```\n",
+    );
+    repo.commit("drop helper");
+
+    let rows: Vec<(String, String, usize)> =
+        found(&repo).into_iter().map(|m| (m.0, m.1, m.2)).collect();
+    assert_eq!(rows, [("helper".to_owned(), "README.md".to_owned(), 9)]);
 }
 
 #[test]
@@ -959,4 +991,114 @@ fn a_bare_name_goes_to_a_workspace_item_before_a_dependency_item() {
 
     let rows: Vec<String> = found(&repo).into_iter().map(|m| m.0).collect();
     assert_eq!(rows, ["fixture::Gadget"]);
+}
+
+#[test]
+fn a_removed_dependency_and_its_items_are_reported_from_qualified_and_toml_names() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
+    );
+    repo.write(
+        "vendor/helper/Cargo.toml",
+        "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("vendor/helper/src/lib.rs", "pub struct Thing;\n");
+    repo.write("src/lib.rs", "");
+    lock(&repo);
+    repo.commit("with helper");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    lock(&repo);
+    std::fs::remove_dir_all(repo.path().join("vendor/helper")).unwrap();
+    repo.write("README.md", "The `helper` crate and its `helper::Thing` item.\n\n```toml\n[dependencies]\nhelper = \"1\"\n```\n");
+    repo.commit("drop helper");
+
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let groups: Vec<(&str, ItemKind)> = report
+        .groups
+        .iter()
+        .map(|g| (g.path.as_str(), g.kind))
+        .collect();
+    assert_eq!(
+        groups,
+        [
+            ("helper", ItemKind::Dependency),
+            ("helper::Thing", ItemKind::Struct),
+        ]
+    );
+}
+
+#[test]
+fn dependency_trait_members_follow_the_traits_public_reachability() {
+    let method = "fn retired_probe_842(&self);";
+    for (declaration, inherent, stale) in [
+        (format!("trait Hidden {{ {method} }}"), "", true),
+        (
+            format!("trait Hidden {{ {method} }}\npub fn Hidden() {{}}"),
+            "",
+            true,
+        ),
+        (format!("pub trait Hidden {{ {method} }}"), "", false),
+        (
+            format!("mod inner {{ pub trait Hidden {{ {method} }} }}\nuse inner::Hidden;"),
+            "",
+            true,
+        ),
+        (
+            format!("mod inner {{ pub trait Hidden {{ {method} }} }}\npub use inner::Hidden;"),
+            "",
+            false,
+        ),
+        (
+            format!(
+                "mod inner {{ pub trait Original {{ {method} }} }}\npub use inner::Original as Exported;\nuse Exported as Hidden;"
+            ),
+            "",
+            false,
+        ),
+        (
+            format!(
+                "mod inner {{ pub trait Original {{ {method} }} }}\npub use inner::*;\nuse Original as Hidden;"
+            ),
+            "",
+            false,
+        ),
+        (
+            format!("trait Hidden {{ {method} }}"),
+            "impl Widget { pub fn retired_probe_842(&self) {} }",
+            false,
+        ),
+    ] {
+        let repo = Repo::new();
+        repo.vendor(
+            "helper",
+            "1.0.0",
+            &format!("pub struct Widget;\n{declaration}\nimpl Hidden for Widget {{ fn retired_probe_842(&self) {{}} }}\n{inherent}\n"),
+        );
+        repo.write(
+            "Cargo.toml",
+            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n",
+        );
+        repo.write(
+            "src/lib.rs",
+            "pub struct Local;\nimpl Local { pub fn retired_probe_842(&self) {} }\n",
+        );
+        lock(&repo);
+        repo.commit("method");
+        repo.write("src/lib.rs", "pub struct Local;\n");
+        repo.write("README.md", "`retired_probe_842`\n");
+        repo.commit("remove method");
+
+        let rows: Vec<String> = found(&repo).into_iter().map(|row| row.0).collect();
+        let expected = if stale {
+            vec!["fixture::Local::retired_probe_842".to_owned()]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(rows, expected, "{declaration}");
+    }
 }

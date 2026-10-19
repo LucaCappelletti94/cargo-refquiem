@@ -624,6 +624,30 @@ fn prepare_then_post_posts_the_review_a_read_only_job_computed() {
     assert!(review_call(&log).contains("docs/old.md:9:2"), "{log}");
 }
 
+#[test]
+fn a_prepared_review_in_dry_run_posts_nothing() {
+    let report = stale_scan();
+    let payload = tempfile::tempdir().unwrap();
+    let preparing = FakeGh::new(&["README.md", "src/lib.rs"], None);
+    let (status, _) = review(&preparing, "prepare", false, payload.path(), &report);
+    assert_eq!(status, "prepared");
+
+    let posting = FakeGh::new(&[], None);
+    let (status, summary) = review_with(
+        &posting,
+        "post",
+        true,
+        payload.path(),
+        "",
+        &[("RUN_HEAD_SHA", "f00df00df00df00df00df00df00df00df00df00d")],
+    );
+    let log = posting.log();
+    assert!(!log.contains("comments"), "{log}");
+    assert!(!log.contains("reviews"), "{log}");
+    assert_eq!(status, "dry-run");
+    assert!(summary.contains("README.md:3:7"), "{summary}");
+}
+
 /// A prepared payload comes from a run anyone can trigger, so it posts only on the pull
 /// request whose head is the commit that run checked out.
 #[test]
@@ -751,6 +775,26 @@ fn a_dismissal_the_token_may_not_make_is_skipped() {
     let payload = tempfile::tempdir().unwrap();
     let (status, _) = review(&gh, "review", false, payload.path(), &clean_scan());
     assert_eq!(status, "skipped-clean");
+}
+
+#[test]
+fn a_clean_prepared_review_in_a_dry_run_dismisses_nothing() {
+    let payload = tempfile::tempdir().unwrap();
+    let preparing = FakeGh::new(&["README.md"], None);
+    let (status, _) = review(&preparing, "prepare", false, payload.path(), &clean_scan());
+    assert_eq!(status, "prepared");
+
+    let dry = FakeGh::new(&[], None);
+    let (status, _) = review_with(
+        &dry,
+        "post",
+        true,
+        payload.path(),
+        "",
+        &[("RUN_HEAD_SHA", "f00df00df00df00df00df00df00df00df00df00d")],
+    );
+    assert_eq!(status, "skipped-clean");
+    assert!(!dry.log().contains("reviews"), "{}", dry.log());
 }
 
 #[test]
