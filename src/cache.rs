@@ -9,7 +9,7 @@ use gix::ObjectId;
 use crate::parse::FileItems;
 
 /// Bumped whenever [`FileItems`] or what the parser records changes.
-const SCHEMA: u32 = 6;
+const SCHEMA: u32 = 7;
 
 /// A parse outcome: the declarations, or the parser's message.
 pub(crate) type Parsed = Rc<Result<FileItems, String>>;
