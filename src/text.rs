@@ -11,6 +11,9 @@ use ra_ap_rustc_lexer::{
 
 use crate::{Context, Kind, Source};
 
+#[derive(Debug)]
+pub(crate) struct MarkdownError;
+
 /// What a mention names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Named {
@@ -96,14 +99,39 @@ const MEMBER_KINDS: [&str; 6] = [
     "associatedtype",
 ];
 
-/// Every mention in a Rust source file: comments, doc comments read as Markdown, and string
-/// literals.
-pub(crate) fn rust(source: &str) -> Vec<Spelled> {
+/// Rust's strict and reserved keywords, which as plain identifier tokens name no item.
+const KEYWORDS: [&str; 52] = [
+    "abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "crate",
+    "do", "dyn", "else", "enum", "extern", "false", "final", "fn", "for", "gen", "if", "impl",
+    "in", "let", "loop", "macro", "match", "mod", "move", "mut", "override", "priv", "pub", "ref",
+    "return", "self", "Self", "static", "struct", "super", "trait", "true", "try", "type",
+    "typeof", "unsafe", "unsized", "use", "virtual", "where", "while", "yield",
+];
+
+/// Mentions and suppression markers located in one source file.
+pub(crate) struct Read {
+    pub(crate) mentions: Vec<Spelled>,
+    pub(crate) markers: Vec<MarkerName>,
+}
+
+/// Every mention in a Rust source file's comments, documentation and strings.
+pub(crate) fn rust(source: &str) -> Result<Read, MarkdownError> {
     let skip = ra_ap_rustc_lexer::strip_shebang(source).unwrap_or(0);
     let mut tokens = Vec::new();
+    let mut markers = Vec::new();
     let mut offset = skip;
     for token in ra_ap_rustc_lexer::tokenize(&source[skip..], FrontmatterAllowed::Yes) {
         let len = usize::try_from(token.len).expect("token lengths fit in usize");
+        if matches!(
+            token.kind,
+            TokenKind::LineComment { .. }
+                | TokenKind::BlockComment {
+                    doc_style: Some(_),
+                    ..
+                }
+        ) {
+            marker_names(&source[offset..offset + len], offset, &mut markers);
+        }
         tokens.push((offset, len, token.kind));
         offset += len;
     }
@@ -136,7 +164,7 @@ pub(crate) fn rust(source: &str) -> Vec<Spelled> {
                     |at| doc.file_offset(at),
                     Source::DocComment,
                     &mut out,
-                );
+                )?;
             }
             TokenKind::BlockComment {
                 doc_style: Some(_),
@@ -148,7 +176,7 @@ pub(crate) fn rust(source: &str) -> Vec<Spelled> {
                     |at| doc.file_offset(at),
                     Source::DocComment,
                     &mut out,
-                );
+                )?;
             }
             TokenKind::LineComment { doc_style: None } | TokenKind::BlockComment { .. } => {
                 scan(text, offset, comment(), &mut out);
@@ -167,9 +195,10 @@ pub(crate) fn rust(source: &str) -> Vec<Spelled> {
                     source: Source::StringLiteral,
                     kind: Kind::Text,
                 };
-                // A string inside an attribute is a macro argument, whose words are no names.
                 if attribute.inside() {
                     spelled(text, offset, context, &mut out);
+                } else if let Some(span) = identifier_body(text) {
+                    out.push(name(text, offset, span, true, context));
                 } else {
                     scan(text, offset, context, &mut out);
                 }
@@ -178,7 +207,18 @@ pub(crate) fn rust(source: &str) -> Vec<Spelled> {
         }
         i += 1;
     }
-    out
+    Ok(Read {
+        mentions: out,
+        markers,
+    })
+}
+
+/// The identifier span of a string literal body, excluding its quotes.
+fn identifier_body(text: &str) -> Option<(usize, usize)> {
+    let (open, close) = (text.find('"')?, text.rfind('"')?);
+    let body = text.get(open + 1..close)?;
+    let (_, after) = ident(body, 0)?;
+    (after == body.len()).then_some((open + 1, close))
 }
 
 /// Whether the tokens read so far sit inside an attribute, `#[...]` or `#![...]`.
@@ -215,10 +255,13 @@ impl Attribute {
 }
 
 /// Every mention in a Markdown file.
-pub(crate) fn markdown_file(source: &str) -> Vec<Spelled> {
+pub(crate) fn markdown_file(source: &str) -> Result<Read, MarkdownError> {
     let mut out = Vec::new();
-    markdown(source, |at| at, Source::Markdown, &mut out);
-    out
+    let markers = markdown(source, |at| at, Source::Markdown, &mut out)?;
+    Ok(Read {
+        mentions: out,
+        markers,
+    })
 }
 
 fn comment() -> Context {
@@ -311,20 +354,27 @@ fn keep_label(link: BrokenLink<'_>) -> Option<(CowStr<'_>, CowStr<'_>)> {
 }
 
 /// Mentions in Markdown `text`, whose offsets `map` turns into file offsets.
-fn markdown(text: &str, map: impl Fn(usize) -> usize, source: Source, out: &mut Vec<Spelled>) {
-    // pulldown-cmark panics on some text (https://github.com/pulldown-cmark/pulldown-cmark/issues/1129).
-    let Ok(found) = std::panic::catch_unwind(|| markdown_mentions(text, source)) else {
-        return;
-    };
-    for mut path in found {
+fn markdown(
+    text: &str,
+    map: impl Fn(usize) -> usize,
+    source: Source,
+    out: &mut Vec<Spelled>,
+) -> Result<Vec<MarkerName>, MarkdownError> {
+    let mut found =
+        std::panic::catch_unwind(|| markdown_mentions(text, source)).map_err(|_| MarkdownError)?;
+    for mut path in found.mentions {
         path.start = map(path.start);
         path.end = map(path.end);
         out.push(path);
     }
+    for marker in &mut found.markers {
+        marker.start = map(marker.start);
+    }
+    Ok(found.markers)
 }
 
 /// Mentions in Markdown `text`, at offsets into `text`.
-fn markdown_mentions(text: &str, source: Source) -> Vec<Spelled> {
+fn markdown_mentions(text: &str, source: Source) -> Read {
     let in_context = |kind| Context { source, kind };
     let mut events =
         Parser::new_with_broken_link_callback(text, Options::empty(), Some(keep_label))
@@ -332,12 +382,14 @@ fn markdown_mentions(text: &str, source: Source) -> Vec<Spelled> {
     let mut block: Option<Block> = None;
     let mut in_label_link = false;
     let mut found = Vec::new();
+    let mut markers = Vec::new();
+    let mut declared = HashSet::new();
     for (event, range) in events.by_ref() {
         match event {
             Event::Start(Tag::CodeBlock(kind)) => block = Some(Block::new(&kind, source)),
             Event::End(TagEnd::CodeBlock) => {
                 if let Some(block) = block.take() {
-                    block.finish(text, source, &mut found);
+                    declared.extend(block.finish(text, source, &mut found));
                 }
             }
             Event::Start(Tag::Link {
@@ -394,6 +446,13 @@ fn markdown_mentions(text: &str, source: Source) -> Vec<Spelled> {
                     &mut found,
                 );
             }
+            Event::Html(_) | Event::InlineHtml(_) if source == Source::Markdown => {
+                for (relative, _) in text[range.clone()].match_indices("<!--") {
+                    let open = range.start + relative;
+                    let close = text[open..].find("-->").map_or(text.len(), |at| open + at);
+                    marker_names(&text[open..close], open, &mut markers);
+                }
+            }
             _ => {}
         }
     }
@@ -407,7 +466,15 @@ fn markdown_mentions(text: &str, source: Source) -> Vec<Spelled> {
             &mut found,
         );
     }
-    found
+    // A name an example of the same doc comment declares is that example's, in prose too.
+    found.retain(|spelled| {
+        let prose = matches!(spelled.context.kind, Kind::Text | Kind::CodeSpan);
+        !(prose && matches!(&spelled.named, Named::Name { word, .. } if declared.contains(word.as_str())))
+    });
+    Read {
+        mentions: found,
+        markers,
+    }
 }
 
 /// Fence languages of data formats whose keys and values serde may spell.
@@ -443,11 +510,10 @@ impl Block {
         self.span = Some((start, range.end));
     }
 
-    /// Records the dependency tables, serialized spellings and code identifiers of a finished
-    /// block in Markdown `text` from `source`.
-    fn finish(self, text: &str, source: Source, out: &mut Vec<Spelled>) {
+    /// Collects block mentions and returns its compiled local names.
+    fn finish<'c>(self, text: &'c str, source: Source, out: &mut Vec<Spelled>) -> HashSet<&'c str> {
         let Some((start, end)) = self.span else {
-            return;
+            return HashSet::new();
         };
         let block = &text[start..end];
         let kind = Kind::CodeBlock {
@@ -465,14 +531,20 @@ impl Block {
             }
         }
         if self.compiled {
-            code_names(block, start, context, out);
+            code_names(block, start, context, out)
+        } else {
+            HashSet::new()
         }
     }
 }
 
-/// The identifier tokens of compiled `code` at `base`, outside its paths and other than the
-/// names it binds itself.
-fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
+/// Collects free identifiers from compiled code and returns its local names.
+fn code_names<'c>(
+    code: &'c str,
+    base: usize,
+    context: Context,
+    out: &mut Vec<Spelled>,
+) -> HashSet<&'c str> {
     let mut tokens = Vec::new();
     let mut offset = 0;
     for token in ra_ap_rustc_lexer::tokenize(code, FrontmatterAllowed::No) {
@@ -487,27 +559,90 @@ fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>)
         offset += len;
     }
     let bound = bindings(code, &tokens);
+    let arguments = attribute_arguments(code, &tokens);
     let taken: Vec<(usize, usize)> = paths(code, 0, context)
         .iter()
         .map(|path| (path.start, path.end))
         .collect();
-    for &(start, end, kind) in &tokens {
+    for (&(start, end, kind), argument) in tokens.iter().zip(arguments) {
         let span = match kind {
-            TokenKind::Ident => (start, end),
+            TokenKind::Ident if !KEYWORDS.contains(&&code[start..end]) => (start, end),
             TokenKind::RawIdent => (start + 2, end),
             _ => continue,
         };
         let free = taken.iter().all(|&(s, e)| span.1 <= s || e <= span.0);
-        if free && !bound.contains(&code[span.0..span.1]) {
+        if free && !argument && !bound.contains(&code[span.0..span.1]) {
             out.push(name(code, base, span, false, context));
         }
     }
+    bound
 }
 
-/// The lowercase names `code` binds with `let` and `for` patterns and closure parameters, from
-/// its non-trivia `tokens` as `(start, end, kind)`.
+/// Attribute option tokens, excluding `derive` arguments.
+fn attribute_arguments(code: &str, tokens: &[(usize, usize, TokenKind)]) -> Vec<bool> {
+    let kind = |i: usize| tokens.get(i).map(|token| token.2);
+    let mut inside = vec![false; tokens.len()];
+    let mut i = 0;
+    while let Some(token) = kind(i) {
+        let open = if kind(i + 1) == Some(TokenKind::Bang) {
+            i + 2
+        } else {
+            i + 1
+        };
+        if token != TokenKind::Pound || kind(open) != Some(TokenKind::OpenBracket) {
+            i += 1;
+            continue;
+        }
+        let mut depth = 0usize;
+        let mut derive = None;
+        i = open;
+        while let Some(token) = kind(i) {
+            match token {
+                TokenKind::OpenBracket | TokenKind::OpenParen | TokenKind::OpenBrace => depth += 1,
+                TokenKind::CloseBracket | TokenKind::CloseParen | TokenKind::CloseBrace => {
+                    depth -= 1;
+                    if derive == Some(depth) {
+                        derive = None;
+                    }
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                TokenKind::Ident
+                    if &code[tokens[i].0..tokens[i].1] == "derive"
+                        && kind(i + 1) == Some(TokenKind::OpenParen) =>
+                {
+                    derive = Some(depth);
+                }
+                _ if depth < 2 || derive.is_some() => {}
+                _ => inside[i] = true,
+            }
+            i += 1;
+        }
+    }
+    inside
+}
+
+/// The lowercase names of `let` and `for` patterns and of closure and declared `fn` parameters
+/// in `code`, and every name and generic parameter its item declarations introduce, from its
+/// non-trivia `tokens` as `(start, end, kind)`.
 fn bindings<'c>(code: &'c str, tokens: &[(usize, usize, TokenKind)]) -> HashSet<&'c str> {
     let text = |i: usize| &code[tokens[i].0..tokens[i].1];
+    let colon = |i: usize| tokens.get(i).map(|token| token.2) == Some(TokenKind::Colon);
+    // A segment of a path inside a pattern names something else and binds nothing.
+    let segment = |i: usize| path_segment(tokens, i);
+    // The `for` of an impl header, after its trait, or of a `for<'a>` bound opens no loop.
+    let opens_loop = |i: usize| {
+        let after_type = i > 0
+            && matches!(
+                tokens[i - 1].2,
+                TokenKind::Ident | TokenKind::RawIdent | TokenKind::Gt
+            );
+        !after_type && tokens.get(i + 1).map(|token| token.2) != Some(TokenKind::Lt)
+    };
+    // A `:` of a `::` ends no pattern, and a pattern's tokens never sit at index 0.
+    let joined = |a: usize, b: usize| colon(a) && colon(b) && tokens[a].1 == tokens[b].0;
+    let in_path = |i: usize| joined(i, i + 1) || joined(i - 1, i);
     let mut bound = HashSet::new();
     let mut i = 0;
     while i < tokens.len() {
@@ -524,8 +659,14 @@ fn bindings<'c>(code: &'c str, tokens: &[(usize, usize, TokenKind)]) -> HashSet<
                 || text(i - 1) == "move");
         let pattern = match (tokens[i].2, text(i)) {
             (TokenKind::Ident, "let") => Pattern::Let,
-            (TokenKind::Ident, "for") => Pattern::For,
+            (TokenKind::Ident, "for") if opens_loop(i) => Pattern::For,
             _ if opens_closure => Pattern::Closure,
+            (TokenKind::Ident, keyword) => {
+                declaration(code, tokens, i, keyword, &mut bound);
+                arms_and_keys(code, tokens, i, keyword, &mut bound);
+                i += 1;
+                continue;
+            }
             _ => {
                 i += 1;
                 continue;
@@ -543,11 +684,8 @@ fn bindings<'c>(code: &'c str, tokens: &[(usize, usize, TokenKind)]) -> HashSet<
                     };
                     depth = inner;
                 }
-                _ if depth == 0 && pattern.ends(kind, text(i)) => break,
-                TokenKind::Ident
-                    if text(i).starts_with(|c: char| c.is_lowercase() || c == '_')
-                        && !matches!(text(i), "mut" | "ref") =>
-                {
+                _ if depth == 0 && !in_path(i) && pattern.ends(kind, text(i)) => break,
+                TokenKind::Ident if binds(text(i)) && !segment(i) => {
                     bound.insert(text(i));
                 }
                 _ => {}
@@ -557,6 +695,292 @@ fn bindings<'c>(code: &'c str, tokens: &[(usize, usize, TokenKind)]) -> HashSet<
         i += 1;
     }
     bound
+}
+
+/// Whether pattern identifier `name` binds a variable, as lowercase names do apart from `mut`
+/// and `ref`.
+fn binds(name: &str) -> bool {
+    name.starts_with(|c: char| c.is_lowercase() || c == '_') && !matches!(name, "mut" | "ref")
+}
+
+/// Adds local item names, generic parameters and function parameters to `bound`.
+fn declaration<'c>(
+    code: &'c str,
+    tokens: &[(usize, usize, TokenKind)],
+    at: usize,
+    keyword: &str,
+    bound: &mut HashSet<&'c str>,
+) {
+    let text = |i: usize| &code[tokens[i].0..tokens[i].1];
+    let kind = |i: usize| tokens.get(i).map(|token| token.2);
+    let mut i = at + 1;
+    match keyword {
+        "fn" | "struct" | "enum" | "union" | "trait" | "type" | "mod" | "const" | "impl" => {}
+        "static" => {
+            while kind(i) == Some(TokenKind::Ident) && matches!(text(i), "mut" | "ref") {
+                i += 1;
+            }
+        }
+        "macro_rules" if kind(i) == Some(TokenKind::Bang) => i += 1,
+        _ => return,
+    }
+    if keyword != "impl" {
+        match kind(i) {
+            Some(TokenKind::Ident) => bound.insert(text(i)),
+            Some(TokenKind::RawIdent) => bound.insert(&text(i)[2..]),
+            _ => return,
+        };
+        i += 1;
+    }
+    if kind(i) == Some(TokenKind::Lt) {
+        let mut depth = 0usize;
+        let mut opens_parameter = true;
+        while let Some(token) = kind(i) {
+            match token {
+                TokenKind::Lt => depth += 1,
+                TokenKind::Gt
+                    if tokens[i - 1].2 == TokenKind::Minus && tokens[i - 1].1 == tokens[i].0 => {}
+                TokenKind::Gt => depth -= 1,
+                TokenKind::Comma => opens_parameter = true,
+                TokenKind::Ident if depth == 1 && opens_parameter => {
+                    if text(i) != "const" {
+                        bound.insert(text(i));
+                        opens_parameter = false;
+                    }
+                }
+                _ => opens_parameter = false,
+            }
+            i += 1;
+            if depth == 0 {
+                break;
+            }
+        }
+    }
+    if matches!(keyword, "struct" | "union" | "enum") {
+        members(code, tokens, i, keyword == "enum", bound);
+        return;
+    }
+    if keyword != "fn" || kind(i) != Some(TokenKind::OpenParen) {
+        return;
+    }
+    let mut depth = 0usize;
+    let mut in_pattern = true;
+    while let Some(token) = kind(i) {
+        match token {
+            TokenKind::OpenParen | TokenKind::OpenBracket | TokenKind::OpenBrace => depth += 1,
+            TokenKind::CloseParen | TokenKind::CloseBracket | TokenKind::CloseBrace => {
+                depth -= 1;
+                if depth == 0 {
+                    return;
+                }
+            }
+            TokenKind::Comma if depth == 1 => in_pattern = true,
+            TokenKind::Colon if depth == 1 => in_pattern = false,
+            TokenKind::Ident if in_pattern && binds(text(i)) => {
+                bound.insert(text(i));
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+}
+
+/// Whether token `i` of `tokens` is a segment of a path, next to a `::`.
+fn path_segment(tokens: &[(usize, usize, TokenKind)], i: usize) -> bool {
+    let colon = |i: usize| tokens.get(i).map(|token| token.2) == Some(TokenKind::Colon);
+    (colon(i + 1) && colon(i + 2)) || (i >= 2 && colon(i - 1) && colon(i - 2))
+}
+
+/// Whether the `=` at token `i` of `tokens` starts a `=>`.
+fn fat_arrow(tokens: &[(usize, usize, TokenKind)], i: usize) -> bool {
+    tokens
+        .get(i + 1)
+        .is_some_and(|next| next.2 == TokenKind::Gt && tokens[i].1 == next.0)
+}
+
+/// Adds the field names of the struct, union or enum whose declaration continues at token `at`
+/// after its name and generics, and its variant names when `is_enum`.
+fn members<'c>(
+    code: &'c str,
+    tokens: &[(usize, usize, TokenKind)],
+    at: usize,
+    is_enum: bool,
+    bound: &mut HashSet<&'c str>,
+) {
+    let text = |i: usize| &code[tokens[i].0..tokens[i].1];
+    let kind = |i: usize| tokens.get(i).map(|token| token.2);
+    let colon = |i: usize| kind(i) == Some(TokenKind::Colon);
+    // The body is the first brace outside brackets, unless a `;` ends a unit or tuple struct.
+    let mut i = at;
+    let mut depth = 0usize;
+    loop {
+        match kind(i) {
+            Some(TokenKind::OpenBrace) if depth == 0 => break,
+            Some(TokenKind::Semi) if depth == 0 => return,
+            Some(TokenKind::OpenParen | TokenKind::OpenBracket) => depth += 1,
+            Some(TokenKind::CloseParen | TokenKind::CloseBracket) => {
+                depth = depth.saturating_sub(1);
+            }
+            None => return,
+            _ => {}
+        }
+        i += 1;
+    }
+    while let Some(token) = kind(i) {
+        match token {
+            TokenKind::OpenParen | TokenKind::OpenBracket | TokenKind::OpenBrace => depth += 1,
+            TokenKind::CloseParen | TokenKind::CloseBracket | TokenKind::CloseBrace => {
+                depth -= 1;
+                if depth == 0 {
+                    return;
+                }
+            }
+            TokenKind::Ident | TokenKind::RawIdent => {
+                let field = colon(i + 1) && !colon(i + 2);
+                let variant = is_enum
+                    && depth == 1
+                    && matches!(
+                        kind(i - 1),
+                        Some(TokenKind::OpenBrace | TokenKind::Comma | TokenKind::CloseBracket)
+                    );
+                if field || variant {
+                    let name = text(i);
+                    bound.insert(name.strip_prefix("r#").unwrap_or(name));
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+}
+
+/// Adds the names bound by the `match` arms, `select!` branches or macro arguments that the
+/// identifier `keyword` at token `at` opens.
+fn arms_and_keys<'c>(
+    code: &'c str,
+    tokens: &[(usize, usize, TokenKind)],
+    at: usize,
+    keyword: &str,
+    bound: &mut HashSet<&'c str>,
+) {
+    let kind = |i: usize| tokens.get(i).map(|token| token.2);
+    let opens = matches!(
+        kind(at + 2),
+        Some(TokenKind::OpenParen | TokenKind::OpenBracket | TokenKind::OpenBrace)
+    );
+    if kind(at + 1) == Some(TokenKind::Bang) && opens {
+        macro_keys(code, tokens, at + 2, bound);
+        if keyword == "select" {
+            arms(code, tokens, at + 2, true, bound);
+        }
+        return;
+    }
+    if keyword != "match" {
+        return;
+    }
+    let mut depth = 0usize;
+    for (i, token) in tokens.iter().enumerate().skip(at) {
+        match token.2 {
+            TokenKind::OpenBrace if depth == 0 => return arms(code, tokens, i, false, bound),
+            TokenKind::OpenParen | TokenKind::OpenBracket | TokenKind::OpenBrace => depth += 1,
+            TokenKind::CloseParen | TokenKind::CloseBracket | TokenKind::CloseBrace => {
+                depth = depth.saturating_sub(1);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Adds the lowercase names the arm patterns opening after token `open` bind, those of a
+/// `match` or, when `select`, the branch patterns of a `select!`. A pattern ends at its guard,
+/// at a `select!` branch's `=` or at its `=>`.
+fn arms<'c>(
+    code: &'c str,
+    tokens: &[(usize, usize, TokenKind)],
+    open: usize,
+    select: bool,
+    bound: &mut HashSet<&'c str>,
+) {
+    let text = |i: usize| &code[tokens[i].0..tokens[i].1];
+    let mut depth = 0usize;
+    let mut in_pattern = true;
+    // Whether the current arm's body is a block, whose closing brace ends the arm.
+    let mut block_body = false;
+    let mut i = open + 1;
+    while let Some(&(_, _, token)) = tokens.get(i) {
+        match token {
+            TokenKind::OpenParen | TokenKind::OpenBracket | TokenKind::OpenBrace => depth += 1,
+            TokenKind::CloseParen | TokenKind::CloseBracket | TokenKind::CloseBrace => {
+                let Some(inner) = depth.checked_sub(1) else {
+                    return;
+                };
+                depth = inner;
+                if depth == 0 && block_body {
+                    in_pattern = true;
+                    block_body = false;
+                }
+            }
+            TokenKind::Eq if depth == 0 && fat_arrow(tokens, i) => {
+                in_pattern = false;
+                block_body = tokens.get(i + 2).map(|next| next.2) == Some(TokenKind::OpenBrace);
+            }
+            TokenKind::Eq if depth == 0 && select => in_pattern = false,
+            TokenKind::Comma if depth == 0 => in_pattern = true,
+            TokenKind::Ident if text(i) == "if" => in_pattern = false,
+            TokenKind::Ident if in_pattern && binds(text(i)) && !path_segment(tokens, i) => {
+                bound.insert(text(i));
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+}
+
+/// Adds each name the arguments of the macro invocation opening at token `open` give a single
+/// `=` at their top level, such as `gone_key` in `info_span!("x", gone_key = "yes")`.
+fn macro_keys<'c>(
+    code: &'c str,
+    tokens: &[(usize, usize, TokenKind)],
+    open: usize,
+    bound: &mut HashSet<&'c str>,
+) {
+    let kind = |i: usize| tokens.get(i).map(|token| token.2);
+    let single_eq = |i: usize| {
+        kind(i) == Some(TokenKind::Eq)
+            && !tokens.get(i + 1).is_some_and(|next| {
+                matches!(next.2, TokenKind::Eq | TokenKind::Gt) && tokens[i].1 == next.0
+            })
+    };
+    let mut depth = 0usize;
+    let mut i = open;
+    while let Some(token) = kind(i) {
+        match token {
+            TokenKind::OpenParen | TokenKind::OpenBracket | TokenKind::OpenBrace => depth += 1,
+            TokenKind::CloseParen | TokenKind::CloseBracket | TokenKind::CloseBrace => {
+                depth -= 1;
+                if depth == 0 {
+                    return;
+                }
+            }
+            TokenKind::Ident
+                if depth == 1
+                    && matches!(
+                        kind(i - 1),
+                        Some(
+                            TokenKind::Comma
+                                | TokenKind::OpenParen
+                                | TokenKind::OpenBracket
+                                | TokenKind::OpenBrace
+                        )
+                    )
+                    && single_eq(i + 1) =>
+            {
+                bound.insert(&code[tokens[i].0..tokens[i].1]);
+            }
+            _ => {}
+        }
+        i += 1;
+    }
 }
 
 /// A binding pattern of compiled code, by the keyword or token that opens it.
@@ -1077,19 +1501,16 @@ fn without_comments(info: &str) -> String {
 fn link_path(dest: &str, at: usize, context: Context) -> Option<Spelled> {
     let end = at + dest.len();
     if dest.contains("://") || dest.contains(".html") || dest.starts_with(['#', '/', '.']) {
-        if let Some((segments, item)) = page_path(dest) {
-            return Some(Spelled {
-                start: at,
-                end,
-                named: Named::Path,
-                segments,
-                leading_colon: false,
-                url_item: Some(item),
-                context,
-            });
-        }
-        let name = crate_link(dest)?;
-        return Some(Spelled::name(at, end, Named::Crate(name), context));
+        let (segments, item) = page_path(dest)?;
+        return Some(Spelled {
+            start: at,
+            end,
+            named: Named::Path,
+            segments,
+            leading_colon: false,
+            url_item: Some(item),
+            context,
+        });
     }
     let unprefixed = match dest.split_once('@') {
         Some((kind, rest)) if kind.bytes().all(|b| b.is_ascii_lowercase()) => rest,
@@ -1113,34 +1534,6 @@ fn link_path(dest: &str, at: usize, context: Context) -> Option<Spelled> {
         end,
         ..path
     })
-}
-
-/// The crate a crates.io, lib.rs, docs.rs or shields.io badge URL is about.
-fn crate_link(url: &str) -> Option<String> {
-    let (_, rest) = url.split_once("://")?;
-    let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
-    let host = host.strip_prefix("www.").unwrap_or(host);
-    let parts: Vec<&str> = path
-        .split(['/', '?', '#'])
-        .filter(|part| !part.is_empty())
-        .collect();
-    let name = match (host, parts.as_slice()) {
-        ("crates.io" | "lib.rs", ["crates", name, ..])
-        | ("docs.rs", ["crate", name, ..])
-        | ("img.shields.io", ["crates", _, name, ..] | ["docsrs", name, ..]) => *name,
-        ("docs.rs", [name, ..]) if !matches!(*name, "about" | "releases" | "-") => {
-            name.split("::").next().unwrap_or(name)
-        }
-        _ => return None,
-    };
-    let name = name
-        .strip_suffix(".svg")
-        .or_else(|| name.strip_suffix(".json"))
-        .unwrap_or(name);
-    let valid = name
-        .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    valid.then(|| name.to_owned())
 }
 
 /// The segments a rustdoc page URL names and the index where the item part starts.
@@ -1300,37 +1693,6 @@ pub(crate) struct MarkerName {
     /// Byte offset of the name in the file.
     pub(crate) start: usize,
     pub(crate) name: String,
-}
-
-/// The marker names in the `//` and doc comments of a Rust file, or the HTML comments of a Markdown file.
-pub(crate) fn markers(source: &str, rust: bool) -> Vec<MarkerName> {
-    let mut out = Vec::new();
-    if rust {
-        let mut offset = ra_ap_rustc_lexer::strip_shebang(source).unwrap_or(0);
-        for token in ra_ap_rustc_lexer::tokenize(&source[offset..], FrontmatterAllowed::Yes) {
-            let len = usize::try_from(token.len).expect("token lengths fit in usize");
-            let comment = matches!(
-                token.kind,
-                TokenKind::LineComment { .. }
-                    | TokenKind::BlockComment {
-                        doc_style: Some(_),
-                        ..
-                    }
-            );
-            if comment {
-                marker_names(&source[offset..offset + len], offset, &mut out);
-            }
-            offset += len;
-        }
-    } else {
-        for (open, _) in source.match_indices("<!--") {
-            let close = source[open..]
-                .find("-->")
-                .map_or(source.len(), |i| open + i);
-            marker_names(&source[open..close], open, &mut out);
-        }
-    }
-    out
 }
 
 /// The names of every `refquiem: allow(...)` in `text`, which sits at `base`, skipping a
