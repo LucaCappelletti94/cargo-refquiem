@@ -33,7 +33,7 @@ dismiss() {
       'select(.state == "CHANGES_REQUESTED" and (.body | contains($marker))) | .id')"
   for id in $ids; do
     if ! err="$(gh api -X PUT "repos/$repo/pulls/$pr/reviews/$id/dismissals" -f event=DISMISS \
-      -f "message=Withdrawn by refquiem in $GITHUB_SERVER_URL/$repo/actions/runs/${GITHUB_RUN_ID:-}" 2>&1)"; then
+      -f "message=Dismissed by refquiem in $GITHUB_SERVER_URL/$repo/actions/runs/${GITHUB_RUN_ID:-}" 2>&1)"; then
       printf 'refquiem: review %s stays, its dismissal failed\n%s\n' "$id" "$err"
     fi
   done
@@ -62,7 +62,9 @@ if [ "$MODE" = post ]; then
   fi
   if [ "$(jq -r '.clean // false' "$meta")" = true ]; then
     echo "refquiem: pull request $pr has no stale mention"
-    dismiss
+    if [ "$DRY_RUN" != true ]; then
+      dismiss
+    fi
     finish skipped-clean
   fi
 else

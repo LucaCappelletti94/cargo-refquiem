@@ -753,6 +753,27 @@ fn a_dismissal_the_token_may_not_make_is_skipped() {
     assert_eq!(status, "skipped-clean");
 }
 
+
+#[test]
+fn a_clean_prepared_review_in_a_dry_run_dismisses_nothing() {
+    let payload = tempfile::tempdir().unwrap();
+    let preparing = FakeGh::new(&["README.md"], None);
+    let (status, _) = review(&preparing, "prepare", false, payload.path(), &clean_scan());
+    assert_eq!(status, "prepared");
+
+    let dry = FakeGh::new(&[], None);
+    let (status, _) = review_with(
+        &dry,
+        "post",
+        true,
+        payload.path(),
+        "",
+        &[("RUN_HEAD_SHA", "f00df00df00df00df00df00df00df00df00df00d")],
+    );
+    assert_eq!(status, "skipped-clean");
+    assert!(!dry.log().contains("reviews"), "{}", dry.log());
+}
+
 #[test]
 fn a_clean_dry_run_touches_no_review() {
     let gh = FakeGh::new(&["README.md"], None);
