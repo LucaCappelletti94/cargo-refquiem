@@ -205,8 +205,9 @@ impl Collector {
         let public = is_pub(vis);
         self.push(&[name], kind, public);
         for (member, member_kind, member_public, spellings) in members {
-            self.push(&[name, &member], member_kind, public && member_public);
-            self.spellings(&[name, &member], &spellings, public && member_public);
+            let public = public && member_public;
+            self.push(&[name, &member], member_kind, public);
+            self.spellings(&[name, &member], &spellings, public);
         }
     }
 
