@@ -46,6 +46,19 @@ fn context(source: Source, kind: Kind) -> Context {
     Context { source, kind }
 }
 
+#[test]
+fn unicode_blank_doc_lines_preserve_reference_offsets() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("public API");
+    repo.write(
+        "src/lib.rs",
+        "///\u{2003}\n///  `fixture::gone`\npub fn kept() {}\n",
+    );
+    let rows: Vec<_> = found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
+    assert_eq!(rows, [("fixture::gone".to_owned(), 2, 7)]);
+}
+
 /// `(removed path, file, line, column, context, text)` for every mention, sorted.
 fn found(repo: &Repo) -> Vec<(String, String, usize, usize, Context, String)> {
     let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
@@ -372,9 +385,9 @@ fn string_literals_inside_hash_attributes_are_macro_arguments() {
         "#![doc = \"gone_a\"]\n\
          \n\
          #[doc = \"note\"]\n\
-         static B: &str = \"gone_b\";\n\
+         static B: &str = \"gone_b::Item\";\n\
          \n\
-         static A: [&str; 1] = [\"gone_c\"];\n\
+         static A: [&str; 1] = [\"gone_c::Item\"];\n\
          \n\
          #[my_attr([x] \"gone_d\")]\n\
          fn f() {}\n",
@@ -391,7 +404,7 @@ fn string_literals_inside_hash_attributes_are_macro_arguments() {
                 4,
                 19,
                 literal,
-                "gone_b".to_owned()
+                "gone_b::Item".to_owned()
             ),
             (
                 "gone_c".to_owned(),
@@ -399,7 +412,7 @@ fn string_literals_inside_hash_attributes_are_macro_arguments() {
                 6,
                 25,
                 literal,
-                "gone_c".to_owned()
+                "gone_c::Item".to_owned()
             )
         ]
     );

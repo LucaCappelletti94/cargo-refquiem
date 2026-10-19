@@ -13,13 +13,14 @@ pub(crate) struct Outcome {
     pub(crate) candidates: Vec<PathId>,
 }
 
-/// Applies the rules in order to the names of `head` that `before`, the index of the tree
-/// where `removed` first appeared, lacks.
+/// Applies the rules to head names introduced after the removed name.
 pub(crate) fn suggest(
     interner: &Interner,
     removed: PathId,
     head: &Index,
     before: &Index,
+    first_seen: &std::collections::HashMap<PathId, usize>,
+    first: usize,
 ) -> Outcome {
     let kind = interner.kind(removed);
     let Some((&name, parent)) = interner.segments(removed).split_last() else {
@@ -29,7 +30,11 @@ pub(crate) fn suggest(
         .paths
         .iter()
         .copied()
-        .filter(|&id| interner.kind(id) == kind && !before.paths.contains(&id))
+        .filter(|&id| {
+            interner.kind(id) == kind
+                && !before.paths.contains(&id)
+                && first_seen.get(&id).is_none_or(|&at| at < first)
+        })
         .collect();
     let split = |id: PathId| {
         interner
@@ -110,20 +115,55 @@ fn within_distance(name: &str, other: &str) -> bool {
     previous[b.len()] <= limit
 }
 
-/// What `written` becomes when the removed `path` is now `suggested`: the written segments
-/// swapped for the same number of trailing segments of the new path. `None` when `written`
-/// spells neither the path nor a `::` suffix of it, or stays the same.
-fn rewrite(path: &str, suggested: &str, written: &str) -> Option<String> {
-    let suffix = path
-        .strip_suffix(written)
-        .is_some_and(|rest| rest.is_empty() || rest.ends_with("::"));
-    if !suffix {
+/// Rewrites a path suffix, escaping Rust keywords for item mentions.
+fn rewrite(path: &str, suggested: &str, written: &str, kind: ItemKind) -> Option<String> {
+    let rust = !kind.is_manifest_entry();
+    let mut path = path.rsplit("::");
+    let mut count = 0;
+    for word in written.rsplit("::") {
+        let word = if rust {
+            word.strip_prefix("r#").unwrap_or(word)
+        } else {
+            word
+        };
+        if path.next() != Some(word) {
+            return None;
+        }
+        count += 1;
+    }
+    let start = suggested
+        .rmatch_indices("::")
+        .nth(count - 1)
+        .map_or(0, |(at, _)| at + 2);
+    let suffix = &suggested[start..];
+    if suffix.split("::").eq(written.split("::").map(|word| {
+        if rust {
+            word.strip_prefix("r#").unwrap_or(word)
+        } else {
+            word
+        }
+    })) {
         return None;
     }
-    let count = written.split("::").count();
-    let segments: Vec<&str> = suggested.split("::").collect();
-    let new = segments[segments.len().saturating_sub(count)..].join("::");
-    (new != written).then_some(new)
+    let extra = if rust {
+        2 * suffix
+            .split("::")
+            .filter(|word| crate::text::KEYWORDS.contains(word))
+            .count()
+    } else {
+        0
+    };
+    let mut new = String::with_capacity(suffix.len() + extra);
+    for (at, word) in suffix.split("::").enumerate() {
+        if at > 0 {
+            new.push_str("::");
+        }
+        if rust && crate::text::KEYWORDS.contains(&word) {
+            new.push_str("r#");
+        }
+        new.push_str(word);
+    }
+    Some(new)
 }
 
 /// Whether a mention of `kind` in `context` may be rewritten: items and dependencies only,
@@ -151,7 +191,7 @@ pub(crate) fn replacements(groups: &mut [Group], mut read: impl FnMut(&str) -> O
         };
         for (m, mention) in group.mentions.iter().enumerate() {
             if rewritable(group.kind, mention.context.kind)
-                && let Some(new) = rewrite(&group.path, &suggestion.path, &mention.text)
+                && let Some(new) = rewrite(&group.path, &suggestion.path, &mention.text, group.kind)
             {
                 rewrites.push(Rewrite {
                     group: g,

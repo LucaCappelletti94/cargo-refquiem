@@ -483,7 +483,7 @@ const SCAN_STACK: usize = 256 << 20;
 ///
 /// # Errors
 ///
-/// Fails when the repository, a revision, a manifest or a head Rust file cannot be read, or the scan thread cannot start.
+/// Fails when repository data cannot be read, a Markdown reader fails, or the scan thread cannot start.
 pub fn run(options: &Options) -> Result<Report, Error> {
     std::thread::scope(|scope| {
         std::thread::Builder::new()

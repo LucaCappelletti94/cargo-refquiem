@@ -20,6 +20,8 @@ pub(crate) struct FileItems {
     pub(crate) impls: Vec<Impl>,
     /// Re-exports and renaming imports.
     pub(crate) uses: Vec<Use>,
+    /// Plain private imports used to resolve written names within their module.
+    pub(crate) imports: Vec<Use>,
     /// `mod name;` declarations whose body lives in another file.
     pub(crate) mods: Vec<ModDecl>,
     /// Item-position `include!("file")` invocations.
@@ -55,7 +57,7 @@ pub(crate) struct Impl {
     pub(crate) items: Vec<(String, ItemKind, bool, Option<String>)>,
 }
 
-/// A `use` that creates a path.
+/// A named import, type alias or glob re-export.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Use {
     pub(crate) module: Vec<String>,
@@ -531,7 +533,7 @@ impl Collector<'_> {
                 self.uses(&path.tree, prefix, exported, public);
                 prefix.pop();
             }
-            UseTree::Name(name) if exported => {
+            UseTree::Name(name) => {
                 let ident = strip_raw(&name.ident.to_string()).to_owned();
                 let (source, name) = if ident == "self" {
                     (prefix.clone(), prefix.last().cloned())
@@ -541,12 +543,17 @@ impl Collector<'_> {
                     (source, Some(ident))
                 };
                 if name.is_some() {
-                    self.out.uses.push(Use {
+                    let decl = Use {
                         module: self.module.clone(),
                         source,
                         name,
                         public,
-                    });
+                    };
+                    if exported {
+                        self.out.uses.push(decl);
+                    } else {
+                        self.out.imports.push(decl);
+                    }
                 }
             }
             UseTree::Rename(rename) => {
@@ -577,7 +584,7 @@ impl Collector<'_> {
                     self.uses(tree, prefix, exported, public);
                 }
             }
-            UseTree::Name(_) | UseTree::Glob(_) => {}
+            UseTree::Glob(_) => {}
         }
     }
 

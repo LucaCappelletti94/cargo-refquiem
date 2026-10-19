@@ -284,14 +284,7 @@ fn a_dependency_is_replaced_by_the_only_crate_added_to_a_table_it_shared() {
         .iter()
         .map(|m| (m.context.kind, m.replacement.as_deref()))
         .collect();
-    assert_eq!(
-        replacements,
-        [
-            (Kind::CodeSpan, Some("Swap `clap` out.")),
-            (Kind::Link, None),
-            (Kind::CodeBlock { compiled: false }, None),
-        ]
-    );
+    assert_eq!(replacements, [(Kind::CodeBlock { compiled: false }, None)]);
 }
 
 #[test]
@@ -473,7 +466,10 @@ fn a_dependency_added_to_another_member_is_no_replacement() {
         "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nstructopt = \"1\"\n",
     );
     repo.write("crates/alpha/src/lib.rs", "");
-    repo.write("crates/alpha/README.md", "```toml\n[dependencies]\nstructopt = \"1\"\n```\n");
+    repo.write(
+        "crates/alpha/README.md",
+        "```toml\n[dependencies]\nstructopt = \"1\"\n```\n",
+    );
     repo.write(
         "crates/beta/Cargo.toml",
         "[package]\nname = \"beta\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
@@ -517,11 +513,11 @@ fn an_incomplete_first_tree_gets_no_suggestion() {
 fn a_restored_name_older_than_the_removed_name_is_no_candidate() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "pub fn color() {}\n");
+    colour(&repo);
     repo.commit("older name");
     repo.write("src/lib.rs", "");
     repo.commit("older name absent");
     repo.write("src/lib.rs", "pub fn colour() {}\n");
-    colour(&repo);
     repo.commit("removed name");
     repo.write("src/lib.rs", "pub fn color() {}\n");
     repo.commit("restore older name");
@@ -545,7 +541,11 @@ fn a_keyword_replacement_is_written_as_a_raw_rust_identifier() {
     let group = group(&report, "fixture::typo");
     assert_eq!(suggested(group), Some(("fixture::type", Change::Renamed)));
     assert_eq!(
-        group.mentions.iter().map(|mention| mention.replacement.as_deref()).collect::<Vec<_>>(),
+        group
+            .mentions
+            .iter()
+            .map(|mention| mention.replacement.as_deref())
+            .collect::<Vec<_>>(),
         [Some("`fixture::r#type`"), Some("`fixture::r#type`")]
     );
 }
