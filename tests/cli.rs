@@ -32,7 +32,7 @@ fn findings_print_one_group_per_removed_name_and_exit_1() {
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
         format!(
-            "refquiem: 1 removed name still mentioned, 2 mentions\n\n`fixture::gone` (function), deleted in {}\n  README.md:1:7  Markdown\n  src/lib.rs:1:9  comment\n",
+            "refquiem: 1 removed name still mentioned, 2 mentions\n\n`fixture::gone` (function), deleted in {}\n  README.md:1:7  Markdown code span\n  src/lib.rs:1:9  comment\n",
             &deleting[..7]
         )
     );

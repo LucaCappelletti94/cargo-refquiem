@@ -10,7 +10,7 @@ use crate::git::{self, Head, Snapshot, TreeSnapshot, WorkTreeSnapshot};
 use crate::index::{Index, Indexer};
 use crate::intern::{Interner, PathId, Sym};
 use crate::text::{self, Spelled};
-use crate::{Context, Error, Group, Mention, Options, RemovedIn, Report};
+use crate::{Error, Group, Mention, Options, RemovedIn, Report, stdlib};
 
 /// What one commit of the range declares beyond head.
 struct State {
@@ -154,12 +154,9 @@ fn find_mentions(
             continue;
         };
         let spelled: Vec<Spelled> = if is_rust {
-            text::rust_comments(source)
-                .into_iter()
-                .flat_map(|(offset, comment, context)| text::paths(comment, offset, context))
-                .collect()
+            text::rust(source)
         } else {
-            text::paths(source, 0, Context::Markdown)
+            text::markdown_file(source)
         };
         if spelled.is_empty() {
             continue;
@@ -279,7 +276,9 @@ struct Matcher<'a> {
     interner: &'a Interner,
     alive: HashSet<Box<[Sym]>>,
     removed: HashMap<Box<[Sym]>, PathId>,
-    libs: &'a [Sym],
+    /// The library crate names of head.
+    libs: Vec<&'a str>,
+    std: [stdlib::Layer; 4],
 }
 
 impl<'a> Matcher<'a> {
@@ -300,7 +299,8 @@ impl<'a> Matcher<'a> {
             interner,
             alive,
             removed: removed_suffixes,
-            libs: &head.libs,
+            libs: head.libs.iter().map(|&lib| interner.name(lib)).collect(),
+            std: stdlib::layers(),
         }
     }
 
@@ -314,59 +314,82 @@ impl<'a> Matcher<'a> {
         found
     }
 
-    /// The full paths `path` may mean, unknown identifiers as `None`.
-    fn readings(
-        &self,
-        path: &Spelled,
+    /// The full paths `path` may mean.
+    fn readings<'s>(
+        &'s self,
+        path: &'s Spelled,
         in_rust: bool,
         module: Option<&[Sym]>,
-    ) -> Vec<Vec<Option<Sym>>> {
-        let segments = &path.segments;
-        if segments.iter().any(|s| s == "Self") {
+    ) -> Vec<Vec<&'s str>> {
+        let segments: Vec<&str> = path.segments.iter().map(String::as_str).collect();
+        if segments.contains(&"Self") {
             return Vec::new();
         }
-        let rest = |from: usize| segments[from..].iter().map(|s| self.interner.find_sym(s));
-        let first = segments[0].as_str();
+        if let Some(item) = path.url_item {
+            let root = segments[..item].iter().position(|dir| {
+                self.libs.contains(dir) || self.std.iter().any(|layer| layer.root == *dir)
+            });
+            let reading = segments[root.unwrap_or(item)..].to_vec();
+            return if reading.len() >= 2 {
+                vec![reading]
+            } else {
+                Vec::new()
+            };
+        }
+        let first = segments[0];
         if path.leading_colon || !matches!(first, "crate" | "self" | "super") {
-            return vec![rest(0).collect()];
+            return vec![segments];
         }
         if first == "crate" {
-            return match (in_rust, module) {
-                (true, Some(module)) => {
-                    vec![std::iter::once(Some(module[0])).chain(rest(1)).collect()]
-                }
-                _ => self
-                    .libs
-                    .iter()
-                    .map(|&lib| std::iter::once(Some(lib)).chain(rest(1)).collect())
-                    .collect(),
+            let crates = match (in_rust, module) {
+                (true, Some(module)) => vec![self.interner.name(module[0])],
+                _ => self.libs.clone(),
             };
+            return crates
+                .into_iter()
+                .map(|name| {
+                    std::iter::once(name)
+                        .chain(segments[1..].iter().copied())
+                        .collect()
+                })
+                .collect();
         }
         let Some(module) = module.filter(|_| in_rust) else {
             return Vec::new();
         };
-        let mut base = module.to_vec();
+        let mut base: Vec<&str> = module.iter().map(|&sym| self.interner.name(sym)).collect();
         let mut from = usize::from(first == "self");
-        while segments.get(from).is_some_and(|s| s == "super") {
+        while segments.get(from) == Some(&"super") {
             if base.len() <= 1 {
                 return Vec::new();
             }
             base.pop();
             from += 1;
         }
-        vec![base.into_iter().map(Some).chain(rest(from)).collect()]
+        base.extend_from_slice(&segments[from..]);
+        vec![base]
     }
 
-    /// The removed item named by the longest prefix of `path` that is not alive.
-    fn match_removed(&self, path: &[Option<Sym>]) -> Option<PathId> {
+    /// The removed item named by the longest prefix of `path` that is not alive in head or
+    /// the standard library.
+    fn match_removed(&self, path: &[&str]) -> Option<PathId> {
         for len in (2..=path.len()).rev() {
-            let Some(prefix) = path[..len].iter().copied().collect::<Option<Vec<Sym>>>() else {
-                continue;
-            };
-            if self.alive.contains(prefix.as_slice()) {
+            let prefix = &path[..len];
+            let joined = prefix.join("::");
+            if self.std.iter().any(|layer| layer.ends_a_path(&joined)) {
                 return None;
             }
-            if let Some(&removed) = self.removed.get(prefix.as_slice()) {
+            let Some(syms) = prefix
+                .iter()
+                .map(|name| self.interner.find_sym(name))
+                .collect::<Option<Vec<Sym>>>()
+            else {
+                continue;
+            };
+            if self.alive.contains(syms.as_slice()) {
+                return None;
+            }
+            if let Some(&removed) = self.removed.get(syms.as_slice()) {
                 return Some(removed);
             }
         }

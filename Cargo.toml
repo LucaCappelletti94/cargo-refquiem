@@ -24,6 +24,8 @@ clap = { version = "4.6.6", features = ["derive"], optional = true }
 gix = { version = "0.89.0", default-features = false, features = ["revision", "sha1"] }
 proc-macro2 = { version = "1.0.107", default-features = false, features = ["span-locations"] }
 ignore = "0.4.33"
+fst = "0.4.7"
+pulldown-cmark = { version = "0.13.4", default-features = false }
 ra-ap-rustc_lexer = "0.177.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -37,7 +39,13 @@ tempfile = "3.27.0"
 [profile.release]
 strip = true
 
-[lints.rust]
+[lints]
+workspace = true
+
+[workspace]
+members = ["xtask"]
+
+[workspace.lints.rust]
 missing_docs = "forbid"
 unused_macro_rules = "forbid"
 unconditional_recursion = "forbid"
@@ -48,7 +56,7 @@ unsafe_code = "forbid"
 deprecated = "deny"
 unknown_lints = "allow"
 
-[lints.rustdoc]
+[workspace.lints.rustdoc]
 broken_intra_doc_links = "forbid"
 bare_urls = "forbid"
 invalid_codeblock_attributes = "forbid"
@@ -56,7 +64,7 @@ invalid_html_tags = "forbid"
 missing_crate_level_docs = "forbid"
 unescaped_backticks = "forbid"
 
-[lints.clippy]
+[workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
 allow_attributes = "deny"
