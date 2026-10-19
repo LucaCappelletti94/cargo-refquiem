@@ -616,3 +616,31 @@ fn a_dependency_glob_reexport_of_another_crate_keeps_its_items_alive() {
 
     assert_eq!(removed(&run(&repo)), Vec::<String>::new());
 }
+
+#[test]
+fn a_private_member_kept_through_a_same_crate_alias_is_alive() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "mod scope {\n    mod alias { pub fn retired_probe_842() {} }\n    fn kept() { alias::retired_probe_842(); }\n}\n",
+    );
+    repo.commit("a direct module path");
+    repo.write(
+        "src/lib.rs",
+        "mod scope {\n    use crate::scope as alias;\n    fn retired_probe_842() {}\n    fn kept() { alias::retired_probe_842(); }\n}\n",
+    );
+    repo.write("README.md", "`fixture::scope::alias::retired_probe_842`\n");
+    repo.commit("a same-crate alias to a private function");
+
+    assert_eq!(removed(&run(&repo)), Vec::<String>::new());
+
+    repo.write(
+        "src/lib.rs",
+        "mod scope {\n    use crate::scope as alias;\n    fn kept() {}\n}\n",
+    );
+    repo.commit("drop the private function");
+    assert_eq!(
+        removed(&run(&repo)),
+        ["fixture::scope::alias::retired_probe_842"]
+    );
+}

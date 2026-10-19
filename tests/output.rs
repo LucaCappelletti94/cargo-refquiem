@@ -361,7 +361,7 @@ fn the_job_summary_renders_edge_backtick_and_space_keys() {
     repo.write("src/lib.rs", "");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n\"`x\" = { package = \"absent-xyz-101\", version = \"1\" }\n\"x`\" = { package = \"absent-xyz-102\", version = \"1\" }\n\" x\" = { package = \"absent-xyz-103\", version = \"1\" }\n\"x \" = { package = \"absent-xyz-104\", version = \"1\" }\n\"ok\" = { package = \"absent-xyz-105\", version = \"1\" }\n",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n\"`x\" = { package = \"absent-xyz-101\", version = \"1\" }\n\"x`\" = { package = \"absent-xyz-102\", version = \"1\" }\n\" x\" = { package = \"absent-xyz-103\", version = \"1\" }\n\"x \" = { package = \"absent-xyz-104\", version = \"1\" }\n\"ok\" = { package = \"absent-xyz-105\", version = \"1\" }\n\" x \" = { package = \"absent-xyz-106\", version = \"1\" }\n",
     );
     repo.commit("keys cargo rejects");
     repo.write(
@@ -379,6 +379,7 @@ fn the_job_summary_renders_edge_backtick_and_space_keys() {
         "x`".to_owned(),
         " x".to_owned(),
         "x ".to_owned(),
+        " x ".to_owned(),
         "ok".to_owned(),
     ];
     expected.sort();
