@@ -49,6 +49,14 @@ enum Error {
         #[source]
         source: std::io::Error,
     },
+    #[error("running {program}")]
+    Spawn {
+        program: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{program} failed: {stderr}")]
+    Failed { program: String, stderr: String },
 }
 
 fn main() -> ExitCode {
@@ -73,45 +81,131 @@ fn main() -> ExitCode {
     }
 }
 
-/// Writes `data/std/<layer>.fst`: every suffix of two or more segments of every public path
-/// reachable from the layer's crate root.
+/// Writes the standard library layers and the English word list under `data/`.
 fn vocab() -> Result<(), Error> {
+    let data = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask sits inside the workspace")
+        .join("data");
+    standard_library(&data.join("std"))?;
+    english(&data.join("english"))
+}
+
+/// Writes `<layer>.fst`, every suffix of two or more segments of every public path reachable
+/// from the layer's crate root, and `<layer>-names.fst`, every segment of those paths.
+fn standard_library(out: &Path) -> Result<(), Error> {
     let json = sysroot()?.join("share/doc/rust/json");
     let mut crates = Vec::new();
     for name in LAYERS {
         crates.push(load(&json.join(format!("{name}.json")))?);
     }
     let library = Library::new(&crates);
-    let out = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("xtask sits inside the workspace")
-        .join("data")
-        .join("std");
-    std::fs::create_dir_all(&out).map_err(|source| Error::Write {
-        path: out.clone(),
-        source,
-    })?;
+    create_dir(out)?;
     for (layer, name) in LAYERS.iter().enumerate() {
         let mut paths = Paths::default();
         let root = library.crates[layer].root;
         library.module(layer, root, &mut vec![(*name).to_owned()], &mut paths);
         let mut suffixes = BTreeSet::new();
+        let mut names = BTreeSet::new();
         for path in &paths.found {
             for start in 0..path.len().saturating_sub(1) {
                 suffixes.insert(path[start..].join("::"));
             }
+            names.extend(path.iter().map(String::as_str));
         }
-        let set = fst::Set::from_iter(suffixes)?;
-        let file = out.join(format!("{name}.fst"));
-        std::fs::write(&file, set.as_fst().as_bytes())
-            .map_err(|source| Error::Write { path: file, source })?;
+        let suffix_count = write_set(
+            &out.join(format!("{name}.fst")),
+            suffixes.iter().map(String::as_str),
+        )?;
+        let name_count = write_set(&out.join(format!("{name}-names.fst")), names)?;
         println!(
-            "{name}: {} paths, {} suffixes",
-            paths.found.len(),
-            set.len()
+            "{name}: {} paths, {suffix_count} suffixes, {name_count} names",
+            paths.found.len()
         );
     }
     Ok(())
+}
+
+/// Writes `words.fst`, the lower-cased ESDB size 70 word list in every English dialect, and
+/// ESDB's `Copyright`, which its license requires next to any copy.
+fn english(out: &Path) -> Result<(), Error> {
+    let pinned = include_str!("../../data/english/ESDB").trim_ascii();
+    let checkout = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask sits inside the workspace")
+        .join("target")
+        .join("xtask")
+        .join(format!("esdb-{pinned}"));
+    if !checkout.join("scowl.db").is_file() {
+        create_dir(&checkout)?;
+        run(&checkout, "git", &["init", "-q"])?;
+        run(
+            &checkout,
+            "git",
+            &["fetch", "-q", "--depth", "1", ESDB_REPOSITORY, pinned],
+        )?;
+        run(&checkout, "git", &["checkout", "-q", "FETCH_HEAD"])?;
+        run(&checkout, "make", &["scowl.db"])?;
+    }
+    let listing = run(
+        &checkout,
+        "./scowl",
+        &["--db", "scowl.db", "word-list", "70", "A,B,Z,C", "1"],
+    )?;
+    let words: BTreeSet<String> = listing
+        .lines()
+        .filter(|word| word.chars().all(char::is_alphabetic))
+        .map(str::to_lowercase)
+        .collect();
+    create_dir(out)?;
+    let count = write_set(&out.join("words.fst"), words.iter().map(String::as_str))?;
+    let copyright = checkout.join("Copyright");
+    let target = out.join("Copyright");
+    std::fs::copy(&copyright, &target).map_err(|source| Error::Write {
+        path: target,
+        source,
+    })?;
+    println!("english: {count} words");
+    Ok(())
+}
+
+/// Where ESDB, the English Speller Database, is published.
+const ESDB_REPOSITORY: &str = "https://github.com/en-wl/wordlist";
+
+/// Runs `program` in `dir` and returns its standard output.
+fn run(dir: &Path, program: &str, args: &[&str]) -> Result<String, Error> {
+    let output = std::process::Command::new(program)
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .map_err(|source| Error::Spawn {
+            program: program.to_owned(),
+            source,
+        })?;
+    if !output.status.success() {
+        return Err(Error::Failed {
+            program: program.to_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        });
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn create_dir(dir: &Path) -> Result<(), Error> {
+    std::fs::create_dir_all(dir).map_err(|source| Error::Write {
+        path: dir.to_path_buf(),
+        source,
+    })
+}
+
+/// Writes the sorted, deduplicated `items` as an fst set to `file`, returning their count.
+fn write_set<'a>(file: &Path, items: impl IntoIterator<Item = &'a str>) -> Result<usize, Error> {
+    let set = fst::Set::from_iter(items)?;
+    std::fs::write(file, set.as_fst().as_bytes()).map_err(|source| Error::Write {
+        path: file.to_path_buf(),
+        source,
+    })?;
+    Ok(set.len())
 }
 
 fn sysroot() -> Result<PathBuf, Error> {

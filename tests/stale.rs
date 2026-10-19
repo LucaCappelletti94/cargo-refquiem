@@ -1,6 +1,8 @@
 //! End-to-end behaviour of the stale reference scan over real git histories.
 
 mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
 
 use std::path::PathBuf;
 
@@ -60,6 +62,199 @@ fn removed(report: &refquiem::Report) -> Vec<String> {
 }
 
 const PARSER: &str = "pub struct Parser;\n\nimpl Parser {\n    pub fn parse_expr(&self) {}\n    pub fn parse_item(&self) {}\n}\n";
+
+#[test]
+fn an_ambiguous_bare_name_prefers_the_mentions_workspace_member() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"alpha\", \"beta\"]\nresolver = \"2\"\n",
+    );
+    for member in ["alpha", "beta"] {
+        repo.write(
+            &format!("{member}/Cargo.toml"),
+            &format!("[package]\nname = \"{member}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+        );
+        repo.write(
+            &format!("{member}/src/lib.rs"),
+            "pub fn retired_probe_842() {}",
+        );
+    }
+    repo.commit("member functions");
+    repo.write("alpha/src/lib.rs", "");
+    repo.commit("remove alpha function");
+    repo.write("beta/src/lib.rs", "");
+    repo.commit("remove beta function");
+    for member in ["alpha", "beta"] {
+        repo.write(&format!("{member}/README.md"), "`retired_probe_842`\n");
+    }
+    let rows: Vec<_> = mentions(&repo.run())
+        .into_iter()
+        .map(|m| (m.0, m.2))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (
+                "alpha::retired_probe_842".to_owned(),
+                "alpha/README.md".to_owned()
+            ),
+            (
+                "beta::retired_probe_842".to_owned(),
+                "beta/README.md".to_owned()
+            ),
+        ]
+    );
+}
+
+#[test]
+fn attribution_follows_the_last_provider_of_a_removed_path() {
+    let repo = Repo::new();
+    repo.vendor("helper", "0.1.0", "pub struct RetiredProbe842;");
+    let package = "[package]\nname = \"helper\"\nversion = \"0.2.0\"\nedition = \"2021\"\n";
+    repo.write(
+        "Cargo.toml",
+        &format!("{package}[dependencies]\nhelper = \"0.1\"\n"),
+    );
+    repo.write("src/lib.rs", "pub struct RetiredProbe842;");
+    repo.commit("two providers");
+    repo.write("Cargo.toml", package);
+    repo.commit("remove dependency provider");
+    repo.write("src/lib.rs", "");
+    let removed_in = repo.commit("remove workspace provider");
+    repo.write("README.md", "`helper::RetiredProbe842`\n");
+    let report = repo.run();
+    let groups: Vec<_> = report
+        .groups
+        .iter()
+        .map(|g| (g.path.clone(), g.removed_in.clone()))
+        .collect();
+    assert_eq!(
+        groups,
+        [(
+            "helper::RetiredProbe842".to_owned(),
+            Some(RemovedIn::Commit(removed_in))
+        )]
+    );
+}
+
+#[test]
+fn a_workspace_item_precedes_the_item_of_a_still_live_dependency() {
+    let repo = Repo::new();
+    repo.vendor("aaa", "0.1.0", "pub fn retired_probe_901() {}");
+    repo.vendor("aaa", "0.2.0", "pub struct StillHere;");
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"bbb\", \"ccc\", \"zzz\"]\nresolver = \"2\"\n",
+    );
+    repo.write(
+        "bbb/Cargo.toml",
+        "[package]\nname = \"bbb\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naaa = \"0.1\"\n",
+    );
+    repo.write(
+        "ccc/Cargo.toml",
+        "[package]\nname = \"ccc\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\naaa = \"0.2\"\n",
+    );
+    repo.write(
+        "zzz/Cargo.toml",
+        "[package]\nname = \"zzz\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    for member in ["bbb", "ccc"] {
+        repo.write(&format!("{member}/src/lib.rs"), "");
+    }
+    repo.write("zzz/src/lib.rs", "pub fn retired_probe_901() {}");
+    repo.commit("two providers of the name");
+    repo.write("zzz/src/lib.rs", "");
+    let workspace = repo.commit("remove the workspace item");
+    repo.write(
+        "bbb/Cargo.toml",
+        "[package]\nname = \"bbb\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.commit("remove the dependency");
+    repo.write("README.md", "`retired_probe_901`\n");
+    let report = repo.run();
+    let groups: Vec<_> = report
+        .groups
+        .iter()
+        .map(|g| (g.path.clone(), g.removed_in.clone()))
+        .collect();
+    assert_eq!(
+        groups,
+        [(
+            "zzz::retired_probe_901".to_owned(),
+            Some(RemovedIn::Commit(workspace))
+        )]
+    );
+}
+
+#[test]
+fn a_later_removal_wins_a_bare_name_outside_any_member() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"aaa\", \"bbb\"]\nresolver = \"2\"\n",
+    );
+    for member in ["aaa", "bbb"] {
+        repo.write(
+            &format!("{member}/Cargo.toml"),
+            &format!("[package]\nname = \"{member}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+        );
+        repo.write(
+            &format!("{member}/src/lib.rs"),
+            "pub fn retired_probe_902() {}",
+        );
+    }
+    repo.commit("two providers of the name");
+    repo.write("aaa/src/lib.rs", "");
+    repo.commit("remove the first provider");
+    repo.write("bbb/src/lib.rs", "");
+    let last = repo.commit("remove the second provider");
+    repo.write("README.md", "`retired_probe_902`\n");
+    let report = repo.run();
+    let groups: Vec<_> = report
+        .groups
+        .iter()
+        .map(|g| (g.path.clone(), g.removed_in.clone()))
+        .collect();
+    assert_eq!(
+        groups,
+        [(
+            "bbb::retired_probe_902".to_owned(),
+            Some(RemovedIn::Commit(last))
+        )]
+    );
+}
+
+#[test]
+fn public_aliases_keep_members_when_a_private_cfg_alias_shares_the_name() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"alpha\", \"beta\"]\nresolver = \"2\"\n",
+    );
+    repo.write(
+        "alpha/Cargo.toml",
+        "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[features]\nprivate = []\n",
+    );
+    repo.write(
+        "beta/Cargo.toml",
+        "[package]\nname = \"beta\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[dependencies]\nalpha = { path = \"../alpha\" }\n",
+    );
+    let declaration =
+        "pub mod definitions { pub struct Thing; impl Thing { pub fn retired_probe_842() {} } }\n";
+    repo.write(
+        "alpha/src/lib.rs",
+        &format!("{declaration}pub use definitions::Thing as Exposed;\n"),
+    );
+    repo.write("beta/src/lib.rs", "pub use alpha::*;\n");
+    repo.write("README.md", "`beta::Exposed::retired_probe_842`\n");
+    repo.commit("public alias");
+    repo.write(
+        "alpha/src/lib.rs",
+        &format!("{declaration}#[cfg(feature = \"private\")] use definitions::Thing as Exposed;\n#[cfg(not(feature = \"private\"))] pub use definitions::Thing as Exposed;\n"),
+    );
+    assert_eq!(mentions(&repo.run()), []);
+}
 
 #[test]
 fn relocating_an_impl_through_an_import_preserves_its_public_method() {

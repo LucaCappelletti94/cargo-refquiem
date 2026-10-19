@@ -4,6 +4,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 mod cache;
+mod deps;
 mod entry;
 mod error;
 mod git;
@@ -12,6 +13,7 @@ mod intern;
 mod manifest;
 mod parse;
 mod scan;
+mod serde_names;
 mod stdlib;
 mod text;
 
@@ -40,7 +42,8 @@ pub struct Options {
     pub root: PathBuf,
     /// The commit range.
     pub range: Range,
-    /// Where parsed files are cached between runs, `target/refquiem` of the workspace when absent.
+    /// Where parsed files are cached between runs and the manifests that locate dependency
+    /// sources are written, `target/refquiem` of the workspace when absent.
     pub cache_dir: Option<PathBuf>,
 }
 
@@ -103,6 +106,8 @@ pub enum ItemKind {
     Binary,
     /// An example target.
     Example,
+    /// A serde serialized spelling of a field or variant.
+    Serialized,
 }
 
 impl ItemKind {
@@ -132,6 +137,7 @@ impl ItemKind {
             Self::Feature => "feature",
             Self::Binary => "binary",
             Self::Example => "example",
+            Self::Serialized => "serialized name",
         }
     }
 
@@ -248,6 +254,18 @@ pub struct Group {
 pub struct Report {
     /// One group per removed name.
     pub groups: Vec<Group>,
+    /// Removed dependencies whose sources cargo could not resolve, so their items went
+    /// unchecked.
+    pub skipped: Vec<Skipped>,
+}
+
+/// A removed dependency whose items could not be checked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Skipped {
+    /// The dependency key.
+    pub dependency: String,
+    /// Why cargo could not resolve it.
+    pub reason: String,
 }
 
 impl Report {
@@ -260,6 +278,24 @@ impl Report {
     /// The report as printed by `cargo refquiem`.
     #[must_use]
     pub fn human(&self) -> String {
+        let mut out = self.findings();
+        for skipped in &self.skipped {
+            let reason = skipped
+                .reason
+                .lines()
+                .find(|line| line.starts_with("error:"))
+                .or_else(|| skipped.reason.lines().next())
+                .unwrap_or_default();
+            let _ = writeln!(
+                out,
+                "warning: removed dependency `{}` could not be resolved, so its items were not checked: {reason}",
+                skipped.dependency
+            );
+        }
+        out
+    }
+
+    fn findings(&self) -> String {
         if self.is_clean() {
             return "refquiem: no stale mentions\n".to_owned();
         }

@@ -1,6 +1,8 @@
 //! Removed dependencies, features, binaries, examples and packages, and where they are still named.
 
 mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
 
 use common::Repo;
 use refquiem::{ItemKind, RemovedIn};
@@ -49,6 +51,59 @@ fn mention(
 }
 
 #[test]
+fn historical_dependency_names_cannot_overwrite_files_outside_the_cache() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "");
+    repo.write("victim-requirement/Cargo.toml", "protected manifest");
+    repo.write("victim-requirement/lib.rs", "protected source");
+    let package = repo.path().join("victim").display().to_string();
+    let package = toml::Value::String(package);
+    repo.write(
+        "Cargo.toml",
+        &format!("{PACKAGE}\n[dependencies]\nevil = {{ package = {package}, version = \"1\" }}\n"),
+    );
+    repo.commit("historical dependency");
+    repo.write("Cargo.toml", PACKAGE);
+    repo.commit("remove dependency");
+    refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("victim-requirement/Cargo.toml")).unwrap(),
+        "protected manifest"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("victim-requirement/lib.rs")).unwrap(),
+        "protected source"
+    );
+}
+
+#[test]
+fn historical_locked_versions_cannot_overwrite_files_outside_the_cache() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "");
+    repo.write("victim-locked/Cargo.toml", "protected manifest");
+    repo.write("victim-locked/lib.rs", "protected source");
+    let lock = "version = 3\n\n[[package]]\nname = \"fixture\"\nversion = \"0.1.0\"\ndependencies = [\"evil ../../../../../victim-locked\"]\n\n[[package]]\nname = \"evil\"\nversion = \"../../../../../victim-locked\"\n";
+    repo.write(
+        "Cargo.toml",
+        &format!("{PACKAGE}\n[dependencies]\nevil = \"1\"\n"),
+    );
+    repo.write("Cargo.lock", lock);
+    repo.commit("historical dependency");
+    repo.write("Cargo.toml", PACKAGE);
+    std::fs::remove_file(repo.path().join("Cargo.lock")).unwrap();
+    repo.commit("remove dependency");
+    refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("victim-locked/Cargo.toml")).unwrap(),
+        "protected manifest"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("victim-locked/lib.rs")).unwrap(),
+        "protected source"
+    );
+}
+
+#[test]
 fn published_crate_links_survive_dependency_removal() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "");
@@ -74,6 +129,8 @@ fn published_crate_links_survive_dependency_removal() {
 #[test]
 fn a_removed_dependency_is_found_in_paths_and_toml_keys() {
     let repo = Repo::new();
+    repo.vendor("structopt", "0.3.0", "");
+    repo.vendor("clap", "4.0.0", "");
     repo.write("src/lib.rs", "");
     repo.write(
         "Cargo.toml",
@@ -132,6 +189,7 @@ clap = \"4\"
 #[test]
 fn a_renamed_dependency_is_stale_under_its_key() {
     let repo = Repo::new();
+    repo.vendor("clap", "4.0.0", "");
     repo.write("src/lib.rs", "");
     repo.write(
         "Cargo.toml",
@@ -152,6 +210,7 @@ fn a_renamed_dependency_is_stale_under_its_key() {
 #[test]
 fn a_dependency_moved_to_another_kind_is_not_removed() {
     let repo = Repo::new();
+    repo.vendor("serde", "1.0.0", "");
     repo.write("src/lib.rs", "");
     repo.write(
         "Cargo.toml",
@@ -174,6 +233,7 @@ fn a_dependency_moved_to_another_kind_is_not_removed() {
 #[test]
 fn removed_and_hidden_features_are_found_in_flags_and_cfg() {
     let repo = Repo::new();
+    repo.vendor("rayon", "1.0.0", "");
     repo.write("src/lib.rs", "");
     repo.write(
         "Cargo.toml",
@@ -249,6 +309,7 @@ fn features_are_scoped_to_the_member_whose_files_mention_them() {
 #[test]
 fn a_package_moved_from_the_root_into_a_member_keeps_its_entries() {
     let repo = Repo::new();
+    repo.vendor("serde", "1.0.0", "");
     repo.write(
         "Cargo.toml",
         &format!("{PACKAGE}\n[features]\nfast = []\n\n[dependencies]\nserde = \"1\"\n"),
