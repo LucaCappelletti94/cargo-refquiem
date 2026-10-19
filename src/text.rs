@@ -727,19 +727,16 @@ fn without_comments(info: &str) -> String {
 fn link_path(dest: &str, at: usize, context: Context) -> Option<Spelled> {
     let end = at + dest.len();
     if dest.contains("://") || dest.contains(".html") || dest.starts_with(['#', '/', '.']) {
-        if let Some((segments, item)) = page_path(dest) {
-            return Some(Spelled {
-                start: at,
-                end,
-                named: Named::Path,
-                segments,
-                leading_colon: false,
-                url_item: Some(item),
-                context,
-            });
-        }
-        let name = crate_link(dest)?;
-        return Some(Spelled::name(at, end, Named::Crate(name), context));
+        let (segments, item) = page_path(dest)?;
+        return Some(Spelled {
+            start: at,
+            end,
+            named: Named::Path,
+            segments,
+            leading_colon: false,
+            url_item: Some(item),
+            context,
+        });
     }
     let unprefixed = match dest.split_once('@') {
         Some((kind, rest)) if kind.bytes().all(|b| b.is_ascii_lowercase()) => rest,
@@ -757,35 +754,6 @@ fn link_path(dest: &str, at: usize, context: Context) -> Option<Spelled> {
         end,
         ..path
     })
-}
-
-/// The crate a crates.io, lib.rs, docs.rs or shields.io badge URL is about.
-fn crate_link(url: &str) -> Option<String> {
-    let (_, rest) = url.split_once("://")?;
-    let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
-    let host = host.strip_prefix("www.").unwrap_or(host);
-    let parts: Vec<&str> = path
-        .split(['/', '?', '#'])
-        .filter(|part| !part.is_empty())
-        .collect();
-    let name = match (host, parts.as_slice()) {
-        ("crates.io" | "lib.rs", ["crates", name, ..])
-        | ("docs.rs", ["crate", name, ..])
-        | ("img.shields.io", ["crates", _, name, ..] | ["docsrs", name, ..]) => *name,
-        ("docs.rs", [name, ..]) if !matches!(*name, "about" | "releases" | "-") => {
-            name.split("::").next().unwrap_or(name)
-        }
-        _ => return None,
-    };
-    let name = name
-        .strip_suffix(".svg")
-        .or_else(|| name.strip_suffix(".json"))
-        .unwrap_or(name);
-    let valid = !name.is_empty()
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    valid.then(|| name.to_owned())
 }
 
 /// The segments a rustdoc page URL names and the index where the item part starts.

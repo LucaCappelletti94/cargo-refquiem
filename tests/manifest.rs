@@ -49,7 +49,30 @@ fn mention(
 }
 
 #[test]
-fn a_removed_dependency_is_found_in_paths_links_badges_and_toml_keys() {
+fn published_crate_links_survive_dependency_removal() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "Cargo.toml",
+        &format!("{PACKAGE}\n[dependencies]\nserde = \"1\"\n"),
+    );
+    repo.commit("dependency");
+    repo.write("Cargo.toml", PACKAGE);
+    let links = "[Serde](https://docs.rs/serde/latest/serde/)\nhttps://crates.io/crates/serde\n[![serde](https://img.shields.io/crates/v/serde.svg)](https://lib.rs/crates/serde)\n";
+    repo.write("README.md", links);
+    repo.commit("recommend published crate without depending on it");
+    assert_eq!(found(&repo), Vec::new());
+
+    repo.write(
+        "README.md",
+        &format!("{links}\n`serde::Serialize`\n\n```toml\n[dependencies]\nserde = \"1\"\n```\n"),
+    );
+    let texts: Vec<_> = found(&repo).into_iter().map(|mention| mention.5).collect();
+    assert_eq!(texts, ["serde::Serialize", "serde"]);
+}
+
+#[test]
+fn a_removed_dependency_is_found_in_paths_and_toml_keys() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "");
     repo.write(
@@ -85,33 +108,9 @@ clap = \"4\"
                 "structopt",
                 dependency,
                 "README.md",
-                1,
-                12,
-                "https://img.shields.io/crates/v/structopt.svg"
-            ),
-            mention(
-                "structopt",
-                dependency,
-                "README.md",
-                1,
-                60,
-                "https://crates.io/crates/structopt"
-            ),
-            mention(
-                "structopt",
-                dependency,
-                "README.md",
                 3,
                 6,
                 "structopt::StructOpt"
-            ),
-            mention(
-                "structopt",
-                dependency,
-                "README.md",
-                4,
-                6,
-                "https://docs.rs/structopt"
             ),
             mention("structopt", dependency, "README.md", 8, 1, "structopt"),
         ]
@@ -131,7 +130,7 @@ clap = \"4\"
 }
 
 #[test]
-fn a_renamed_dependency_is_stale_under_its_key_and_its_package_name() {
+fn a_renamed_dependency_is_stale_under_its_key() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "");
     repo.write(
@@ -147,16 +146,7 @@ fn a_renamed_dependency_is_stale_under_its_key_and_its_package_name() {
     repo.commit("drop clap");
 
     let names: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
-    assert_eq!(
-        names,
-        [
-            ("cli".to_owned(), "cli::Parser".to_owned()),
-            (
-                "clap".to_owned(),
-                "https://crates.io/crates/clap".to_owned()
-            ),
-        ]
-    );
+    assert_eq!(names, [("cli".to_owned(), "cli::Parser".to_owned())]);
 }
 
 #[test]
@@ -306,7 +296,7 @@ fn removed_binaries_and_examples_are_found_in_cargo_commands() {
 }
 
 #[test]
-fn a_renamed_package_leaves_its_old_crate_links_stale() {
+fn a_renamed_package_keeps_published_crate_links_valid() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "");
     repo.commit("fixture");
@@ -320,9 +310,7 @@ fn a_renamed_package_leaves_its_old_crate_links_stale() {
     );
     repo.commit("rename package");
 
-    let names: Vec<(String, ItemKind, usize)> =
-        found(&repo).into_iter().map(|m| (m.0, m.1, m.4)).collect();
-    assert_eq!(names, [("fixture".to_owned(), ItemKind::Package, 1)]);
+    assert_eq!(found(&repo), Vec::new());
 }
 
 #[test]

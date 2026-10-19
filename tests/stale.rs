@@ -62,6 +62,56 @@ fn removed(report: &refquiem::Report) -> Vec<String> {
 const PARSER: &str = "pub struct Parser;\n\nimpl Parser {\n    pub fn parse_expr(&self) {}\n    pub fn parse_item(&self) {}\n}\n";
 
 #[test]
+fn relocating_an_impl_through_an_import_preserves_its_public_method() {
+    for (import, name) in [
+        ("use super::S;", "S"),
+        ("use super::S as Target;", "Target"),
+        ("pub use super::S;", "S"),
+        ("pub use super::S as Target;", "Target"),
+    ] {
+        let repo = Repo::new();
+        repo.write("src/lib.rs", "pub struct S;\nimpl S { pub fn f() {} }\n");
+        repo.commit("method");
+        repo.write(
+            "src/lib.rs",
+            &format!("pub struct S;\nmod inner {{ {import} impl {name} {{ pub fn f() {{}} }} }}\n"),
+        );
+        repo.write("README.md", "Call `fixture::S::f`.\n");
+        repo.commit("relocate impl");
+        assert_eq!(removed(&repo.run()), [] as [&str; 0], "{import}");
+
+        repo.write(
+            "src/lib.rs",
+            &format!("pub struct S;\nmod inner {{ {import} impl {name} {{}} }}\n"),
+        );
+        let deleting = repo.commit("remove method");
+        let report = repo.run();
+        assert_eq!(removed(&report), ["fixture::S::f"], "{import}");
+        assert_eq!(
+            report.groups[0].removed_in,
+            Some(RemovedIn::Commit(deleting))
+        );
+    }
+}
+
+#[test]
+fn private_imports_resolve_deref_owners_and_targets() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct Raw;\npub struct Container(Raw);\nimpl Container { pub fn stderr(&self) {} pub fn gone(&self) {} }\n",
+    );
+    repo.commit("direct methods");
+    repo.write(
+        "src/lib.rs",
+        "pub struct Raw;\nimpl Raw { pub fn stderr(&self) {} }\npub struct Container(Raw);\nmod implementation {\n    use super::{Container, Raw};\n    impl core::ops::Deref for Container {\n        type Target = Raw;\n        fn deref(&self) -> &Raw { &self.0 }\n    }\n}\n",
+    );
+    repo.write("README.md", "`Container::stderr` and `Container::gone`.\n");
+    repo.commit("implement deref through private imports");
+    assert_eq!(removed(&repo.run()), ["fixture::Container::gone"]);
+}
+
+#[test]
 fn removed_method_mentioned_in_a_doc_comment_is_reported() {
     let repo = Repo::new();
     repo.write("src/lib.rs", PARSER);
