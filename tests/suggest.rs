@@ -425,3 +425,127 @@ fn a_feature_is_renamed_within_its_member_and_its_flags_stay() {
     assert_eq!(suggested(group), Some(("serde_support", Change::Renamed)));
     assert!(group.mentions.iter().all(|m| m.replacement.is_none()));
 }
+
+/// A feature in another member is neither a move nor a rename.
+#[test]
+fn a_feature_renamed_in_another_member_is_no_candidate() {
+    let repo = Repo::new();
+    repo.write("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n");
+    for member in ["alpha", "beta"] {
+        repo.write(
+            &format!("crates/{member}/Cargo.toml"),
+            &format!("[package]\nname = \"{member}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+        );
+        repo.write(&format!("crates/{member}/src/lib.rs"), "");
+    }
+    repo.write(
+        "crates/alpha/Cargo.toml",
+        "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[features]\nserde-support = []\n",
+    );
+    repo.write("crates/alpha/README.md", "`--features serde-support`\n");
+    repo.commit("alpha's feature");
+    repo.write(
+        "crates/alpha/Cargo.toml",
+        "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write(
+        "crates/beta/Cargo.toml",
+        "[package]\nname = \"beta\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[features]\nserde_support = []\n",
+    );
+    repo.commit("drop alpha's feature, add beta's");
+
+    let report = report(&repo);
+    let group = group(&report, "serde-support");
+    assert_eq!(suggested(group), None);
+    assert_eq!(group.candidates, Vec::<String>::new());
+}
+
+/// A dependency in another member is no replacement.
+#[test]
+fn a_dependency_added_to_another_member_is_no_replacement() {
+    let repo = Repo::new();
+    for name in ["structopt", "clap"] {
+        repo.vendor(name, "1.0.0", "");
+    }
+    repo.write("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n");
+    repo.write(
+        "crates/alpha/Cargo.toml",
+        "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nstructopt = \"1\"\n",
+    );
+    repo.write("crates/alpha/src/lib.rs", "");
+    repo.write("crates/alpha/README.md", "```toml\n[dependencies]\nstructopt = \"1\"\n```\n");
+    repo.write(
+        "crates/beta/Cargo.toml",
+        "[package]\nname = \"beta\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("crates/beta/src/lib.rs", "");
+    repo.commit("alpha depends on structopt");
+    repo.write(
+        "crates/alpha/Cargo.toml",
+        "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write(
+        "crates/beta/Cargo.toml",
+        "[package]\nname = \"beta\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nclap = \"1\"\n",
+    );
+    repo.commit("alpha drops structopt, beta takes clap");
+
+    let report = report(&repo);
+    let group = group(&report, "structopt");
+    assert_eq!(suggested(group), None);
+    assert_eq!(group.candidates, Vec::<String>::new());
+}
+
+/// Incomplete history cannot establish a suggestion's introduction order.
+#[test]
+fn an_incomplete_first_tree_gets_no_suggestion() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "mod broken;\npub fn colour() {}\n");
+    repo.write("src/broken.rs", "pub fn color() {\n");
+    repo.commit("colour, with a broken file");
+    repo.write("src/lib.rs", "pub fn color() {}\n");
+    colour(&repo);
+    repo.commit("drop colour");
+
+    let report = report(&repo);
+    let group = group(&report, "fixture::colour");
+    assert_eq!(suggested(group), None);
+    assert_eq!(group.candidates, Vec::<String>::new());
+}
+
+#[test]
+fn a_restored_name_older_than_the_removed_name_is_no_candidate() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn color() {}\n");
+    repo.commit("older name");
+    repo.write("src/lib.rs", "");
+    repo.commit("older name absent");
+    repo.write("src/lib.rs", "pub fn colour() {}\n");
+    colour(&repo);
+    repo.commit("removed name");
+    repo.write("src/lib.rs", "pub fn color() {}\n");
+    repo.commit("restore older name");
+
+    let report = report(&repo);
+    let group = group(&report, "fixture::colour");
+    assert_eq!(suggested(group), None);
+    assert_eq!(group.candidates, Vec::<String>::new());
+}
+
+#[test]
+fn a_keyword_replacement_is_written_as_a_raw_rust_identifier() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn typo() {}\n");
+    repo.commit("original name");
+    repo.write("src/lib.rs", "pub fn r#type() {}\n");
+    repo.write("README.md", "`fixture::typo`\n`fixture::r#typo`\n");
+    repo.commit("keyword name");
+
+    let report = report(&repo);
+    let group = group(&report, "fixture::typo");
+    assert_eq!(suggested(group), Some(("fixture::type", Change::Renamed)));
+    assert_eq!(
+        group.mentions.iter().map(|mention| mention.replacement.as_deref()).collect::<Vec<_>>(),
+        [Some("`fixture::r#type`"), Some("`fixture::r#type`")]
+    );
+}
