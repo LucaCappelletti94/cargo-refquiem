@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       # The released binary predates the code under review, so the action scans with the branch build.
       - run: cargo install --path . --locked
       # A fork's token is read-only, so its review is prepared here and posted by Dogfood post.
