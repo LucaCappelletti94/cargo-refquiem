@@ -555,3 +555,18 @@ fn a_keyword_replacement_is_written_as_a_raw_rust_identifier() {
         [Some("`fixture::r#type`"), Some("`fixture::r#type`")]
     );
 }
+
+#[test]
+fn a_name_introduced_with_the_removed_name_is_no_candidate() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn colour() {}\npub fn color() {}\n");
+    repo.commit("introduce both names");
+    repo.write("src/lib.rs", "pub fn color() {}\n");
+    colour(&repo);
+    repo.commit("remove one name");
+
+    let report = report(&repo);
+    let group = group(&report, "fixture::colour");
+    assert_eq!(suggested(group), None);
+    assert_eq!(group.candidates, Vec::<String>::new());
+}

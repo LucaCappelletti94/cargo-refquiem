@@ -1102,3 +1102,65 @@ fn dependency_trait_members_follow_the_traits_public_reachability() {
         assert_eq!(rows, expected, "{declaration}");
     }
 }
+
+#[test]
+fn explicit_package_identity_keeps_a_custom_library_under_the_dependency_key() {
+    let repo = Repo::new();
+    let manifest = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nexclude = [\"vendor/helper\"]\n";
+    repo.write(
+        "Cargo.toml",
+        &format!("{manifest}\n[dependencies]\nhelper = {{ package = \"helper\", path = \"vendor/helper\" }}\n"),
+    );
+    repo.write(
+        "vendor/helper/Cargo.toml",
+        "[package]\nname = \"helper\"\nversion = \"1.0.0\"\nedition = \"2021\"\n\n[lib]\nname = \"custom_helper\"\n\n[workspace]\n",
+    );
+    repo.write("vendor/helper/src/lib.rs", "pub struct RetiredProbe842;\n");
+    repo.write("src/lib.rs", "");
+    lock(&repo);
+    repo.commit("explicit package with a custom library name");
+    repo.write("Cargo.toml", manifest);
+    std::fs::remove_dir_all(repo.path().join("vendor")).unwrap();
+    lock(&repo);
+    repo.write("README.md", "`helper::RetiredProbe842`\n");
+    repo.commit("drop the dependency");
+
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let groups: Vec<_> = report
+        .groups
+        .iter()
+        .map(|group| (group.path.as_str(), group.kind))
+        .collect();
+    assert_eq!(groups, [("helper::RetiredProbe842", ItemKind::Struct)]);
+    assert_eq!(report.skipped, []);
+}
+
+#[test]
+fn only_public_dependency_fields_claim_removed_local_names() {
+    for (visibility, expected) in [("", vec!["fixture::retired_probe_842"]), ("pub ", vec![])] {
+        let repo = Repo::new();
+        repo.vendor(
+            "helper",
+            "1.0.0",
+            &format!("pub struct Live {{ {visibility}retired_probe_842: u8 }}\n"),
+        );
+        repo.write(
+            "Cargo.toml",
+            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n",
+        );
+        repo.write("src/lib.rs", "pub fn retired_probe_842() {}\n");
+        lock(&repo);
+        repo.commit("local function and dependency fields");
+        repo.write("src/lib.rs", "");
+        repo.write("README.md", "`retired_probe_842`\n");
+        repo.commit("drop the local function");
+
+        let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+        let paths: Vec<_> = report
+            .groups
+            .iter()
+            .map(|group| group.path.as_str())
+            .collect();
+        assert_eq!(paths, expected, "{visibility:?}");
+    }
+}

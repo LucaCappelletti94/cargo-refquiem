@@ -1430,6 +1430,86 @@ fn a_path_segment_inside_a_doc_example_pattern_binds_nothing() {
 }
 
 #[test]
+fn a_local_removal_outweighs_an_older_dependency_with_the_same_path() {
+    let repo = Repo::new();
+    let manifest = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nexclude = [\"vendor/helper\"]\n";
+    repo.write(
+        "Cargo.toml",
+        &format!("{manifest}\n[dependencies]\nfixture = {{ package = \"helper\", path = \"vendor/helper\" }}\n"),
+    );
+    repo.write(
+        "vendor/helper/Cargo.toml",
+        "[package]\nname = \"helper\"\nversion = \"1.0.0\"\nedition = \"2021\"\n\n[workspace]\n",
+    );
+    repo.write(
+        "vendor/helper/src/lib.rs",
+        "pub fn retired_probe_842() {}\n",
+    );
+    repo.write(
+        "src/lib.rs",
+        "pub fn retired_probe_842() {}\npub mod other { pub fn retired_probe_842() {} }\n",
+    );
+    lock(&repo);
+    repo.commit("local functions and a dependency");
+    repo.write("Cargo.toml", manifest);
+    std::fs::remove_dir_all(repo.path().join("vendor")).unwrap();
+    lock(&repo);
+    repo.commit("drop the dependency");
+    repo.write(
+        "src/lib.rs",
+        "pub fn retired_probe_842() {}\npub mod other {}\n",
+    );
+    repo.commit("drop the competing function");
+    repo.write("src/lib.rs", "pub mod other {}\n");
+    repo.write("README.md", "`retired_probe_842`\n");
+    repo.commit("drop the latest function");
+
+    let rows: Vec<_> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
+    assert_eq!(
+        rows,
+        [(
+            "fixture::retired_probe_842".to_owned(),
+            "retired_probe_842".to_owned(),
+        )]
+    );
+}
+
+#[test]
+fn macro_tokens_do_not_declare_function_or_macro_parameters() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn retired_probe_842() {}\npub fn retired_arg_842() {}\n",
+    );
+    repo.commit("functions");
+    repo.write(
+        "src/lib.rs",
+        "/// `retired_probe_842` and `retired_arg_842`.\n///\n/// ```\n/// stringify!(macro_rules, retired_probe_842);\n/// stringify!(const NAME(retired_arg_842));\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop the functions");
+
+    let mut mentions: Vec<_> = found(&repo)
+        .into_iter()
+        .filter(|row| row.4.kind == Kind::CodeSpan)
+        .map(|row| (row.0, row.5))
+        .collect();
+    mentions.sort_unstable();
+    assert_eq!(
+        mentions,
+        [
+            (
+                "fixture::retired_arg_842".to_owned(),
+                "retired_arg_842".to_owned()
+            ),
+            (
+                "fixture::retired_probe_842".to_owned(),
+                "retired_probe_842".to_owned()
+            ),
+        ]
+    );
+}
+
+#[test]
 fn generic_impl_parameters_leave_later_declarations_bound() {
     let repo = Repo::new();
     repo.write(
@@ -1446,4 +1526,35 @@ fn generic_impl_parameters_leave_later_declarations_bound() {
     let rows: Vec<(String, usize, usize)> =
         found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
     assert_eq!(rows, [("fixture::gone_call".to_owned(), 11, 5)]);
+}
+
+#[test]
+fn a_compiled_pattern_path_does_not_declare_its_segments() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod util_mod { pub struct point_thing(pub u32); }\n",
+    );
+    repo.commit("module and tuple structure");
+    repo.write(
+        "src/lib.rs",
+        "/// `util_mod` and `point_thing`.\n///\n/// ```\n/// let a = 1;\n/// let util_mod::point_thing(p) = value;\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop the module");
+
+    let mentions: Vec<_> = found(&repo)
+        .into_iter()
+        .filter(|row| row.4.kind == Kind::CodeSpan)
+        .map(|row| (row.0, row.5))
+        .collect();
+    assert_eq!(
+        mentions,
+        [
+            ("fixture::util_mod".to_owned(), "util_mod".to_owned()),
+            (
+                "fixture::util_mod::point_thing".to_owned(),
+                "point_thing".to_owned()
+            ),
+        ]
+    );
 }

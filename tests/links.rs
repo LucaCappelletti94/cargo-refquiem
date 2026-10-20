@@ -288,3 +288,51 @@ fn a_code_span_after_a_backticked_link_label_is_scanned() {
         )]
     );
 }
+
+#[test]
+fn an_inline_image_destination_names_its_removed_rustdoc_item() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("function");
+    repo.write("src/lib.rs", "");
+    let url = "https://docs.rs/fixture/latest/fixture/fn.gone.html";
+    repo.write("README.md", &format!("![alt]({url})\n"));
+    repo.commit("drop the function");
+
+    assert_eq!(
+        found(&repo),
+        [mention(
+            "fixture::gone",
+            ItemKind::Function,
+            "README.md",
+            1,
+            8,
+            url
+        )]
+    );
+}
+
+#[test]
+fn a_rustdoc_url_in_a_plain_comment_stops_before_following_words() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("function");
+    let url = "https://docs.rs/fixture/latest/fixture/fn.gone.html";
+    repo.write(
+        "src/lib.rs",
+        &format!("// see {url} now\npub struct Kept;\n"),
+    );
+    repo.commit("drop the function");
+
+    assert_eq!(
+        found(&repo),
+        [mention(
+            "fixture::gone",
+            ItemKind::Function,
+            "src/lib.rs",
+            1,
+            8,
+            url
+        )]
+    );
+}

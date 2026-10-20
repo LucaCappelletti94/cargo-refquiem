@@ -166,9 +166,7 @@ pub(crate) fn removed(
     Ok(removed)
 }
 
-/// The public paths of the `dependency` on the package in `dir` of `tree`, rooted at the name
-/// code spells it by, which is the key when it renames the package and the library name
-/// otherwise.
+/// Public paths of `dependency` rooted at its manifest key for an explicit `package`, or its library name otherwise.
 fn path_library(
     indexer: &mut Indexer,
     tree: &TreeSnapshot<'_>,

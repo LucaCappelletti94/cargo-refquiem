@@ -1,4 +1,7 @@
 profile = "mutants"
+test_tool = "nextest"
+additional_cargo_test_args = ["--profile=mutants"]
+minimum_test_timeout = 120
 gitignore = true
 # Compiled only with the `fuzzing` feature, which the fuzz targets exercise.
 exclude_globs = ["src/fuzzing.rs"]
@@ -32,12 +35,10 @@ exclude_re = [
     'src/text\.rs:\d+:54: replace - with / in toml',
     # The character before `[` is never a quote.
     'src/text\.rs:\d+:27: replace \+ with [-*] in requested_features',
-    # `macro_rules` is followed by `!` wherever it declares a macro.
-    'src/text\.rs:\d+:26: replace match guard kind\(i\) == Some\(TokenKind::Bang\) with true in declaration',
-    # Resuming at or before a doc attribute's last token re-reads its literal at the same place,
-    # and mentions are deduplicated by place.
-    'src/text\.rs:\d+:83: replace \+ with [-*] in rust',
-    # A dependency item is in no state, so its own removal is `None` and caching its entry's
-    # removal only saves time.
-    'src/scan\.rs:\d+:33: (replace match guard !workspace with (true|false)|delete !) in ranked',
+    # Dependency-entry memoization only avoids repeated history lookups.
+    'src/scan\.rs:\d+:33: replace match guard !workspace with false in ranked',
+    # Extra code-span padding is stripped by CommonMark without changing its content.
+    'src/output\.rs:\d+:49: replace && with \|\| in span',
+    # Doc-comment markers are read from raw tokens, so Markdown marker results are discarded.
+    'src/text\.rs:\d+:54: replace match guard source == Source::Markdown with true in markdown_mentions',
 ]

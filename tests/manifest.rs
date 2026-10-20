@@ -959,3 +959,22 @@ fn an_item_a_package_outside_the_workspace_lost_is_blamed_on_its_removal() {
         [("gen::old_gen", Some(RemovedIn::Commit(removing)))]
     );
 }
+
+#[test]
+fn an_excluded_broken_package_cannot_break_a_workspace_glob() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"crates/*\"]\nexclude = [\"crates/ignored\"]\n",
+    );
+    repo.write("crates/good/Cargo.toml", PACKAGE);
+    repo.write("crates/good/src/lib.rs", "pub fn retired_probe_842() {}\n");
+    repo.write("crates/ignored/Cargo.toml", "not a manifest");
+    repo.commit("an excluded package beside a workspace member");
+    repo.write("crates/good/src/lib.rs", "");
+    repo.write("crates/good/README.md", "`fixture::retired_probe_842`\n");
+    repo.commit("drop the function");
+
+    let paths: Vec<_> = found(&repo).into_iter().map(|row| row.0).collect();
+    assert_eq!(paths, ["fixture::retired_probe_842"]);
+}
