@@ -9,7 +9,7 @@ use gix::ObjectId;
 use toml::{Table, Value};
 
 use crate::git::{Snapshot, TreeSnapshot, WorkTreeSnapshot, relative};
-use crate::index::Indexer;
+use crate::index::{Definition, Indexer};
 use crate::intern::{PathId, Sym};
 use crate::manifest::{self, Dependency, Member, TargetKind, join};
 use crate::{Error, Skipped};
@@ -55,8 +55,12 @@ pub(crate) struct Removal {
 pub(crate) struct Layer {
     /// Public paths, rooted at the names code spells the dependencies by.
     pub(crate) paths: HashSet<PathId>,
+    /// The names code spells the dependencies by.
+    pub(crate) roots: HashSet<Sym>,
     /// Identifiers their item-position macros may turn into items.
     pub(crate) macro_idents: HashSet<Sym>,
+    /// Their `#[macro_export]` macros by name.
+    pub(crate) macro_rules: Vec<(Sym, Definition)>,
 }
 
 /// The items of removed dependencies.
@@ -91,6 +95,25 @@ pub(crate) fn head(
             );
         }
     }
+    let crate_name = |id: &PackageId| {
+        let package = metadata.packages.iter().find(|package| &package.id == id)?;
+        Some(lib_target(package)?.name.replace('-', "_"))
+    };
+    let workspace_crates: HashSet<String> = metadata
+        .workspace_members
+        .iter()
+        .filter_map(crate_name)
+        .collect();
+    // A renamed dependency still reads by its crate name, as code written for it elsewhere does.
+    let renamed: Vec<(PackageId, String)> = roots
+        .iter()
+        .filter_map(|(id, name)| {
+            let crate_name = crate_name(id)?;
+            (crate_name != *name && !workspace_crates.contains(&crate_name))
+                .then(|| (id.clone(), crate_name))
+        })
+        .collect();
+    roots.extend(renamed);
     libraries(indexer, &metadata, roots)
 }
 
@@ -307,11 +330,7 @@ fn libraries(
         let Some(package) = packages.get(&id) else {
             continue;
         };
-        let Some(target) = package
-            .targets
-            .iter()
-            .find(|t| t.is_lib() || t.is_rlib() || t.is_dylib())
-        else {
+        let Some(target) = lib_target(package) else {
             continue;
         };
         let Some(dir) = package.manifest_path.parent() else {
@@ -337,8 +356,21 @@ fn libraries(
             .iter()
             .flat_map(|library| library.macro_idents.iter().copied())
             .collect(),
+        macro_rules: found
+            .iter()
+            .flat_map(|library| library.macro_rules.iter().cloned())
+            .collect(),
         paths: indexer.public_paths(&found, &root_syms),
+        roots: root_syms.into_iter().collect(),
     })
+}
+
+/// The library target of `package`, however its crate type is spelled.
+fn lib_target(package: &cargo_metadata::Package) -> Option<&cargo_metadata::Target> {
+    package
+        .targets
+        .iter()
+        .find(|t| t.is_lib() || t.is_rlib() || t.is_dylib())
 }
 
 /// Runs `cargo metadata` on `manifest` from `cwd`, with every feature so optional dependencies

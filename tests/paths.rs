@@ -171,3 +171,67 @@ fn a_path_with_a_turbofish_between_segments_is_found() {
         ]
     );
 }
+
+#[test]
+fn a_path_from_the_crate_root_of_a_code_block_names_the_example_itself() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub mod gone {\n    pub struct Thing;\n}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// `crate::gone::Thing`\n///\n/// ```\n/// crate::gone::Thing;\n/// fixture::gone::Thing;\n/// ```\n///\n/// ```ignore\n/// self::gone::Thing;\n/// ```\npub struct Kept;\n",
+    );
+    repo.write("README.md", "```rust\ncrate::gone::Thing;\n```\n");
+    repo.commit("drop gone");
+
+    let rows: Vec<(String, String, usize, usize, String)> = found(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.1, m.2, m.3, m.5))
+        .collect();
+    let row = |line, column, text: &str| {
+        (
+            "fixture::gone::Thing".to_owned(),
+            "src/lib.rs".to_owned(),
+            line,
+            column,
+            text.to_owned(),
+        )
+    };
+    assert_eq!(
+        rows,
+        [
+            row(1, 6, "crate::gone::Thing"),
+            row(5, 5, "fixture::gone::Thing")
+        ]
+    );
+}
+
+#[test]
+fn a_path_from_a_generic_parameter_of_a_compiled_example_names_nothing() {
+    let repo = Repo::new();
+    let svc = "pub trait Svc {\n    type Future;\n    type Output;\n}\n";
+    repo.write(
+        "src/lib.rs",
+        &format!("{svc}pub struct S;\nimpl Svc for S {{\n    type Future = ();\n    type Output = ();\n}}\npub struct F;\nimpl Svc for F {{\n    type Future = ();\n    type Output = ();\n}}\n"),
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        &format!("{svc}/// ```\n/// fn run<I, S>(io: I, svc: S) where S::Future: Send {{}}\n/// impl<F> Executor<F> for Tokio where F::Output: Send {{}}\n/// ```\n///\n/// `S::Future` names the type.\n///\n/// ```\n/// let x: S::Future = todo();\n/// ```\npub struct Kept;\n"),
+    );
+    repo.commit("drop S and F");
+
+    let rows: Vec<(String, usize, usize, String)> = found(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.2, m.3, m.5))
+        .collect();
+    let row = |line, column| {
+        (
+            "fixture::S::Future".to_owned(),
+            line,
+            column,
+            "S::Future".to_owned(),
+        )
+    };
+    assert_eq!(rows, [row(10, 6), row(13, 12)]);
+}

@@ -377,17 +377,14 @@ fn serialized_spellings_are_checked_in_prose_and_data_examples() {
 #[test]
 fn public_dependency_items_keep_names_alive_and_private_ones_do_not() {
     let repo = Repo::new();
+    repo.vendor(
+        "helper",
+        "0.1.0",
+        "pub struct Gadget;\nstruct Hidden;\nmod private {\n    pub struct Inner;\n    pub struct Exported;\n}\npub use private::Exported;\n",
+    );
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
-    );
-    repo.write(
-        "vendor/helper/Cargo.toml",
-        "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    repo.write(
-        "vendor/helper/src/lib.rs",
-        "pub struct Gadget;\nstruct Hidden;\nmod private {\n    pub struct Inner;\n    pub struct Exported;\n}\npub use private::Exported;\n",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"0.1\"\n",
     );
     repo.write(
         "src/lib.rs",
@@ -412,15 +409,11 @@ fn public_dependency_items_keep_names_alive_and_private_ones_do_not() {
 #[test]
 fn items_of_a_removed_dependency_become_stale() {
     let repo = Repo::new();
+    repo.vendor("helper", "0.1.0", "pub struct Thing;\n");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"0.1\"\n",
     );
-    repo.write(
-        "vendor/helper/Cargo.toml",
-        "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    repo.write("vendor/helper/src/lib.rs", "pub struct Thing;\n");
     repo.write("src/lib.rs", "");
     lock(&repo);
     repo.commit("with helper");
@@ -562,6 +555,39 @@ fn parameter_names_of_head_functions_are_live() {
     repo.commit("drop found");
 
     assert_eq!(found(&repo), []);
+}
+
+#[test]
+fn generic_parameter_names_of_head_items_are_live() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct Lanes;\npub struct Elem;\npub struct Seed;\npub struct Key;\npub struct Out;\npub struct Al;\npub struct Un;\npub struct En;\npub struct Ex;\npub struct Unused;\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// Uses `Lanes`, `Elem`, `Seed`, `Key`, `Out`, `Al`, `Un`, `En`, `Ex` and `Unused`.\npub fn sample<Elem, const Lanes: usize>() {}\npub struct Holder<Seed>(Seed);\nimpl<Key> Holder<Key> {\n    pub fn method<Ex>() {}\n}\npub trait Conv<Out> {}\npub type Alias<Al> = Vec<Al>;\npub union U<Un: Copy> {\n    a: Un,\n}\npub enum E<En> {\n    A(En),\n}\n",
+    );
+    repo.commit("generic parameters only");
+
+    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.0).collect();
+    assert_eq!(rows, ["fixture::Unused"]);
+}
+
+#[test]
+fn the_prose_of_a_doc_comment_sees_the_names_its_examples_declare() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone_reader() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// A `gone_reader` function may only read owned data.\n///\n/// ```\n/// fn gone_reader() {}\n/// ```\npub fn kept() {}\n\n/// Calls `gone_reader`.\npub fn other() {}\n",
+    );
+    repo.commit("drop gone_reader");
+
+    let rows: Vec<(String, usize)> = found(&repo).into_iter().map(|m| (m.0, m.2)).collect();
+    assert_eq!(rows, [("fixture::gone_reader".to_owned(), 8)]);
 }
 
 #[test]
@@ -1110,21 +1136,6 @@ fn only_a_single_eq_at_the_top_of_macro_arguments_binds() {
 }
 
 #[test]
-fn the_prose_of_a_doc_comment_sees_the_names_its_examples_declare() {
-    let repo = Repo::new();
-    repo.write("src/lib.rs", "pub fn gone_reader() {}\n");
-    repo.commit("start");
-    repo.write(
-        "src/lib.rs",
-        "/// A `gone_reader` function may only read owned data.\n///\n/// ```\n/// fn gone_reader() {}\n/// ```\npub fn kept() {}\n\n/// Calls `gone_reader`.\npub fn other() {}\n",
-    );
-    repo.commit("drop gone_reader");
-
-    let rows: Vec<(String, usize)> = found(&repo).into_iter().map(|m| (m.0, m.2)).collect();
-    assert_eq!(rows, [("fixture::gone_reader".to_owned(), 8)]);
-}
-
-#[test]
 fn a_doc_example_binds_only_the_names_its_patterns_take() {
     let repo = Repo::new();
     repo.write(
@@ -1369,6 +1380,56 @@ fn a_bitwise_or_in_a_doc_example_opens_no_closure() {
 }
 
 #[test]
+fn a_name_of_a_head_feature_binary_example_or_package_is_live() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod chacha {}\npub fn cli_tool() {}\npub fn demo_ex() {}\npub mod fixture {}\npub fn gone_fn() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[features]\nchacha = []\n",
+    );
+    repo.write("src/lib.rs", "");
+    repo.write("src/bin/cli_tool.rs", "fn main() {}\n");
+    repo.write("examples/demo_ex.rs", "fn main() {}\n");
+    repo.write(
+        "README.md",
+        "`chacha`, `cli_tool`, `demo_ex`, `fixture` and `gone_fn`.\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.5).collect();
+    assert_eq!(rows, ["gone_fn"]);
+}
+
+#[test]
+fn a_path_segment_inside_a_doc_example_pattern_binds_nothing() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn gone_tail() {}\npub fn gone_head() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// let (m::gone_tail(a), c) = v;\n/// let (gone_head::Wrap(b), d) = v;\n/// gone_tail(gone_head);\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize, usize)> =
+        found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
+    assert_eq!(
+        rows,
+        [
+            ("fixture::gone_tail".to_owned(), 4, 5),
+            ("fixture::gone_head".to_owned(), 4, 15)
+        ]
+    );
+}
+
+#[test]
 fn a_local_removal_outweighs_an_older_dependency_with_the_same_path() {
     let repo = Repo::new();
     let manifest = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nexclude = [\"vendor/helper\"]\n";
@@ -1446,6 +1507,25 @@ fn macro_tokens_do_not_declare_function_or_macro_parameters() {
             ),
         ]
     );
+}
+
+#[test]
+fn generic_impl_parameters_leave_later_declarations_bound() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct ST;\npub fn gone_item() {}\npub fn gone_call() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// impl Clone for Lower {\n///     fn clone(&self) -> Self {\n///         Lower\n///     }\n/// }\n/// impl<DB, ST> FromSql<ST, DB> for Lower {}\n/// for gone_item in list {\n///     gone_item;\n/// }\n/// gone_call();\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize, usize)> =
+        found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
+    assert_eq!(rows, [("fixture::gone_call".to_owned(), 11, 5)]);
 }
 
 #[test]

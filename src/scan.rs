@@ -9,7 +9,7 @@ use crate::cache::FileCache;
 use crate::config::{self, Config, Filter};
 use crate::deps::{self, Removal, Scratch};
 use crate::git::{self, Head, Snapshot, TreeSnapshot, WorkTreeSnapshot};
-use crate::index::{Index, Indexer};
+use crate::index::{Index, Indexer, Reexports};
 use crate::intern::{Interner, PathId, Sym};
 use crate::parse::SERDE_MARKER;
 use crate::stdlib::Vocabulary;
@@ -19,26 +19,62 @@ use crate::{
     Suggestion, UnusedMarker, entry, stdlib, suggest,
 };
 
-/// What one commit of the range declares beyond head.
-struct State {
-    /// Paths of the commit that head lacks.
-    missing: HashSet<PathId>,
-    complete: bool,
+/// What the commits of the range declare beyond head, each distinct tree stored once.
+#[derive(Default)]
+struct States {
+    /// The distinct tree of each commit, in walk order, as an index into `complete`.
+    slot_of: Vec<usize>,
+    /// Whether each distinct tree could be read entirely.
+    complete: Vec<bool>,
+    /// Every path some tree has and head lacks, with the trees having it as sorted runs of
+    /// consecutive slots, first and last included.
+    missing: HashMap<PathId, Vec<(u32, u32)>>,
+}
+
+impl States {
+    /// Adds the next distinct tree, with the paths it has that head lacks, returning its slot.
+    fn add_tree(&mut self, missing: impl Iterator<Item = PathId>, complete: bool) -> usize {
+        let slot = self.complete.len();
+        let at = u32::try_from(slot).expect("fewer than 2^32 trees");
+        for id in missing {
+            let runs = self.missing.entry(id).or_default();
+            match runs.last_mut() {
+                Some((_, last)) if *last + 1 == at => *last = at,
+                _ => runs.push((at, at)),
+            }
+        }
+        self.complete.push(complete);
+        slot
+    }
+
+    /// Whether the tree of commit `i` could be read entirely.
+    fn complete(&self, i: usize) -> bool {
+        self.complete[self.slot_of[i]]
+    }
+
+    /// Whether the tree of commit `i` has `id` where head lacks it.
+    fn missing(&self, i: usize, id: PathId) -> bool {
+        let slot = u32::try_from(self.slot_of[i]).expect("fewer than 2^32 trees");
+        self.missing.get(&id).is_some_and(|runs| {
+            let at = runs.partition_point(|&(_, last)| last < slot);
+            runs.get(at).is_some_and(|&(first, _)| first <= slot)
+        })
+    }
+
+    /// Whether commit `i` has `id` where head lacks it, read from a tree read entirely.
+    fn has(&self, i: usize, id: PathId) -> bool {
+        self.complete(i) && self.missing(i, id)
+    }
+
+    /// Every path some tree has and head lacks.
+    fn paths(&self) -> impl Iterator<Item = PathId> + '_ {
+        self.missing.keys().copied()
+    }
 }
 
 struct IndexedRange {
-    slots: Vec<State>,
-    state_of: Vec<usize>,
+    states: States,
     first_seen: HashMap<PathId, usize>,
-}
-
-impl IndexedRange {
-    fn states(&self) -> Vec<&State> {
-        self.state_of
-            .iter()
-            .map(|&slot| &self.slots[slot])
-            .collect()
-    }
 }
 
 struct Suggestable {
@@ -95,7 +131,6 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let mut indexer = Indexer::new(FileCache::load(&layout.cache_dir));
     let (commits, head) = git::range(&repo, &range)?;
     let head_snapshot = head_snapshot(&repo, &layout, &commits, &head);
-    let head_index = indexer.index(&*head_snapshot, &layout.workspace, true)?;
     let scratch = Scratch {
         dir: &layout.cache_dir,
         workspace_dir: &workspace_dir,
@@ -103,26 +138,26 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         workspace: &layout.workspace,
     };
     let dependencies = deps::head(&mut indexer, &*head_snapshot, &scratch)?;
+    indexer.use_dependency_macros(&dependencies.macro_rules);
+    let head_index = indexer.index(&*head_snapshot, &layout.workspace, true)?;
+    indexer.use_head_macros(&head_index);
 
     let walk = index_range(&mut indexer, &repo, &commits, &layout, &head_index)?;
-    let states = walk.states();
+    let states = &walk.states;
 
-    let mut removed: Vec<PathId> = walk
-        .slots
-        .iter()
-        .flat_map(|s| s.missing.iter().copied())
-        .collect::<HashSet<_>>()
-        .into_iter()
+    let mut removed: Vec<PathId> = states
+        .paths()
         .filter(|&id| !kept_by_macro(&indexer.interner, &head_index, id))
         .collect();
-    let removals = removals(&indexer.interner, &removed, &commits, &states);
+    let removals = removals(&indexer.interner, &removed, &commits, states);
     let alive = [&head_index.paths, &dependencies.paths];
     let dependency_removals = deps::removed(&mut indexer, &repo, &removals, alive, &scratch)?;
     let dependency_items = dependency_removals.items;
     let interner = &indexer.interner;
+    let rooted = rooted(interner, &dependency_items, &dependencies, &indexer.crates);
     removed.extend(dependency_items.keys().copied());
     removed.sort_by_cached_key(|&id| display(interner, id));
-    let history = History::new(&commits, &states, &head);
+    let history = History::new(&commits, states, &head);
     let ranked = ranked(
         interner,
         &history,
@@ -130,8 +165,6 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         &dependency_items,
         &indexer.crates,
     );
-
-    let rooted = rooted(interner, &dependency_items, &dependencies, &indexer.crates);
 
     let entries = Entries::new(interner, &head_index, &removed, &indexer.members);
     let mut matcher = Matcher::new(
@@ -327,7 +360,7 @@ fn filter(
     Filter::new(config, workspace_dir, workspace, package_dir)
 }
 
-/// Indexes each distinct tree of the range once, returning the states and each commit's state.
+/// Indexes each distinct tree of the range once, returning what each commit declares beyond head.
 fn index_range(
     indexer: &mut Indexer,
     repo: &gix::Repository,
@@ -335,8 +368,7 @@ fn index_range(
     layout: &Layout,
     head_index: &Index,
 ) -> Result<IndexedRange, Error> {
-    let mut slots: Vec<State> = Vec::new();
-    let mut state_of = Vec::with_capacity(commits.len());
+    let mut states = States::default();
     let mut first_seen: HashMap<PathId, usize> = HashMap::new();
     let mut by_tree: HashMap<ObjectId, (Option<usize>, usize)> = commits
         .iter()
@@ -348,35 +380,28 @@ fn index_range(
             .get_mut(&commit.tree)
             .expect("every tree was recorded");
         if let Some(slot) = *slot {
-            state_of.push(slot);
+            states.slot_of.push(slot);
             continue;
         }
         let oldest = *oldest;
         let snapshot = TreeSnapshot::new(repo, commit.tree);
         let index = indexer.index(&snapshot, &layout.workspace, false)?;
-        let mut missing = HashSet::new();
-        for &path in &index.paths {
+        let missing = index.paths.iter().filter_map(|&path| {
             if head_index.paths.contains(&path) {
                 first_seen
                     .entry(path)
                     .and_modify(|first| *first = (*first).max(oldest))
                     .or_insert(oldest);
+                None
             } else {
-                missing.insert(path);
+                Some(path)
             }
-        }
-        *slot = Some(slots.len());
-        state_of.push(slots.len());
-        slots.push(State {
-            missing,
-            complete: index.complete,
         });
+        let next = states.add_tree(missing, index.complete);
+        *slot = Some(next);
+        states.slot_of.push(next);
     }
-    Ok(IndexedRange {
-        slots,
-        state_of,
-        first_seen,
-    })
+    Ok(IndexedRange { states, first_seen })
 }
 
 /// A name in a suppression marker of head.
@@ -423,28 +448,6 @@ fn suppress(
         .collect()
 }
 
-/// Removed dependency APIs requiring their full crate-root path.
-fn rooted(
-    interner: &Interner,
-    items: &HashMap<PathId, PathId>,
-    dependencies: &deps::Layer,
-    crates: &HashSet<Sym>,
-) -> HashSet<PathId> {
-    let head_roots: HashSet<Sym> = dependencies
-        .paths
-        .iter()
-        .map(|&id| interner.segments(id)[0])
-        .collect();
-    items
-        .keys()
-        .copied()
-        .filter(|&id| {
-            let root = interner.segments(id)[0];
-            !crates.contains(&root) && !head_roots.contains(&root)
-        })
-        .collect()
-}
-
 /// Whether `name` spells the group `path` or ends it at a `::` boundary.
 fn names(path: &str, name: &str) -> bool {
     path.strip_suffix(name)
@@ -456,14 +459,13 @@ fn removals(
     interner: &Interner,
     removed: &[PathId],
     commits: &[git::Commit],
-    states: &[&State],
+    states: &States,
 ) -> Vec<Removal> {
     let mut found: Vec<(usize, String, Removal)> = removed
         .iter()
         .filter(|&&id| interner.kind(id) == ItemKind::Dependency)
         .filter_map(|&id| {
-            let at = (0..commits.len())
-                .find(|&i| states[i].complete && states[i].missing.contains(&id))?;
+            let at = (0..commits.len()).find(|&i| states.has(i, id))?;
             let segments = interner.segments(id);
             let removal = Removal {
                 entry: id,
@@ -552,7 +554,7 @@ fn find_mentions(
             continue;
         }
         let read = if is_rust {
-            text::rust(source)
+            text::rust(source, filter.scan_commented_code)
         } else {
             text::markdown_file(source)
         }
@@ -632,6 +634,24 @@ fn has_extension(file: &str, extensions: &[&str]) -> bool {
         .is_some_and(|(_, ext)| extensions.iter().any(|e| ext.eq_ignore_ascii_case(e)))
 }
 
+/// The removed dependency `items` whose crate is neither among head's `dependencies` nor a
+/// workspace crate of the `crates`, which match only as whole paths from that crate.
+fn rooted(
+    interner: &Interner,
+    items: &HashMap<PathId, PathId>,
+    dependencies: &deps::Layer,
+    crates: &HashSet<Sym>,
+) -> HashSet<PathId> {
+    items
+        .keys()
+        .copied()
+        .filter(|&id| {
+            let root = interner.segments(id)[0];
+            !dependencies.roots.contains(&root) && !crates.contains(&root)
+        })
+        .collect()
+}
+
 /// Whether an item-position macro of head may still generate `id`.
 fn kept_by_macro(interner: &Interner, head: &Index, id: PathId) -> bool {
     let segments = interner.segments(id);
@@ -665,13 +685,13 @@ enum RemovedAt {
 /// The walked commits and their states, children first.
 struct History<'a> {
     commits: &'a [git::Commit],
-    states: &'a [&'a State],
+    states: &'a States,
     position: HashMap<ObjectId, usize>,
     head: &'a Head,
 }
 
 impl<'a> History<'a> {
-    fn new(commits: &'a [git::Commit], states: &'a [&'a State], head: &'a Head) -> Self {
+    fn new(commits: &'a [git::Commit], states: &'a States, head: &'a Head) -> Self {
         let position = commits.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
         Self {
             commits,
@@ -700,7 +720,7 @@ impl History<'_> {
     /// The change that removed `id`: the uncommitted changes when `HEAD` has it, else the
     /// commit closest to head that lacks it while every parent has it.
     fn removal(&self, id: PathId) -> Option<RemovedAt> {
-        let has = |i: usize| self.states[i].complete && self.states[i].missing.contains(&id);
+        let has = |i: usize| self.states.has(i, id);
         if let Head::WorkTree(Some(head_commit)) = self.head
             && self.position.get(head_commit).is_some_and(|&i| has(i))
         {
@@ -710,7 +730,7 @@ impl History<'_> {
             .iter()
             .enumerate()
             .position(|(i, commit)| {
-                let lacks = self.states[i].complete && !self.states[i].missing.contains(&id);
+                let lacks = self.states.complete(i) && !self.states.missing(i, id);
                 lacks
                     && !commit.parents.is_empty()
                     && commit
@@ -723,13 +743,11 @@ impl History<'_> {
 
     /// The first known introduction, when that tree and all older states are complete.
     fn first_tree(&self, id: PathId) -> Option<(ObjectId, usize)> {
-        let at = self
-            .states
-            .iter()
-            .rposition(|state| state.missing.contains(&id))?;
-        self.states[at..]
-            .iter()
-            .all(|state| state.complete)
+        let at = (0..self.commits.len())
+            .rev()
+            .find(|&i| self.states.missing(i, id))?;
+        (at..self.commits.len())
+            .all(|i| self.states.complete(i))
             .then_some((self.commits[at].tree, at))
     }
 }
@@ -788,6 +806,8 @@ struct Matcher<'a> {
     entries: &'a Entries<'a>,
     /// The crate names of every workspace target in any indexed snapshot.
     crates: &'a HashSet<Sym>,
+    /// The re-exports of head with the sources they stand for.
+    reexports: &'a Reexports,
 }
 
 impl<'a> Matcher<'a> {
@@ -800,7 +820,6 @@ impl<'a> Matcher<'a> {
                 .filter_map(|name| interner.find_sym(name)),
         );
     }
-
     /// Builds the matcher from the `removed` paths in their [`ranked`] order, where the
     /// `rooted` among them match only as whole paths from their crate root.
     fn new(
@@ -817,7 +836,11 @@ impl<'a> Matcher<'a> {
         for &id in head.paths.iter().chain(&dependencies.paths) {
             let segments = interner.segments(id);
             alive.extend(suffixes(segments).map(Box::from));
-            if !interner.kind(id).is_manifest_entry() {
+            let kind = interner.kind(id);
+            if kind == ItemKind::Feature {
+                // Binaries, examples and packages claim theirs through their crate roots.
+                names.insert(segments[2]);
+            } else if !kind.is_manifest_entry() {
                 names.extend(segments.last().copied());
             }
         }
@@ -867,6 +890,7 @@ impl<'a> Matcher<'a> {
             vocabulary: Vocabulary::new(),
             entries,
             crates,
+            reexports: &head.reexports,
         }
     }
 
@@ -1017,6 +1041,10 @@ impl<'a> Matcher<'a> {
             // A string is data, not code, so `crate`, `self` and `super` have nothing to refer to.
             return Vec::new();
         }
+        if matches!(path.context.kind, Kind::CodeBlock { .. }) {
+            // Rustdoc compiles every example as a crate of its own.
+            return Vec::new();
+        }
         if first == "crate" {
             let crates = match (in_rust, module) {
                 (true, Some(module)) => vec![self.interner.name(module[0])],
@@ -1048,8 +1076,12 @@ impl<'a> Matcher<'a> {
     }
 
     /// What the longest prefix of `path` that is alive in head or the standard library, or
-    /// removed, says about it, preferring a removed item of crate `own`.
+    /// removed, says about it, after a prefix re-exporting a live dependency path, preferring
+    /// a removed item of crate `own`.
     fn match_removed(&self, path: &[&str], own: Option<Sym>) -> Hit {
+        if self.reexports_alive(path) {
+            return Hit::Alive;
+        }
         for len in (2..=path.len()).rev() {
             let prefix = &path[..len];
             let joined = prefix.join("::");
@@ -1082,6 +1114,26 @@ impl<'a> Matcher<'a> {
         })
         .unwrap_or(&candidates[0])
         .to_owned()
+    }
+
+    /// Whether a prefix of `path` re-exports a source under which the rest of `path` is alive,
+    /// which the copies below re-exports miss for a source outside the workspace.
+    fn reexports_alive(&self, path: &[&str]) -> bool {
+        let Some(syms) = path
+            .iter()
+            .map(|name| self.interner.find_sym(name))
+            .collect::<Option<Vec<Sym>>>()
+        else {
+            return false;
+        };
+        (1..syms.len()).any(|len| {
+            self.reexports.get(&syms[..len]).is_some_and(|sources| {
+                sources.iter().any(|source| {
+                    let target: Vec<Sym> = source.iter().chain(&syms[len..]).copied().collect();
+                    self.alive.contains(target.as_slice())
+                })
+            })
+        })
     }
 }
 
@@ -1206,7 +1258,7 @@ impl<'a> Entries<'a> {
     }
 
     /// The removed entry of one of `kinds` called `name` as seen from `scope`, when no entry of
-    /// those kinds keeps the name alive there.
+    /// those kinds keeps the name alive there and no package of head is a dependency of that name.
     fn stale(&self, kinds: &[ItemKind], name: &str, scope: Option<&str>) -> Option<PathId> {
         let alive = kinds.iter().any(|&kind| {
             let name = comparable(kind, name);
@@ -1215,7 +1267,8 @@ impl<'a> Entries<'a> {
                 None => self.head_any.contains(&(kind, name)),
             }
         });
-        if alive {
+        let package = (ItemKind::Package, comparable(ItemKind::Package, name));
+        if alive || (kinds.contains(&ItemKind::Dependency) && self.head_any.contains(&package)) {
             return None;
         }
         kinds.iter().find_map(|&kind| {
@@ -1239,4 +1292,46 @@ fn comparable(kind: ItemKind, name: &str) -> String {
 /// The suffixes of `segments` with at least two segments, longest first.
 fn suffixes(segments: &[Sym]) -> impl Iterator<Item = &[Sym]> {
     std::iter::successors(Some(segments), |rest| rest.get(1..)).take_while(|rest| rest.len() >= 2)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::States;
+
+    /// The states of one commit per tree, each tree read entirely and missing `trees[i]`.
+    fn states(trees: &[&[u32]]) -> States {
+        let mut states = States::default();
+        for tree in trees {
+            let slot = states.add_tree(tree.iter().copied(), true);
+            states.slot_of.push(slot);
+        }
+        states
+    }
+
+    #[test]
+    fn a_path_is_missing_exactly_in_the_trees_of_its_runs() {
+        let states = states(&[&[7], &[7, 8], &[7], &[8], &[7], &[]]);
+        let seven: Vec<bool> = (0..6).map(|i| states.missing(i, 7)).collect();
+        assert_eq!(seven, [true, true, true, false, true, false]);
+        let eight: Vec<bool> = (0..6).map(|i| states.missing(i, 8)).collect();
+        assert_eq!(eight, [false, true, false, true, false, false]);
+        assert!(!states.missing(0, 9));
+    }
+
+    #[test]
+    fn a_commit_repeating_an_earlier_tree_reads_that_tree() {
+        let mut states = states(&[&[7], &[]]);
+        states.slot_of.push(0);
+        assert!(states.missing(2, 7));
+        assert!(!states.missing(1, 7));
+    }
+
+    #[test]
+    fn an_incomplete_tree_has_no_path_it_lists() {
+        let mut states = States::default();
+        let slot = states.add_tree([7].into_iter(), false);
+        states.slot_of.push(slot);
+        assert!(states.missing(0, 7));
+        assert!(!states.has(0, 7));
+    }
 }

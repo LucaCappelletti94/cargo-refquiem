@@ -8,6 +8,7 @@ mod config;
 mod deps;
 mod entry;
 mod error;
+mod expand;
 #[cfg(feature = "fuzzing")]
 #[doc(hidden)]
 pub mod fuzzing;

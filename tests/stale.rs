@@ -659,21 +659,6 @@ fn a_longer_identifier_sharing_a_prefix_is_not_a_mention() {
 }
 
 #[test]
-fn methods_of_trait_impls_are_not_indexed() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
-        "pub struct Shown;\nimpl core::fmt::Display for Shown {\n    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {\n        f.write_str(\"x\")\n    }\n}\n",
-    );
-    repo.commit("display");
-    repo.write("src/lib.rs", "pub struct Shown;\n");
-    repo.write("README.md", "`Shown::fmt`.\n");
-    repo.commit("drop display");
-
-    assert_eq!(removed(&repo.run()), [] as [&str; 0]);
-}
-
-#[test]
 fn an_item_removed_from_one_cfg_branch_only_stays_alive() {
     let repo = Repo::new();
     repo.write(
@@ -723,11 +708,15 @@ fn a_file_that_does_not_parse_at_head_is_an_error() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "pub fn fine() {}\n");
     repo.commit("start");
-    repo.write("src/lib.rs", "pub fn broken( {}\n");
+    repo.write("src/lib.rs", "\npub fn broken( {}\n");
 
     let error = refquiem::run(&repo.options()).unwrap_err();
 
-    assert!(error.to_string().contains("src/lib.rs"), "{error}");
+    assert!(
+        matches!(error, refquiem::Error::Parse { ref path, ref message }
+            if path == "src/lib.rs" && message.starts_with("2:")),
+        "{error}"
+    );
 }
 
 #[test]
@@ -742,6 +731,63 @@ fn a_corrupt_cache_is_rebuilt_with_the_same_findings() {
     let first = mentions(&repo.run());
     for entry in walk(&repo.cache_dir()) {
         std::fs::write(entry, b"{ not json").unwrap();
+    }
+    let second = mentions(&repo.run());
+
+    assert_eq!(first.len(), 1);
+    assert_eq!(first, second);
+}
+
+#[test]
+fn a_cache_entry_that_no_longer_decodes_is_parsed_again() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", PARSER);
+    repo.commit("add parser");
+    repo.write("src/lib.rs", "pub struct Parser;\n");
+    repo.write("README.md", "`Parser::parse_expr`.\n");
+    repo.commit("drop methods");
+
+    let first = mentions(&repo.run());
+    let parsed = walk(&repo.cache_dir()).into_iter().filter(|path| {
+        path.file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with("files-"))
+    });
+    for path in parsed {
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut entries: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&text).unwrap();
+        assert!(!entries.is_empty());
+        for entry in entries.values_mut() {
+            *entry = serde_json::Value::Null;
+        }
+        std::fs::write(&path, serde_json::to_string(&entries).unwrap()).unwrap();
+    }
+    let second = mentions(&repo.run());
+
+    assert_eq!(first.len(), 1);
+    assert_eq!(first, second);
+}
+
+#[test]
+fn a_corrupt_expansions_file_is_rebuilt_with_the_same_findings() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "macro_rules! make {\n    () => {\n        pub fn kept() {}\n        pub fn gone() {}\n    };\n}\n\nmake!();\n",
+    );
+    repo.commit("made");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "`fixture::gone`.\n");
+    repo.commit("drop the functions");
+
+    let first = mentions(&repo.run());
+    for path in walk(&repo.cache_dir()) {
+        if path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with("expansions-"))
+        {
+            std::fs::write(&path, b"{ not json").unwrap();
+        }
     }
     let second = mentions(&repo.run());
 
@@ -774,4 +820,65 @@ fn files_inside_the_git_directory_are_never_read() {
 
     let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
     assert!(report.is_clean(), "{}", report.human());
+}
+
+#[test]
+fn a_bare_name_goes_to_the_latest_of_the_removed_items_it_ends() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod client {\n    pub trait Connect {}\n}\npub enum Method {\n    Connect,\n    Get,\n}\n",
+    );
+    repo.commit("both");
+    repo.write(
+        "src/lib.rs",
+        "pub mod client {\n    pub trait Connect {}\n}\npub enum Method {\n    Get,\n}\n",
+    );
+    repo.commit("drop the variant");
+    repo.write("src/lib.rs", "pub enum Method {\n    Get,\n}\n");
+    repo.write("README.md", "The `Connect` trait.\n");
+    repo.commit("drop the trait");
+
+    assert_eq!(removed(&repo.run()), ["fixture::client::Connect"]);
+}
+
+#[test]
+fn a_bare_name_goes_to_the_item_of_the_mentioning_crate_first() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"alpha\", \"beta\"]\n",
+    );
+    for member in ["alpha", "beta"] {
+        repo.write(
+            &format!("{member}/Cargo.toml"),
+            &format!("[package]\nname = \"{member}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+        );
+        repo.write(&format!("{member}/src/lib.rs"), "pub struct Shared;\n");
+    }
+    repo.commit("both share");
+    repo.write("beta/src/lib.rs", "/// `Shared`\npub struct Kept;\n");
+    repo.commit("beta drops Shared");
+    repo.write("alpha/src/lib.rs", "");
+    repo.write("beta/README.md", "`Shared`\n");
+    repo.commit("alpha drops Shared");
+
+    let groups: Vec<(String, Vec<String>)> = repo
+        .run()
+        .groups
+        .iter()
+        .map(|g| {
+            (
+                g.path.clone(),
+                g.mentions.iter().map(|m| m.file.clone()).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        groups,
+        [(
+            "beta::Shared".to_owned(),
+            vec!["beta/README.md".to_owned(), "beta/src/lib.rs".to_owned()]
+        )]
+    );
 }

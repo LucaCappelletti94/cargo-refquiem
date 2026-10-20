@@ -363,33 +363,21 @@ fn a_doc_comment_run_stops_at_the_next_attribute() {
 #[test]
 fn string_literals_inside_hash_attributes_are_macro_arguments() {
     let repo = Repo::new();
-    for name in ["gone_a", "gone_b", "gone_c", "gone_d"] {
-        repo.vendor(name, "0.3.0", "");
-    }
-    repo.write(
-        "Cargo.toml",
-        &format!(
-            "{MANIFEST}\n\
-             [dependencies]\n\
-             gone_a = \"0.3\"\n\
-             gone_b = \"0.3\"\n\
-             gone_c = \"0.3\"\n\
-             gone_d = \"0.3\"\n"
-        ),
-    );
-    repo.write("src/lib.rs", "");
-    repo.commit("start");
-    repo.write("Cargo.toml", MANIFEST);
     repo.write(
         "src/lib.rs",
-        "#![doc = \"gone_a\"]\n\
+        "pub fn gone_a() {}\npub fn gone_b() {}\npub fn gone_c() {}\npub fn gone_d() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "#![my_inner(\"see gone_a\")]\n\
          \n\
          #[doc = \"note\"]\n\
-         static B: &str = \"gone_b::Item\";\n\
+         static B: &str = \"fixture::gone_b\";\n\
          \n\
-         static A: [&str; 1] = [\"gone_c::Item\"];\n\
+         static A: [&str; 1] = [\"fixture::gone_c\"];\n\
          \n\
-         #[my_attr([x] \"gone_d\")]\n\
+         #[my_attr([x] \"see gone_d\")]\n\
          fn f() {}\n",
     );
     repo.commit("drop gone_a through gone_d");
@@ -399,20 +387,20 @@ fn string_literals_inside_hash_attributes_are_macro_arguments() {
         found(&repo),
         [
             (
-                "gone_b".to_owned(),
+                "fixture::gone_b".to_owned(),
                 "src/lib.rs".to_owned(),
                 4,
                 19,
                 literal,
-                "gone_b::Item".to_owned()
+                "fixture::gone_b".to_owned()
             ),
             (
-                "gone_c".to_owned(),
+                "fixture::gone_c".to_owned(),
                 "src/lib.rs".to_owned(),
                 6,
                 25,
                 literal,
-                "gone_c::Item".to_owned()
+                "fixture::gone_c".to_owned()
             )
         ]
     );
@@ -571,6 +559,159 @@ fn rustdoc_fence_attributes_mark_the_block_compiled() {
 }
 
 #[test]
+fn commented_out_code_is_skipped_unless_the_config_asks_for_it() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone_fn() {}\npub fn kept() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/* fixture::gone_fn();\n   let x = gone_fn(); */\n// let y = fixture::gone_fn();\n// gone_fn();\n\n// fn old() { fixture::gone_fn(); }\n\n// let total = fixture::gone_fn(\n//     1,\n// );\n\n// Prose names fixture::gone_fn here.\n/// Docs name `fixture::gone_fn`.\npub fn kept() {}\n",
+    );
+    repo.commit("drop gone_fn");
+    let rows = |repo: &Repo| -> Vec<(usize, usize, Source, String)> {
+        found(repo)
+            .into_iter()
+            .map(|m| (m.2, m.3, m.4.source, m.5))
+            .collect()
+    };
+    let row = |line, column, source, text: &str| (line, column, source, text.to_owned());
+    let path = "fixture::gone_fn";
+    let (comment, doc) = (Source::Comment, Source::DocComment);
+
+    assert_eq!(
+        rows(&repo),
+        [row(12, 16, comment, path), row(13, 16, doc, path)]
+    );
+
+    repo.write(".refquiem.toml", "scan-commented-code = true\n");
+    assert_eq!(
+        rows(&repo),
+        [
+            row(1, 4, comment, path),
+            row(2, 12, comment, "gone_fn"),
+            row(3, 12, comment, path),
+            row(4, 4, comment, "gone_fn"),
+            row(6, 15, comment, path),
+            row(8, 16, comment, path),
+            row(12, 16, comment, path),
+            row(13, 16, doc, path),
+        ]
+    );
+}
+
+#[test]
+fn a_string_literal_holding_one_identifier_is_data() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub const EXCEPT_TABLE: u8 = 0;\npub fn seq_shuffle_100() {}\npub fn gone_fn() {}\npub mod old {\n    pub struct Item;\n}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "pub const ARG: &str = \"EXCEPT_TABLE\";\npub fn bench(c: &mut Bencher) { c.bench_function(\"seq_shuffle_100\", |b| b.iter(|| ())); }\npub const PATH: &str = \"fixture::old::Item\";\npub const HINT: &str = \"use gone_fn instead\";\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(usize, usize, String)> =
+        found(&repo).into_iter().map(|m| (m.2, m.3, m.5)).collect();
+    assert_eq!(
+        rows,
+        [
+            (4, 29, "gone_fn".to_owned()),
+            (3, 25, "fixture::old::Item".to_owned())
+        ]
+    );
+}
+
+#[test]
+fn a_doc_comment_runs_across_doc_attributes_plain_comments_and_attributes() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone_fn() {}\npub fn gone_too() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "//! Crate docs.\n#![doc = \"Inner names `fixture::gone_too`.\"]\n\n/// ```\n/// let a = 1;\n#[cfg_attr(not(doctest), doc = \"     ...\")]\n/// let b = 2;\n/// ```\n///\n/// Prose names gone_fn.\npub fn one() {}\n\n/// ```text\n/// error output\n//    --> src/main.rs\n//  note: gone_too was here\n/// ```\n///\n/// Prose names gone_too here.\npub fn two() {}\n\n#[doc = \"Docs name `fixture::gone_fn` too.\"]\n#[doc = r\"Raw names `fixture::gone_too`.\"]\n#[doc = \"First line.\nSecond names `fixture::gone_fn`.\"]\npub fn three() {}\n\n/// Docs.\n#[deprecated(note = \"use fixture::gone_fn\")]\npub fn four() {}\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(usize, usize, Context, String)> = found(&repo)
+        .into_iter()
+        .map(|m| (m.2, m.3, m.4, m.5))
+        .collect();
+    let doc = |kind| context(Source::DocComment, kind);
+    let text = |source| context(source, Kind::Text);
+    let row = |line, column, context, mention: &str| (line, column, context, mention.to_owned());
+    let (gone_fn, gone_too) = ("fixture::gone_fn", "fixture::gone_too");
+    assert_eq!(
+        rows,
+        [
+            row(10, 17, doc(Kind::Text), "gone_fn"),
+            row(22, 21, doc(Kind::CodeSpan), gone_fn),
+            row(25, 15, doc(Kind::CodeSpan), gone_fn),
+            row(29, 26, text(Source::StringLiteral), gone_fn),
+            row(2, 24, doc(Kind::CodeSpan), gone_too),
+            row(16, 11, text(Source::Comment), "gone_too"),
+            row(19, 17, doc(Kind::Text), "gone_too"),
+            row(23, 22, doc(Kind::CodeSpan), gone_too),
+        ]
+    );
+}
+
+#[test]
+fn identifiers_in_attribute_arguments_of_a_compiled_example_are_not_names() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct VariadicArgs {\n    pub argument_count: u8,\n}\npub struct Container {\n    pub rename_all: u8,\n}\npub struct RemovedDerive;\npub struct GoneType;\npub fn gone_attr() {}\npub fn gone_inner() {}\npub fn gone_arg() {}\npub fn gone_lint() {}\npub fn gone_idx() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// #![allow(gone_inner)]\n/// #[variadic(argument_count)]\n/// #[serde(rename_all = \"camelCase\")]\n/// #[cfg_attr(test, derive(RemovedDerive), gone_arg)]\n/// #[cfg_attr(test, allow(gone_lint))]\n/// #[gone_attr]\n/// struct S { field: GoneType }\n/// let x = data[(gone_idx)];\n/// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(usize, usize, String)> =
+        found(&repo).into_iter().map(|m| (m.2, m.3, m.5)).collect();
+    assert_eq!(
+        rows,
+        [
+            (8, 23, "GoneType".to_owned()),
+            (5, 29, "RemovedDerive".to_owned()),
+            (7, 7, "gone_attr".to_owned()),
+            (9, 19, "gone_idx".to_owned())
+        ]
+    );
+}
+
+#[test]
+fn a_rust_example_in_a_plain_comment_declares_its_own_names() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct GoneAlias;\nimpl GoneAlias {\n    pub fn gone_assoc() {}\n}\npub fn gone_call() {}\npub struct GoneOther;\npub struct GoneText;\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "// Implement HasTable for tuples.\n//\n// For example:\n// ```rust,ignore\n// type GoneAlias = <(a, b) as HasTable>::Table;\n// let t = GoneAlias::gone_assoc();\n// ::GoneAlias::gone_assoc();\n// gone_call();\n// ```\n//\n// A `GoneOther` outside the example counts, and so does a text example:\n// ```text\n// type GoneText = u8;\n// ```\npub struct Kept;\n",
+    );
+    repo.commit("drop them");
+
+    let rows: Vec<(String, usize)> = found(&repo).into_iter().map(|m| (m.0, m.2)).collect();
+    assert_eq!(
+        rows,
+        [
+            ("fixture::GoneAlias::gone_assoc".to_owned(), 7),
+            ("fixture::GoneOther".to_owned(), 11),
+            ("fixture::GoneText".to_owned(), 13),
+            ("fixture::gone_call".to_owned(), 8)
+        ]
+    );
+}
+
+#[test]
 fn attribute_boundaries_preserve_string_literal_mentions() {
     let repo = Repo::new();
     repo.write(
@@ -580,7 +721,7 @@ fn attribute_boundaries_preserve_string_literal_mentions() {
     repo.commit("structure and serialized field");
     repo.write(
         "src/lib.rs",
-        "#![doc = \"old-alias-842\"]\n#[attr([inner] \"GoneThing went away\")]\npub struct Kept;\npub const DIRECT: &str = \"GoneThing went away\";\npub const ARRAY: [&str; 1] = [\"ArrayThing went away\"];\n",
+        "#![allow(dead_code, reason = \"old-alias-842\")]\n#[attr([inner] \"GoneThing went away\")]\npub struct Kept;\npub const DIRECT: &str = \"GoneThing went away\";\npub const ARRAY: [&str; 1] = [\"ArrayThing went away\"];\n",
     );
     repo.commit("drop the structures");
 
@@ -594,5 +735,29 @@ fn attribute_boundaries_preserve_string_literal_mentions() {
             ("fixture::ArrayThing".to_owned(), 5, "ArrayThing".to_owned()),
             ("fixture::GoneThing".to_owned(), 4, "GoneThing".to_owned()),
         ]
+    );
+}
+
+#[test]
+fn a_doc_attribute_keeps_its_example_bindings_local() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn retired_probe_842() {}\npub struct RetiredOutside842;\n",
+    );
+    repo.commit("function and structure");
+    repo.write(
+        "src/lib.rs",
+        "#[doc = r\"```\nlet retired_probe_842 = 1;\nretired_probe_842;\n```\n\nUse `RetiredOutside842`.\n\"]\npub struct Kept;\n",
+    );
+    repo.commit("drop the items");
+
+    let mentions: Vec<_> = found(&repo).into_iter().map(|row| (row.0, row.5)).collect();
+    assert_eq!(
+        mentions,
+        [(
+            "fixture::RetiredOutside842".to_owned(),
+            "RetiredOutside842".to_owned()
+        )]
     );
 }

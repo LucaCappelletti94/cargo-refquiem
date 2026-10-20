@@ -11,7 +11,7 @@
 /// Panics when a mention or marker has invalid source offsets.
 pub fn mentions(source: &str, rust: bool) -> Result<usize, crate::Error> {
     let read = if rust {
-        crate::text::rust(source)
+        crate::text::rust(source, false)
     } else {
         crate::text::markdown_file(source)
     }

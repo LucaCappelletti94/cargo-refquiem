@@ -1326,6 +1326,7 @@ dependencies = [
  "cargo_metadata",
  "fst",
  "gix",
+ "hashbrown 0.17.1",
  "ignore",
  "proc-macro2",
  "pulldown-cmark",

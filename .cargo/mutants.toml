@@ -12,7 +12,11 @@ exclude_re = [
     # At head `deps::head` reads the same manifests and fails on the same error.
     'replace match guard !head with true in Indexer::index',
     # Which module a file reached twice keeps is arbitrary.
-    'src/index\.rs:\d+:21: replace && with \|\| in Indexer::reach',
+    'src/index\.rs:\d+:25: replace && with \|\| in Indexer::reach',
+    # rustc rejects a `$` before a brace or bracket group in a `macro_rules!` matcher.
+    'replace match guard group.delimiter\(\) == Delimiter::Parenthesis with true in matchers',
+    # rustc rejects a separator of several tokens that are not one run of joined punctuation.
+    'src/expand\.rs:\d+:13: replace && with \|\| in kleene',
     # An empty or `.` glob segment only adds a round that matches the same directories.
     'src/manifest\.rs:\d+:64: replace && with \|\| in expand',
     # The git object cache size only changes speed.
@@ -37,4 +41,11 @@ exclude_re = [
     'src/output\.rs:\d+:49: replace && with \|\| in span',
     # Doc-comment markers are read from raw tokens, so Markdown marker results are discarded.
     'src/text\.rs:\d+:54: replace match guard source == Source::Markdown with true in markdown_mentions',
+    # Adjacent-slot compaction only reduces storage.
+    'src/scan\.rs:\d+:36: replace match guard \*last \+ 1 == at with false in States::add_tree$',
+    'src/scan\.rs:\d+:42: replace \+ with \* in States::add_tree$',
+    # Expansion memoization only avoids deterministic reparsing.
+    'src/cache\.rs:\d+:9: replace FileCache::expansion -> Option<Expanded> with None$',
+    'src/cache\.rs:\d+:9: replace FileCache::store_expansion with \(\)$',
+    'src/index\.rs:\d+:5: replace expansion_key -> Option<ObjectId> with None$',
 ]

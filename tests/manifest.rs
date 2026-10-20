@@ -6,7 +6,6 @@ mod vendor;
 
 use common::Repo;
 use refquiem::{ItemKind, RemovedIn};
-use std::fmt::Write as _;
 
 const PACKAGE: &str = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
 
@@ -198,14 +197,17 @@ fn a_renamed_dependency_is_stale_under_its_key() {
     );
     repo.commit("renamed clap");
     repo.write("Cargo.toml", PACKAGE);
-    repo.write(
-        "README.md",
-        "`cli::Parser` from https://crates.io/crates/clap\n",
-    );
+    repo.write("README.md", "`cli::Parser`, added with `cargo add clap`.\n");
     repo.commit("drop clap");
 
     let names: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
-    assert_eq!(names, [("cli".to_owned(), "cli::Parser".to_owned())]);
+    assert_eq!(
+        names,
+        [
+            ("cli".to_owned(), "cli::Parser".to_owned()),
+            ("clap".to_owned(), "clap".to_owned()),
+        ]
+    );
 }
 
 #[test]
@@ -358,7 +360,7 @@ fn removed_binaries_and_examples_are_found_in_cargo_commands() {
 }
 
 #[test]
-fn a_renamed_package_keeps_published_crate_links_valid() {
+fn a_renamed_package_leaves_its_old_cargo_flags_stale() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "");
     repo.commit("fixture");
@@ -368,11 +370,13 @@ fn a_renamed_package_keeps_published_crate_links_valid() {
     );
     repo.write(
         "README.md",
-        "https://crates.io/crates/fixture and https://crates.io/crates/fixture-next\n",
+        "`cargo test -p fixture` and `cargo test -p fixture-next`\n",
     );
     repo.commit("rename package");
 
-    assert_eq!(found(&repo), Vec::new());
+    let names: Vec<(String, ItemKind, usize)> =
+        found(&repo).into_iter().map(|m| (m.0, m.1, m.4)).collect();
+    assert_eq!(names, [("fixture".to_owned(), ItemKind::Package, 16)]);
 }
 
 #[test]
@@ -406,26 +410,30 @@ fixture = { version = \"0.1\", features = [\"fast\"] }
 }
 
 #[test]
-fn an_excluded_workspace_member_is_not_indexed() {
+fn an_excluded_workspace_member_is_read_as_a_package_outside_the_workspace() {
     let repo = Repo::new();
     repo.write(
         "Cargo.toml",
         "[workspace]\nmembers = [\"crates/*\"]\nexclude = [\"crates/skipped\"]\n",
     );
-    repo.write(
-        "crates/kept/Cargo.toml",
-        "[package]\nname = \"kept\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    repo.write(
-        "crates/skipped/Cargo.toml",
-        "[package]\nname = \"skipped\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
+    for name in ["kept", "skipped"] {
+        repo.write(
+            &format!("crates/{name}/Cargo.toml"),
+            &format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+        );
+        repo.write(&format!("crates/{name}/src/lib.rs"), "");
+    }
     repo.commit("kept and excluded");
-    std::fs::remove_file(repo.path().join("crates/skipped/Cargo.toml")).unwrap();
-    repo.write("README.md", "[skipped](https://crates.io/crates/skipped)\n");
-    repo.commit("drop the excluded member");
+    let options = refquiem::Options::new(repo.path().to_path_buf());
 
-    assert_eq!(found(&repo), []);
+    repo.write("crates/skipped/src/lib.rs", "pub fn (\n");
+    assert!(refquiem::run(&options).is_ok());
+    repo.write("crates/kept/src/lib.rs", "pub fn (\n");
+    let error = refquiem::run(&options).unwrap_err();
+    assert!(
+        matches!(&error, refquiem::Error::Parse { path, .. } if path == "crates/kept/src/lib.rs"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -462,6 +470,43 @@ fn workspace_inheritance_resolves_a_member_dependency() {
         )]
     );
     assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+}
+
+#[test]
+fn an_inherited_dependency_keeps_its_member_optional_feature() {
+    let repo = Repo::new();
+    repo.vendor("tool", "1.0.0", "pub fn live() {}\n");
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"m\"]\n\n[workspace.dependencies]\ntool = \"1\"\n",
+    );
+    repo.write(
+        "m/Cargo.toml",
+        "[package]\nname = \"m\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[features]\nsteady = []\n\n[dependencies]\ntool = { workspace = true, optional = true }\n",
+    );
+    repo.write("m/src/lib.rs", "");
+    repo.commit("optional inherited tool");
+    repo.write(
+        "m/Cargo.toml",
+        "[package]\nname = \"m\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[features]\nsteady = []\n\n[dependencies]\ntool = { workspace = true }\n",
+    );
+    repo.write(
+        "m/README.md",
+        "`--features tool`, `--features steady` and `tool::live`.\n",
+    );
+    repo.commit("require inherited tool");
+
+    assert_eq!(
+        found(&repo),
+        [mention(
+            "tool",
+            ItemKind::Feature,
+            "m/README.md",
+            1,
+            13,
+            "tool"
+        )]
+    );
 }
 
 #[test]
@@ -511,6 +556,7 @@ fn a_member_path_override_fills_the_inherited_spec() {
         "m/Cargo.toml",
         "[package]\nname = \"m\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
+    std::fs::remove_dir_all(repo.path().join("src-local")).unwrap();
     repo.write("README.md", "The docs name `local::here`.\n");
     repo.commit("drop local");
 
@@ -685,24 +731,24 @@ fn a_recursive_member_glob_reaches_nested_members_and_skips_target() {
             &format!("{dir}/Cargo.toml"),
             &format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
         );
+        repo.write(&format!("{dir}/src/lib.rs"), "");
     }
     repo.commit("nested members");
-    for dir in ["nested/a/b", "nested/zzz", "nested/target/x"] {
-        std::fs::remove_file(repo.path().join(format!("{dir}/Cargo.toml"))).unwrap();
-    }
-    repo.write(
-        "README.md",
-        "```toml\n[dependencies]\ndeep = \"1\"\nshallow = \"1\"\npruned = \"1\"\n```\n",
-    );
-    repo.commit("drop the nested members");
+    let options = refquiem::Options::new(repo.path().to_path_buf());
 
-    assert_eq!(
-        found(&repo),
-        [
-            mention("deep", ItemKind::Package, "README.md", 3, 1, "deep"),
-            mention("shallow", ItemKind::Package, "README.md", 4, 1, "shallow"),
-        ]
-    );
+    // An unreadable file fails the scan at head only inside a workspace member.
+    repo.write("nested/target/x/src/lib.rs", "pub fn (\n");
+    assert!(refquiem::run(&options).is_ok());
+    for dir in ["nested/a/b", "nested/zzz"] {
+        let file = format!("{dir}/src/lib.rs");
+        repo.write(&file, "pub fn (\n");
+        let error = refquiem::run(&options).unwrap_err();
+        assert!(
+            matches!(&error, refquiem::Error::Parse { path, .. } if *path == file),
+            "{dir}: {error}"
+        );
+        repo.write(&file, "");
+    }
 }
 
 #[test]
@@ -742,37 +788,26 @@ fn member_globs_match_shell_style_wildcards_classes_and_ranges() {
             &format!("{dir}/Cargo.toml"),
             &format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
         );
+        repo.write(&format!("{dir}/src/lib.rs"), "");
     }
     repo.commit("glob members");
-    for (dir, _) in matched.into_iter().chain(unmatched) {
-        std::fs::remove_file(repo.path().join(format!("{dir}/Cargo.toml"))).unwrap();
-    }
-    let mut readme = String::from("```toml\n[dependencies]\n");
-    for (_, name) in matched.into_iter().chain(unmatched) {
-        let _ = writeln!(readme, "{name} = \"1\"");
-    }
-    readme.push_str("```\n");
-    repo.write("README.md", &readme);
-    repo.commit("drop the members");
+    let options = refquiem::Options::new(repo.path().to_path_buf());
 
-    let key = |line, name: &str| mention(name, ItemKind::Package, "README.md", line, 1, name);
-    assert_eq!(
-        found(&repo),
-        [
-            key(3, "ax"),
-            key(4, "box"),
-            key(5, "ce"),
-            key(6, "de"),
-            key(7, "bf"),
-            key(8, "gf"),
-            key(9, "hj"),
-            key(10, "bn"),
-            key(11, "by"),
-            key(12, "bw"),
-            key(13, "bracket"),
-            key(14, "ae"),
-        ]
-    );
+    // An unreadable file fails the scan at head only inside a workspace member.
+    for (dir, _) in unmatched {
+        repo.write(&format!("{dir}/src/lib.rs"), "pub fn (\n");
+    }
+    assert!(refquiem::run(&options).is_ok());
+    for (dir, _) in matched {
+        let file = format!("{dir}/src/lib.rs");
+        repo.write(&file, "pub fn (\n");
+        let error = refquiem::run(&options).unwrap_err();
+        assert!(
+            matches!(&error, refquiem::Error::Parse { path, .. } if *path == file),
+            "{dir}: {error}"
+        );
+        repo.write(&file, "");
+    }
 }
 
 #[test]
@@ -867,6 +902,98 @@ fn only_the_closed_strings_of_a_features_array_are_features() {
             mention("par", feature, "README.md", 3, 43, "par"),
             mention("par", feature, "README.md", 4, 26, "par"),
         ]
+    );
+}
+
+#[test]
+fn a_package_that_leaves_the_workspace_but_stays_in_the_tree_keeps_its_items_and_entry() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"base\", \"examples/demo\"]\n",
+    );
+    repo.write(
+        "base/Cargo.toml",
+        "[package]\nname = \"base\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("base/src/lib.rs", "");
+    repo.write(
+        "examples/demo/Cargo.toml",
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write(
+        "examples/demo/src/lib.rs",
+        "pub fn helper() {}\npub fn gone() {}\n",
+    );
+    repo.commit("demo is a member");
+    repo.write("Cargo.toml", "[workspace]\nmembers = [\"base\"]\n");
+    repo.write("examples/Cargo.toml", "[workspace]\nmembers = [\"*\"]\n");
+    repo.write("examples/demo/src/lib.rs", "pub fn helper() {}\n");
+    repo.write(
+        "README.md",
+        "`demo::helper`, `demo::gone` and the `demo` package.\n",
+    );
+    repo.commit("demo moves to the examples workspace");
+
+    let rows: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
+    assert_eq!(rows, [("demo::gone".to_owned(), "demo::gone".to_owned())]);
+}
+
+#[test]
+fn broken_packages_outside_the_workspace_neither_fail_the_scan_nor_hide_blame() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.write("tests/fixtures/bad_toml/Cargo.toml", "[package\n");
+    repo.write(
+        "tests/fixtures/bad_rust/Cargo.toml",
+        "[package]\nname = \"bad_rust\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("tests/fixtures/bad_rust/src/lib.rs", "pub fn (\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "`fixture::gone`\n");
+    let removing = repo.commit("drop gone");
+
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let removed_in: Vec<(&str, Option<RemovedIn>)> = report
+        .groups
+        .iter()
+        .map(|g| (g.path.as_str(), g.removed_in.clone()))
+        .collect();
+    assert_eq!(
+        removed_in,
+        [("fixture::gone", Some(RemovedIn::Commit(removing)))]
+    );
+}
+
+#[test]
+fn an_item_a_package_outside_the_workspace_lost_is_blamed_on_its_removal() {
+    let repo = Repo::new();
+    repo.write("Cargo.toml", "[workspace]\nmembers = [\"base\"]\n");
+    repo.write(
+        "base/Cargo.toml",
+        "[package]\nname = \"base\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("base/src/lib.rs", "");
+    repo.write(
+        "tools/gen/Cargo.toml",
+        "[package]\nname = \"gen\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("tools/gen/src/lib.rs", "pub fn old_gen() {}\n");
+    repo.commit("a stray generator");
+    repo.write("tools/gen/src/lib.rs", "");
+    repo.write("README.md", "`gen::old_gen`\n");
+    let removing = repo.commit("drop old_gen");
+
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let removed_in: Vec<(&str, Option<RemovedIn>)> = report
+        .groups
+        .iter()
+        .map(|g| (g.path.as_str(), g.removed_in.clone()))
+        .collect();
+    assert_eq!(
+        removed_in,
+        [("gen::old_gen", Some(RemovedIn::Commit(removing)))]
     );
 }
 

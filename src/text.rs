@@ -6,7 +6,7 @@ use pulldown_cmark::{
     BrokenLink, CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd,
 };
 use ra_ap_rustc_lexer::{
-    FrontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
+    DocStyle, FrontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
 };
 
 use crate::{Context, Kind, Source};
@@ -115,7 +115,7 @@ pub(crate) struct Read {
 }
 
 /// Every mention in a Rust source file's comments, documentation and strings.
-pub(crate) fn rust(source: &str) -> Result<Read, MarkdownError> {
+pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Result<Read, MarkdownError> {
     let skip = ra_ap_rustc_lexer::strip_shebang(source).unwrap_or(0);
     let mut tokens = Vec::new();
     let mut markers = Vec::new();
@@ -141,69 +141,67 @@ pub(crate) fn rust(source: &str) -> Result<Read, MarkdownError> {
     let mut i = 0;
     while i < tokens.len() {
         let (offset, len, kind) = tokens[i];
-        attribute.step(kind);
-        let text = &source[offset..offset + len];
-        match kind {
-            TokenKind::LineComment {
-                doc_style: Some(style),
-            } => {
-                let mut lines = vec![(offset, len)];
-                for (next, &(o, l, k)) in tokens.iter().enumerate().skip(i + 1) {
-                    match k {
-                        TokenKind::Whitespace => {}
-                        TokenKind::LineComment { doc_style: Some(s) } if s == style => {
-                            lines.push((o, l));
-                            i = next;
-                        }
-                        _ => break,
+        if kind == TokenKind::Pound
+            && !attribute.inside()
+            && let Some((style, _, docs)) = doc_attribute(source, &tokens, i)
+            && !docs.is_empty()
+        {
+            i = doc_run(source, &tokens, i, style, scan_commented_code, &mut out)?;
+        } else {
+            attribute.step(kind);
+            let text = &source[offset..offset + len];
+            match kind {
+                TokenKind::LineComment {
+                    doc_style: Some(style),
+                } => {
+                    i = doc_run(source, &tokens, i, style, scan_commented_code, &mut out)?;
+                }
+                TokenKind::BlockComment {
+                    doc_style: Some(_),
+                    terminated: true,
+                } => {
+                    let doc = Doc::from_block(source, offset, len);
+                    markdown(
+                        &doc.text,
+                        |at| doc.file_offset(at),
+                        Source::DocComment,
+                        &mut out,
+                    )?;
+                }
+                TokenKind::LineComment { doc_style: None } => {
+                    i = comment_run(source, &tokens, i, scan_commented_code, &mut out);
+                }
+                TokenKind::BlockComment { .. } => {
+                    let body = text.strip_prefix("/*").unwrap_or(text);
+                    let body = body.strip_suffix("*/").unwrap_or(body);
+                    if scan_commented_code || !is_code(body) {
+                        scan(text, offset, comment(), &mut out);
                     }
                 }
-                let doc = Doc::from_lines(source, &lines);
-                markdown(
-                    &doc.text,
-                    |at| doc.file_offset(at),
-                    Source::DocComment,
-                    &mut out,
-                )?;
-            }
-            TokenKind::BlockComment {
-                doc_style: Some(_),
-                terminated: true,
-            } => {
-                let doc = Doc::from_block(source, offset, len);
-                markdown(
-                    &doc.text,
-                    |at| doc.file_offset(at),
-                    Source::DocComment,
-                    &mut out,
-                )?;
-            }
-            TokenKind::LineComment { doc_style: None } | TokenKind::BlockComment { .. } => {
-                scan(text, offset, comment(), &mut out);
-            }
-            TokenKind::Literal {
-                kind:
-                    LiteralKind::Str { .. }
-                    | LiteralKind::ByteStr { .. }
-                    | LiteralKind::CStr { .. }
-                    | LiteralKind::RawStr { .. }
-                    | LiteralKind::RawByteStr { .. }
-                    | LiteralKind::RawCStr { .. },
-                ..
-            } => {
-                let context = Context {
-                    source: Source::StringLiteral,
-                    kind: Kind::Text,
-                };
-                if attribute.inside() {
-                    spelled(text, offset, context, &mut out);
-                } else if let Some(span) = identifier_body(text) {
-                    out.push(name(text, offset, span, true, context));
-                } else {
-                    scan(text, offset, context, &mut out);
+                TokenKind::Literal {
+                    kind:
+                        LiteralKind::Str { .. }
+                        | LiteralKind::ByteStr { .. }
+                        | LiteralKind::CStr { .. }
+                        | LiteralKind::RawStr { .. }
+                        | LiteralKind::RawByteStr { .. }
+                        | LiteralKind::RawCStr { .. },
+                    ..
+                } => {
+                    let context = Context {
+                        source: Source::StringLiteral,
+                        kind: Kind::Text,
+                    };
+                    if attribute.inside() {
+                        spelled(text, offset, context, &mut out);
+                    } else if let Some(span) = identifier_body(text) {
+                        out.push(name(text, offset, span, true, context));
+                    } else {
+                        scan(text, offset, context, &mut out);
+                    }
                 }
+                _ => {}
             }
-            _ => {}
         }
         i += 1;
     }
@@ -213,12 +211,161 @@ pub(crate) fn rust(source: &str) -> Result<Read, MarkdownError> {
     })
 }
 
+fn comment_run(
+    source: &str,
+    tokens: &[(usize, usize, TokenKind)],
+    start: usize,
+    scan_commented_code: bool,
+    out: &mut Vec<Spelled>,
+) -> usize {
+    let (offset, len, _) = tokens[start];
+    let mut lines = vec![(offset, len)];
+    let mut last = start;
+    while let (Some(&(gap, gap_len, TokenKind::Whitespace)), Some(&(o, l, next))) =
+        (tokens.get(last + 1), tokens.get(last + 2))
+        && next == (TokenKind::LineComment { doc_style: None })
+        && source[gap..gap + gap_len].matches('\n').count() == 1
+    {
+        lines.push((o, l));
+        last += 2;
+    }
+    let body: Vec<&str> = lines.iter().map(|&(o, l)| &source[o + 2..o + l]).collect();
+    if scan_commented_code || !is_code(&body.join("\n")) {
+        for &(o, l) in &lines {
+            scan(&source[o..o + l], o, comment(), out);
+        }
+        comment_examples(source, &lines, out);
+    }
+    last
+}
+
 /// The identifier span of a string literal body, excluding its quotes.
 fn identifier_body(text: &str) -> Option<(usize, usize)> {
     let (open, close) = (text.find('"')?, text.rfind('"')?);
     let body = text.get(open + 1..close)?;
     let (_, after) = ident(body, 0)?;
     (after == body.len()).then_some((open + 1, close))
+}
+
+/// Reads the doc comment of `style` starting at token `start`, a doc comment line or a doc
+/// attribute, across whitespace, plain comments and attributes of the same style, the strings
+/// of `doc = "…"` arguments counting as doc lines, and returns its last token. Plain comments
+/// inside it are scanned as comments.
+fn doc_run(
+    source: &str,
+    tokens: &[(usize, usize, TokenKind)],
+    start: usize,
+    style: DocStyle,
+    scan_commented_code: bool,
+    out: &mut Vec<Spelled>,
+) -> Result<usize, MarkdownError> {
+    const PREFIX: usize = 3;
+    let mut lines: Vec<(usize, &str)> = Vec::new();
+    let mut plain = Vec::new();
+    let mut pending = Vec::new();
+    let mut last = start;
+    let mut j = start;
+    while j < tokens.len() {
+        let (o, l, kind) = tokens[j];
+        match kind {
+            TokenKind::Whitespace => {}
+            TokenKind::LineComment { doc_style: Some(s) } if s == style => {
+                lines.push((o + PREFIX, &source[o + PREFIX..o + l]));
+                plain.append(&mut pending);
+                last = j;
+            }
+            TokenKind::LineComment { doc_style: None } => pending.push((o, l)),
+            TokenKind::Pound => {
+                let Some((_, end, docs)) =
+                    doc_attribute(source, tokens, j).filter(|attribute| attribute.0 == style)
+                else {
+                    break;
+                };
+                for &k in &docs {
+                    let (at, len, _) = tokens[k];
+                    let literal = &source[at..at + len];
+                    if let (Some(open), Some(close)) = (literal.find('"'), literal.rfind('"')) {
+                        let mut line_at = at + open + 1;
+                        for line in literal[open + 1..close].split('\n') {
+                            lines.push((line_at, line));
+                            line_at += line.len() + 1;
+                        }
+                    }
+                }
+                if !docs.is_empty() {
+                    plain.append(&mut pending);
+                    last = end;
+                }
+                j = end;
+            }
+            _ => break,
+        }
+        j += 1;
+    }
+    let doc = Doc::unindent(&lines);
+    markdown(&doc.text, |at| doc.file_offset(at), Source::DocComment, out)?;
+    for (o, l) in plain {
+        if scan_commented_code || !is_code(&source[o + 2..o + l]) {
+            scan(&source[o..o + l], o, comment(), out);
+        }
+    }
+    Ok(last)
+}
+
+/// The style, closing bracket token and `doc = "…"` string literal tokens of the attribute whose
+/// `#` is token `at`, `None` when no attribute opens there.
+fn doc_attribute(
+    source: &str,
+    tokens: &[(usize, usize, TokenKind)],
+    at: usize,
+) -> Option<(DocStyle, usize, Vec<usize>)> {
+    let solid = |from: usize| (from..tokens.len()).find(|&k| tokens[k].2 != TokenKind::Whitespace);
+    let before = |k: usize| (0..k).rev().find(|&p| tokens[p].2 != TokenKind::Whitespace);
+    let mut open = solid(at + 1)?;
+    let style = if tokens[open].2 == TokenKind::Bang {
+        open = solid(open + 1)?;
+        DocStyle::Inner
+    } else {
+        DocStyle::Outer
+    };
+    if tokens[open].2 != TokenKind::OpenBracket {
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut docs = Vec::new();
+    for (k, &(_, _, kind)) in tokens.iter().enumerate().skip(open) {
+        match kind {
+            TokenKind::OpenBracket | TokenKind::OpenParen | TokenKind::OpenBrace => depth += 1,
+            TokenKind::CloseBracket | TokenKind::CloseParen | TokenKind::CloseBrace => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((style, k, docs));
+                }
+            }
+            TokenKind::Literal {
+                kind: LiteralKind::Str { .. } | LiteralKind::RawStr { .. },
+                ..
+            } => {
+                let key = before(k)
+                    .filter(|&p| tokens[p].2 == TokenKind::Eq)
+                    .and_then(before);
+                if key.is_some_and(|p| &source[tokens[p].0..tokens[p].0 + tokens[p].1] == "doc") {
+                    docs.push(k);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Whether comment `body` is Rust code, items or the statements of a block, rather than prose.
+fn is_code(body: &str) -> bool {
+    if let Ok(file) = syn::parse_str::<syn::File>(body) {
+        return !file.items.is_empty();
+    }
+    syn::parse_str::<syn::Block>(&format!("{{{body}\n}}"))
+        .is_ok_and(|block| !block.stmts.is_empty())
 }
 
 /// Whether the tokens read so far sit inside an attribute, `#[...]` or `#![...]`.
@@ -279,16 +426,6 @@ struct Doc {
 }
 
 impl Doc {
-    /// The Markdown of consecutive `///` or `//!` comments, each `(offset, len)` in `source`.
-    fn from_lines(source: &str, comments: &[(usize, usize)]) -> Self {
-        const PREFIX: usize = 3;
-        let lines: Vec<(usize, &str)> = comments
-            .iter()
-            .map(|&(offset, len)| (offset + PREFIX, &source[offset + PREFIX..offset + len]))
-            .collect();
-        Self::unindent(&lines)
-    }
-
     /// The Markdown of a `/** */` or `/*! */` comment at `offset`, dropping leading `*` decoration.
     fn from_block(source: &str, offset: usize, len: usize) -> Self {
         const OPEN: usize = 3;
@@ -510,10 +647,11 @@ impl Block {
         self.span = Some((start, range.end));
     }
 
-    /// Collects block mentions and returns its compiled local names.
-    fn finish<'c>(self, text: &'c str, source: Source, out: &mut Vec<Spelled>) -> HashSet<&'c str> {
+    /// Records the dependency tables, serialized spellings and code identifiers of a finished
+    /// block in Markdown `text` from `source`, and returns the names a compiled block binds.
+    fn finish(self, text: &str, source: Source, out: &mut Vec<Spelled>) -> Vec<String> {
         let Some((start, end)) = self.span else {
-            return HashSet::new();
+            return Vec::new();
         };
         let block = &text[start..end];
         let kind = Kind::CodeBlock {
@@ -533,18 +671,13 @@ impl Block {
         if self.compiled {
             code_names(block, start, context, out)
         } else {
-            HashSet::new()
+            Vec::new()
         }
     }
 }
 
-/// Collects free identifiers from compiled code and returns its local names.
-fn code_names<'c>(
-    code: &'c str,
-    base: usize,
-    context: Context,
-    out: &mut Vec<Spelled>,
-) -> HashSet<&'c str> {
+/// The non-trivia tokens of `code` as `(start, end, kind)`.
+fn code_tokens(code: &str) -> Vec<(usize, usize, TokenKind)> {
     let mut tokens = Vec::new();
     let mut offset = 0;
     for token in ra_ap_rustc_lexer::tokenize(code, FrontmatterAllowed::No) {
@@ -558,7 +691,67 @@ fn code_names<'c>(
         }
         offset += len;
     }
+    tokens
+}
+
+/// Drops the mentions of `out` that a fenced Rust example inside the `//` comment `lines` of
+/// `source` names by one of its own names, the way a compiled doc example's own names are none.
+fn comment_examples(source: &str, lines: &[(usize, usize)], out: &mut Vec<Spelled>) {
+    // The first line of a Rust example with its code so far, or `None` inside another fence.
+    let mut fence: Option<Option<(usize, String)>> = None;
+    for &(o, l) in lines {
+        let body = &source[o + 2..o + l];
+        let body = body.strip_prefix(' ').unwrap_or(body);
+        if let Some(info) = body.trim_start().strip_prefix("```") {
+            fence = match fence.take() {
+                None => Some(rust_fence(info).then(|| (o, String::new()))),
+                Some(Some((start, code))) => {
+                    let bound = bindings(&code, &code_tokens(&code));
+                    out.retain(|spelled| {
+                        !((start..o).contains(&spelled.start) && names_bound(spelled, &bound))
+                    });
+                    None
+                }
+                Some(None) => None,
+            };
+        } else if let Some(Some((_, code))) = &mut fence {
+            code.push_str(body);
+            code.push('\n');
+        }
+    }
+}
+
+/// Whether `spelled` is a bare name in `bound` or a path starting at one.
+fn names_bound(spelled: &Spelled, bound: &HashSet<&str>) -> bool {
+    match &spelled.named {
+        Named::Path => {
+            !spelled.leading_colon
+                && spelled
+                    .segments
+                    .first()
+                    .is_some_and(|first| bound.contains(first.as_str()))
+        }
+        Named::Name { word, .. } => bound.contains(word.as_str()),
+        _ => false,
+    }
+}
+
+/// The identifier tokens of compiled `code` at `base`, outside its paths and attribute arguments
+/// and other than the names it binds itself, whose paths starting at such a name are dropped
+/// from `out`. Returns the names it binds.
+fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>) -> Vec<String> {
+    let tokens = code_tokens(code);
     let bound = bindings(code, &tokens);
+    // The block is finished, so only its own and earlier mentions are in `out` yet.
+    out.retain(|spelled| {
+        let local = spelled.named == Named::Path
+            && !spelled.leading_colon
+            && spelled
+                .segments
+                .first()
+                .is_some_and(|first| bound.contains(first.as_str()));
+        !(local && base <= spelled.start)
+    });
     let arguments = attribute_arguments(code, &tokens);
     let taken: Vec<(usize, usize)> = paths(code, 0, context)
         .iter()
@@ -575,10 +768,12 @@ fn code_names<'c>(
             out.push(name(code, base, span, false, context));
         }
     }
-    bound
+    bound.into_iter().map(str::to_owned).collect()
 }
 
-/// Attribute option tokens, excluding `derive` arguments.
+/// Which of the non-trivia `tokens` of `code`, as `(start, end, kind)`, sit inside the arguments
+/// of an attribute, where words name the attribute's options rather than items, the list of a
+/// `derive(…)` excepted.
 fn attribute_arguments(code: &str, tokens: &[(usize, usize, TokenKind)]) -> Vec<bool> {
     let kind = |i: usize| tokens.get(i).map(|token| token.2);
     let mut inside = vec![false; tokens.len()];
@@ -608,6 +803,7 @@ fn attribute_arguments(code: &str, tokens: &[(usize, usize, TokenKind)]) -> Vec<
                         break;
                     }
                 }
+
                 TokenKind::Ident
                     if &code[tokens[i].0..tokens[i].1] == "derive"
                         && kind(i + 1) == Some(TokenKind::OpenParen) =>
@@ -1059,6 +1255,7 @@ fn spelled(
     let first = out.len();
     out.extend(paths(text, base, context));
     cargo_flags(text, base, context, out);
+    cargo_add(text, base, context, out);
     cfg_features(text, base, context, out);
     bare_urls(text, base, context, out);
     let mut taken: Vec<(usize, usize)> = out[first..]
@@ -1180,9 +1377,9 @@ fn standalone(text: &str, start: usize, end: usize) -> bool {
     !glued_before && !glued_after
 }
 
-/// `--features`, `-F`, `--bin` and `--example` arguments.
+/// `--features`, `-F`, `--bin`, `--example`, `-p` and `--package` arguments.
 fn cargo_flags(text: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
-    const FLAGS: [&str; 4] = ["--features", "-F", "--bin", "--example"];
+    const FLAGS: [&str; 6] = ["--features", "-F", "--bin", "--example", "-p", "--package"];
     for flag in FLAGS {
         for (at, _) in text.match_indices(flag) {
             let before = text[..at].chars().next_back();
@@ -1214,6 +1411,7 @@ fn cargo_flags(text: &str, base: usize, context: Context, out: &mut Vec<Spelled>
                 let named = match flag {
                     "--bin" => Named::Binary(part.to_owned()),
                     "--example" => Named::Example(part.to_owned()),
+                    "-p" | "--package" => Named::Crate(part.to_owned()),
                     _ => match part.split_once('/') {
                         Some((package, name)) => Named::Feature {
                             package: Some(package.trim_end_matches('?').to_owned()),
@@ -1231,6 +1429,36 @@ fn cargo_flags(text: &str, base: usize, context: Context, out: &mut Vec<Spelled>
                 };
                 out.push(Spelled::name(start, end, named, context));
             }
+        }
+    }
+}
+
+/// The crates a `cargo add` command names, each word of crate name characters up to the first
+/// that is none, such as a flag or punctuation, without its `@version` suffix.
+fn cargo_add(text: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
+    const COMMAND: &str = "cargo add";
+    let is_name = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_');
+    for (at, _) in text.match_indices(COMMAND) {
+        let mut cursor = at + COMMAND.len();
+        loop {
+            let rest = &text[cursor..];
+            let word = rest.trim_start_matches([' ', '\t']);
+            let len = word.find(|c: char| !is_name(c)).unwrap_or(word.len());
+            if word.len() == rest.len() || len == 0 || word.starts_with('-') {
+                break;
+            }
+            let word_at = text.len() - word.len();
+            let named = Named::Crate(word[..len].to_owned());
+            out.push(Spelled::name(
+                base + word_at,
+                base + word_at + len,
+                named,
+                context,
+            ));
+            let version = word[len..]
+                .strip_prefix('@')
+                .map_or(0, |v| 1 + v.find(char::is_whitespace).unwrap_or(v.len()));
+            cursor = word_at + len + version;
         }
     }
 }
@@ -1464,22 +1692,30 @@ fn compiled(kind: &CodeBlockKind<'_>, source: Source) -> bool {
     let CodeBlockKind::Fenced(info) = kind else {
         return true;
     };
+    fence_tokens(info, rust_token)
+}
+
+/// Whether a fence `info` line marks Rust code, an `ignore` example included.
+fn rust_fence(info: &str) -> bool {
+    fence_tokens(info, |token| token == "ignore" || rust_token(token))
+}
+
+/// Whether every token of the fence `info` line passes `accepts`.
+fn fence_tokens(info: &str, accepts: impl Fn(&str) -> bool) -> bool {
     without_comments(info)
         .split(|c: char| c == ',' || c.is_whitespace())
         .filter(|token| !token.is_empty())
-        .all(|token| {
-            matches!(
-                token,
-                "rust"
-                    | "should_panic"
-                    | "no_run"
-                    | "compile_fail"
-                    | "test_harness"
-                    | "standalone_crate"
-            ) || token.starts_with("edition")
-                || token.starts_with('{')
-                || (token.starts_with('E') && token[1..].bytes().all(|b| b.is_ascii_digit()))
-        })
+        .all(accepts)
+}
+
+/// Whether fence token `token` keeps a Rust example compiled.
+fn rust_token(token: &str) -> bool {
+    matches!(
+        token,
+        "rust" | "should_panic" | "no_run" | "compile_fail" | "test_harness" | "standalone_crate"
+    ) || token.starts_with("edition")
+        || token.starts_with('{')
+        || (token.starts_with('E') && token[1..].bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// A fence info line without its `(…)` comments, which rustdoc skips.

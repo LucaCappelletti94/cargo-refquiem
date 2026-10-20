@@ -272,7 +272,7 @@ fn a_dependency_is_replaced_by_the_only_crate_added_to_a_table_it_shared() {
     );
     repo.write(
         "README.md",
-        "Swap `structopt` out.\n\n[docs](https://docs.rs/structopt)\n\n```toml\n[dependencies]\nstructopt = \"1\"\n```\n",
+        "Run `cargo add structopt`.\n\n[docs](https://docs.rs/structopt)\n\n```toml\n[dependencies]\nstructopt = \"1\"\n```\n",
     );
     repo.commit("swap the parser");
 
@@ -284,7 +284,13 @@ fn a_dependency_is_replaced_by_the_only_crate_added_to_a_table_it_shared() {
         .iter()
         .map(|m| (m.context.kind, m.replacement.as_deref()))
         .collect();
-    assert_eq!(replacements, [(Kind::CodeBlock { compiled: false }, None)]);
+    assert_eq!(
+        replacements,
+        [
+            (Kind::CodeSpan, Some("Run `cargo add clap`.")),
+            (Kind::CodeBlock { compiled: false }, None),
+        ]
+    );
 }
 
 #[test]

@@ -3,6 +3,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use gix::ObjectId;
 
@@ -18,6 +19,52 @@ pub(crate) trait Snapshot {
     fn list_dir(&self, dir: &str) -> Result<Vec<(String, bool)>, Error>;
     /// Every file path.
     fn files(&self) -> Result<Vec<String>, Error>;
+    /// Every directory holding a `Cargo.toml`, outside directories named `target`, reading and
+    /// filling `memo` for committed subtrees.
+    fn manifest_dirs(&self, memo: &mut ManifestDirs) -> Result<Vec<String>, Error>;
+}
+
+/// The directories holding a `Cargo.toml` below each committed tree, by tree id.
+pub(crate) type ManifestDirs = HashMap<ObjectId, Rc<[String]>>;
+
+/// The directories holding a `Cargo.toml` below tree `id` of `repo`, relative to it.
+fn manifests_below(
+    repo: &gix::Repository,
+    id: ObjectId,
+    memo: &mut ManifestDirs,
+) -> Result<Rc<[String]>, Error> {
+    if let Some(found) = memo.get(&id) {
+        return Ok(Rc::clone(found));
+    }
+    let tree = repo
+        .find_object(id)
+        .map(gix::Object::into_tree)
+        .map_err(|source| Error::Object { id, source })?;
+    let mut found = Vec::new();
+    let mut children = Vec::new();
+    for entry in tree.iter() {
+        let entry = entry.map_err(|source| Error::TreeList { id, source })?;
+        let name = entry.filename().to_string();
+        if entry.mode().is_tree() {
+            if name != "target" {
+                children.push((name, entry.object_id()));
+            }
+        } else if name == "Cargo.toml" {
+            found.push(String::new());
+        }
+    }
+    for (name, child) in children {
+        for dir in manifests_below(repo, child, memo)?.iter() {
+            found.push(if dir.is_empty() {
+                name.clone()
+            } else {
+                format!("{name}/{dir}")
+            });
+        }
+    }
+    let found: Rc<[String]> = found.into();
+    memo.insert(id, Rc::clone(&found));
+    Ok(found)
 }
 
 /// The files of a committed tree.
@@ -41,18 +88,69 @@ impl<'r> TreeSnapshot<'r> {
             })
     }
 
+    /// The entry at `path`, following symlinks to targets inside the snapshot, at most 40 of
+    /// them, as the kernel's limit is.
     fn entry(&self, path: &str) -> Result<Option<(ObjectId, gix::objs::tree::EntryMode)>, Error> {
-        if path.is_empty() {
-            return Ok(None);
+        const HOPS: usize = 40;
+        let mut trees = vec![self.tree];
+        let mut pending: Vec<String> = path.rsplit('/').map(str::to_owned).collect();
+        let mut found = None;
+        let mut hops = 0;
+        while let Some(name) = pending.pop() {
+            match name.as_str() {
+                "" | "." => continue,
+                ".." => {
+                    if trees.len() == 1 {
+                        return Ok(None);
+                    }
+                    trees.pop();
+                    found = None;
+                    continue;
+                }
+                _ => {}
+            }
+            let dir = *trees.last().expect("the root tree is never popped");
+            let Some((id, mode)) = self.child(dir, &name)? else {
+                return Ok(None);
+            };
+            if mode.is_link() {
+                hops += 1;
+                let target = self.read(&name, id)?;
+                let target = String::from_utf8_lossy(&target);
+                if hops > HOPS || target.starts_with('/') {
+                    return Ok(None);
+                }
+                pending.extend(target.rsplit('/').map(str::to_owned));
+            } else if mode.is_tree() {
+                trees.push(id);
+                found = Some((id, mode));
+            } else if pending.is_empty() {
+                return Ok(Some((id, mode)));
+            } else {
+                return Ok(None);
+            }
         }
-        let entry =
-            self.root()?
-                .lookup_entry_by_path(path)
-                .map_err(|source| Error::TreeLookup {
-                    path: path.to_owned(),
-                    source,
-                })?;
-        Ok(entry.map(|entry| (entry.object_id(), entry.mode())))
+        Ok(found)
+    }
+
+    /// The entry called `name` in tree `dir`.
+    fn child(
+        &self,
+        dir: ObjectId,
+        name: &str,
+    ) -> Result<Option<(ObjectId, gix::objs::tree::EntryMode)>, Error> {
+        let tree = self
+            .repo
+            .find_object(dir)
+            .map(gix::Object::into_tree)
+            .map_err(|source| Error::Object { id: dir, source })?;
+        for entry in tree.iter() {
+            let entry = entry.map_err(|source| Error::TreeList { id: dir, source })?;
+            if entry.filename() == name {
+                return Ok(Some((entry.object_id(), entry.mode())));
+            }
+        }
+        Ok(None)
     }
 }
 
@@ -109,6 +207,10 @@ impl Snapshot for TreeSnapshot<'_> {
             .filter(|entry| entry.mode.is_blob())
             .map(|entry| entry.filepath.to_string())
             .collect())
+    }
+
+    fn manifest_dirs(&self, memo: &mut ManifestDirs) -> Result<Vec<String>, Error> {
+        Ok(manifests_below(self.repo, self.tree, memo)?.to_vec())
     }
 }
 
@@ -204,6 +306,19 @@ impl Snapshot for WorkTreeSnapshot {
         }
         files.sort();
         Ok(files)
+    }
+
+    fn manifest_dirs(&self, _memo: &mut ManifestDirs) -> Result<Vec<String>, Error> {
+        Ok(self
+            .files()?
+            .iter()
+            .filter_map(|file| match file.as_str() {
+                "Cargo.toml" => Some(""),
+                file => file.strip_suffix("/Cargo.toml"),
+            })
+            .filter(|dir| !dir.split('/').any(|part| part == "target"))
+            .map(str::to_owned)
+            .collect())
     }
 }
 
