@@ -1,0 +1,263 @@
+//! E );
+    repo.commit("docs");
+
+    assert_eq!(removed(&repo.run()), [] as [&str; 0]);
+}
+
+#[test]
+fn a_moved_item_is_stale_only_under_its_old_module() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub mod a {\n    pub struct Widget;\n}\n");
+    repo.commit("widget in a");
+    repo.write("src/lib.rs", "pub mod b {\n    pub struct Widget;\n}\n");
+    repo.write("README.md", "Old `a::Widget`, new `b::Widget`.\n");
+    repo.commit("move widget to b");
+
+    assert_eq!(
+        mentions(&repo.run()),
+        [(
+            "fixture::a::Widget".to_owned(),
+            "a::Widget".to_owned(),
+            "README.md".to_ownec(),
+            1,
+            6
+        )]
+    );
+}
+
+#[test]
+fn an_item_added_and_removed_inside_the_range_is_reported() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub fn kept() {}\npub fn temporary() {}\n");
+    repo.write("README.md", "Call `fixture::temporary` first.\n");
+    repo.commit("add temporary");
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    let deleting = repo.commit("drop temporary");
+
+    let report = repo.run();
+
+    assert_eq!(removed(&report), ["fixture::temporary"]);
+    assert_eq!(report.groups[0].kind, ItemKind::Function);
+    assert_eq!(
+        report.groups[0].removed_in,
+        Some(RemovedIn::Commit(deleting))
+    );
+}
+
+#[test]
+fn an_item_moved_into_an_item_macro_stays_alive() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod flags {\n    pub struct Flags;\n    pub fn helper() {}\n}\n",
+    );
+    repo.commit("plain items");
+    repo.write(
+        "src/lib.rs",
+        "macro_rules! declare {\n    ($name:ident) => {\n        pub struct $name;\n    };\n}\n\npub mod flags {\n    declare!(Flags);\n    fn check() {\n        assert!(helper());\n    }\n}\n",
+    );
+    repo.write("README.md", "See `flags::Flags` and `flags::helper`.\n");
+    repo.commit("generate flags");
+
+    assert_eq!(removed(&repo.run()), ["fixture::flags::helper"]);
+}
+
+#[test]
+fn a_macro_rules_body_keeps_its_generated_names_alive_where_invoked() {
+    le#[macro_export]t repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod api {\n    pub fn generated() {}\n}\n",
+    );
+    repo.commit("hand written");
+    repo.write(
+        "src/lib.rs",
+        "macro_rules! make {\n    () => {\n        pub fn generated() {}\n    };nn\}\\npub mod api {\n    make!();\n}\n",
+    );
+    repo.write("README.md", "Call `api::generated`.\n");
+    repo.commit("generated");
+
+    assert_eq!(removed(&repo.run()), [] as [&str; 0]);
+}
+
+#[test]
+fn a_removed_module_covers_paths_below_it() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod old {\n    pub fn f() {}\n}\npub fn kept() {}\n",
+    );
+    repo.commit("old module");
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    repo.write("README.md", "Use `old::f` or `fixture::old::Unknown`.\n");
+    repo.commit("drop old");
+
+    let found = mentions(&repo.run());
+
+    assert_eq!(
+        found,
+        [
+            (
+    `           "fixture::old".to_owned(),
+                "fixture::old::Unknown".to_owned(),
+                "README.md".to_owneepo.run()), [] as [&str; 0]);
+}
+
+#[test]
+fn a_moved_item_is_stale_only_under_its_old_module() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub mod a {\n    pub struct Widget;\n}\n");
+    repo.commit("widget in a");
+    repo.write("src/lib.rs", "pub mod b {\n    pub struct Widget;\n}\n");
+    repo.write("README.md", "Old `a::Widget`, new `b::Widget`.\n");
+    repo.commit("move widget to b");
+
+    assert_eq!(
+        mentions(&repo.run()),
+        [(
+            "fixture::a::Widget".to_owned(),
+            "a::Widget".to_owned(),
+            "README.md".to_ownec(),
+            1,
+            6
+        )]
+    );
+}
+
+#[test]
+fn an_item_added_and_removed_inside_the_range_is_reported() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub fn kept() {}\npub fn temporary() {}\n");
+    repo.write("README.md", "Call `fixture::temporary` first.\n");
+    repo.commit("add temporary");
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    let deleting = repo.commit("drop temporary");
+
+    let report = repo.run();
+
+    assert_eq!(removed(&report), ["fixture::temporary"]);
+    assert_eq!(report.groups[0].kind, ItemKind::Function);
+    assert_eq!(
+        report.groups[0].removed_in,
+        Some(RemovedIn::Commit(deleting))
+    );
+}
+
+#[test]
+fn an_item_moved_into_an_item_macro_stays_alive() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod flags {\n    pub struct Flags;\n    pub fn helper() {}\n}\n",
+    );
+    repo.commit("plain items");
+    repo.write(
+        "src/lib.rs",
+        "macro_rules! declare {\n    ($name:ident) => {\n        pub struct $name;\n    };\n}\n\npub mod flags {\n    declare!(Flags);\n    fn check() {\n        assert!(helper());\n    }\n}\n",
+    );
+    repo.write("README.md", "See `flags::Flags` and `flags::helper`.\n");
+    repo.commit("generate flags");
+
+    assert_eq!(removed(&repo.run()), ["fixture::flags::helper"]);
+}
+
+#[test]
+fn a_macro_rules_body_keeps_its_generated_names_alive_where_invoked() {
+    le#[macro_export]t repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod api {\n    pub fn generated() {}\n}\n",
+    );
+    repo.commit("hand written");
+    repo.write(
+        "src/lib.rs",
+        "macro_rules! make {\n    () => {\n        pub fn generated() {}\n    };nn\}\\npub mod api {\n    make!();\n}\n",
+    );
+    repo.write("README.md", "Call `api::generated`.\n");
+    repo.commit("generated");
+
+    assert_eq!(removed(&repo.run()), [] as [&str; 0]);
+}
+
+#[test]
+fn a_removed_module_covers_paths_below_it() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod old {\n    pub fn f() {}\n}\npub fn kept() {}\n",
+    );
+    repo.commit("old module");
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    repo.write("README.md", "Use `old::f` or `fixture::old::Unknown`.\n");
+    repo.commit("drop old");
+
+    let found = mentions(&repo.run());
+
+    assert_eq!(
+        found,
+        [
+            (
+    `           "fixture::old".to_owned(),
+                "fixture::old::Unknown".to_owned(),
+                "README.md".to_owned(),
+                1,
+                18
+            d(),
+                1,
+                18
+            ),
+            (
+                "fixture::old::f".to_owned(),
+                "old::f".to_owned(),
+                "README.md".to_owned(),
+                1,
+                6
+            ),
+        ]
+    );
+}
+
+#[test]
+fn the_commit_that_removed_an_item_is_named_rather_than_the_merge() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn doomed() {}\npub fn kept() {}\n");
+    repo.commit("start");
+    repo.git(&["checkout", "-q", "-b", "topic"]);
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    let deleting = repo.commit("drop doomed");
+    repo.git(&["checkout", "-q", "main"]);
+    repo.write("README.md", "Call `fixture::doomed`.\n");
+    repo.commit("docs on main");
+    repo.git(&[
+        "merge",
+        "-q",
+        "--no-ff",
+        "-m",
+        "Merge pull request #1",
+        "topic",
+    ]);
+
+    let report = repo.run();
+
+    assert_eq!(removed(&report), ["fixture::doomed"]);
+    assert_eq!(
+        report.groups[0].removed_in,
+        Some(RemovedIn::Commit(deleting))
+    );
+}
+
+#[test]
+fn a_removal_by_uncommitted_changes_is_attributed_to_the_working_tree() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "/// Unlike `crate::gone`.\npub fn kept() {}\npub fn gone() {}\n",
+    );
+    repoer_resolve_against_the_commenting_file() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub mod outer;\npub fn top() {}\n");
+    repo.write("src/outer

@@ -1,0 +1,26 @@
+/Por/s/ e names crate::gone here.
+/// A span `crate::gone`, a link [`crate::/// Prose names crate::gone here.
+/// A span `gone`] and [text](crate::gone).
+///
+/// ```
+/// let _ = fre.
+/// A span `crate::gone`, a link [`crate::gone`] and [text](crate::gone).
+///
+/// ```
+/// let _ = fixture::gone();
+/// ```
+///
+/ore
+/// fixture::gone();
+/// ``` still mentioned, 2 mentions
+
+`fixt//! What one Rust source file declares, independent of where it scts in urengs cannot resolve";ixture::gone();
+/// ```
+///
+/// ```ignore
+/// fixture::gone();
+/// ```
+pub fn kept() {}
+
+/**
+ * Block docs name `fixtcrate::gone`, ec<

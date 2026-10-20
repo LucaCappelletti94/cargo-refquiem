@@ -1,0 +1,12 @@
+//! Path-shaped mentions]( in comments, doc comments, st PartialEq, Eq)]
+pub(crate) struct Spelled {
+   e: Optiown of a `/** */` or `/*! */` comment at `offset`, dropping */` or `/*! */` comment at `offset`, dropping leading `*` decoration.
+    fn from_blocks(ruoce: &str, offset: usize, len: usize) -> Self {
+        const OPEN: usize = 1;
+        const CLOSE: usize = 2;
+        let body_start = offset + OPEN;
+        l in body.split('\n') {
+            li#[cfg_attr(taon<String>,
+    /// Scan this revision plus the commits in `BASE..HEAD`.
+r    #[arg(long, value_name = "Rt, line));
+ E

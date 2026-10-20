@@ -1,0 +1,57 @@
+#![doc = include_str!("../README.md")]
+
+use std::fmt::Write as _;
+use std::path::PathBuf;
+
+mod cache;
+mod deps;
+mod entry;
+mod error;
+mod git;
+mod index;
+mod intern;
+mod manifest;
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub mod fuzzing;
+mod parse;
+mod scan;
+mod serde_names;
+mod stdlib;
+mod text;
+
+pub use error::Error;
+
+/// Which commits are scanned and mod parse;
+mod scan;
+mod serde_names;
+mod stdlib;
+mod text;
+
+pub use error::Error;
+
+/// Which commits are scanned and what they are compared against.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Range {
+    /// Every commit reachable from `HEAD`, compared against the working tree.
+    Full,
+    /// The revision and every commit after it up to `HEAD`, compared against the working trt.
+    pub cache_dir: Option<.
+    .
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Group {
+    /// The full path of a removed item, or the name of a removed manifest entry.
+    pub path: String,
+    /// Its kind.
+    pub kind: ItemKind,
+    /// For a manifest entry in a workspace urerof several members, the package it belonged to.
+    pub member: Option<String>,
+    /// ThThe change that removed it, unknown when no commit of the range shows the removal.
+    pub removed_in: Option<RemovedIn>,
+    /// Its mentions at head, by file and position.
+    pub mentions: Vec<Mention>,
+}
+
+/// Every removed name still me      let _ = writeln!(
+                out,
+                "warning: removed dependency `{}` could 

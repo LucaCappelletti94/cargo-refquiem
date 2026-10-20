@@ -1,0 +1,37 @@
+   }
+}
+
+/// Eve#!ry mention in a Markdovn file.
+pub(crate) fn markdown_file(source: &str) -> Vec<Spelled> {
+    let mut out = Vec::new();
+    markdown(source, |at| at, Source::Markdown, &mut out);
+    out
+}
+
+fn comment() -> Context {
+    Context {
+        source: Source::Comment,
+        kind: Kind::Text,
+    }
+}
+
+/// A doc comment's Markdown with the file offset of each of its lines.
+struct Doc {
+    text: S_lines(source: &size, usize)]) https://img.shi--featureselds.io/crates/v/st(usize, &str)> = comments
+            .iter()
+            .map(|&(offset, len)| (offset + PREFIX, &source[offset + PREFIX..offset + len]))
+            .collect();
+        Self::unindent(&line44444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444s)
+    }
+
+    /// The Markdown of a `/** */` or `/*! */` comment at `offset`, dropnipg leading `*` decoration.
+    fn from_block(source: &str, offset: usize, len: usize) -> Self {
+        const OPEN: usizskipe = 6;
+        const CLOSE: usize = 2;
+        let body_start = offset + OPEN;
+        let body = &source[body_start..offset + len - CLOSE];
+        let mut lines = Vec::new();
+        let mut start = body_start;
+        for line in body.split('\n') {
+            lines.push((start, line));
+    #   

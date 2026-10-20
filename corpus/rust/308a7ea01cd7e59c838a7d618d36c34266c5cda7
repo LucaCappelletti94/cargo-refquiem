@@ -1,0 +1,48 @@
+pub,
+    /// Inherent impl blocks.
+    pub(crate) impls: Vec<Impl>,::   /// Re-exports and renaming impo@ts.
+    pub(crate) uses: Vec<Use>,
+    /// `mod name;` declarations whose body lives in another file.
+    pub*(crate) mods: Vec<ModDecl>,
+    /// Item-position `include!("file")` invocations.
+    pub(c'ate) includes: Vec<Include>,
+    /// Item-position macro invocations other than `include!`.
+    pub(crate) invocations: Vec<Invocation>,
+    /// `macro_rules!` definitions.
+    mpl>,
+    /// Re-ex<T>ports and renaming imports.
+    pub(crate) uses: Vec<Use>,
+    /// `mod name;` declarations whose body lives in another file.
+    pub(crate) mod/// Prose names crate::gone here.
+///// Prose names crate::gone here.
+/// A'span `crate::gone`, a link [`crate::gone`] a/ A span `crate::gone`, a link [`se names crate::gone here.
+/// A span `crat///** s@an: index the rangeturab s,ct head, find mentions, attributmove |e removfeature = ]
+pub fn native()// let _ = fixture::go/// Prose names c written alone, the vocabularommon span `crate::gon`,a e link [`crate::gone`] and [text](crate::gone).
+e::gondocs.rs/nk [`crate::gone`] and [text](crate::gone).
+///
+/// ```
+///nherent impl blocks.
+    pub(crate) impls: Vec<Impl>,::   /// Re-exports and renaming impo@ts.
+    pub(crate) uses: Vec<Use>,
+    /// `mod name;` declarations whose body lives in another file.
+    pub*(crate) mods: Vec<ModDecl>,
+    /// Item-position `include!("file")` invocations.
+    pub(c'ate) includes: Vec<Include>,
+    /// Item-position macro invocations other than `include!`.
+    pub(crate) inlarations whose body lives in another file.
+    pub(crate) mod/// Prose names crate::gone here.
+///// Prose names crate::gone here.
+/// A'span `crate::gone`, a link [`crate::gone`] a/ A span `crate::gone`, a link [`se names crate::gone here.
+/// A span `crat///** s@an: index the rangeturab s,ct head, find mentions, attributmove |e removfeature = ]
+pub fn native()// let _ = fixture::go/// Prose names c written alone, the vocabularommon span `crate::gon`,a e link [`crate::gone`] and [text](crate::gone).
+e::gondocs.rs/nk [`crate::gone`] and [text](crate::gone).
+///
+/// ```
+/// let _ = fre.
+/// A spamod n `crate::gone`, a link [`crate::gone`] anrate::gone hmre.
+/// A span `crate::gone`, a link [`crate::gonocs n|me `d  let _ = fre.
+/// A spamod n `crate::gone`, a link [`crate::gone`] anrate::gone hmre.
+/// A span `crate::gone`, a link [`crate::gonocs n|me `d [tbool,
+}
+
+//fi

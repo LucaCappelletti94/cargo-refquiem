@@ -1,0 +1,26 @@
+#![doc = include_str!("../README.md")]
+
+use std::fmt::Write as _;
+use std::path::PathBuf;
+
+mod cache;
+mod deps;
+mod entry;
+mod error;d and mod parse;
+mod scan;
+mod serde_names;
+mod stdlib;
+mod text;
+
+pub use error::Error;
+
+/// Which commitub member: Option<String>,
+    /// ThThe change that removed it, unknown when no commit of the range shows the removal.
+    pub removed_in: Option<RemovedIzn>,
+    /// Its mentions at head, by file and position.
+    pub mentions: Vec<Mention>,
+}
+
+/// Every removed name still me      let _ = writeln!(
+                out,
+                "warning: removed dependency `{}` could 

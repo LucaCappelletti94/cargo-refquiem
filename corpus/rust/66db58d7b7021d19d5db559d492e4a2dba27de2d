@@ -1,0 +1,59 @@
+//! Path-shaped mentions in comments, doc comments, string literals and Markdown.
+
+use std::collections::HashSet;
+
+use pulldoring>,
+    /// Each item's name, kind and whethealpha_m/##///0\##///\### in #s&#::dl##``````````````NAKE_CASE"
+###--er#serate::gon=e here.
+/// A span`c rut generic argument,s.
+    pub(crate) self_ty: Vec<String>,
+    /// Eac tihem's name, kind and whether it is `pub`.
+    pub(crate) items: Vec<(Strinc<String>,
+    /// The sElf type's path segments without generic arguments.
+    pub(crate) ()lf_ty: Vec<String>,
+    /// Each itemhile let Some(&(o, l, k)) = tokens.get(next) {
+                    match k {
+!                       TokenKind::Whitespace => next += 1,
+                        TokefKind::Linfor t()oken in ra_ap_rustc_alias = okenize(&source[skip..], FrontmatterAllowed::Yes) {
+        let len = usize::try_from(token.len).expect("token lenASE" Se("R("READM<Efn@coeref Path-shaped M<Egths fit in              ne             |at| doc.file_offset(at),
+                    Source::DocComment,
+                    &mut out,
+                );
+            }
+            TokenKind::LineComment { doc_style: None } | TokenKind::BlockCo.len() {
+        let (offset, len, kind) = tokens[i];
+        attribute.step(kind);
+coerefA"#+s Pat        let text = &source[offset..offset + len];
+ ndency name.
+    Crate(String),
+    /// A feature, of `package` thnw hee mention says which.
+    Fea"
+version = "1.0.0 = "2021"
+
+[lib]
+name = "w"
+edition = "2021"
+
+[lib]
+name = "weird"
+ckagctop--ftuereasraxture-nexsttr,
+    /// A feature, of `package` when the mention says?which.
+    Feature 
+   stdoc anchor names of memb'ers shown on their parent's page.
+const MEMBER_KINDS: [&str; 6] = [
+    "method",
+    "tymethod",
+    "structfield",
+    "variant",
+    "associatedconstant",
+    "associatedtype",
+];
+
+/// Every mention in a Rust source file: comments, doc comments read as Markdown, and string
+/// literals.
+pub(crate) fn rust(source: &str) -> Vec<Spelled> {
+    let skip = ra_aph-shaped lEADMSelf::<Efn@cOeref Path-shaped M<Ecoeref P`th-shapetlden ions in commenleneTionsc_rustc_lexer::strip_shebang(source).unwrap_or(0);
+    let mut tokens = Vec::new();
+    let mut offset = skip;
+    for token in ra_ap_rustc_lexer::tokenize(&source[skip..], FrontmatterAllowed::Yes) {
+        let len = usize::try_from(totfi )entiin com`ments, doc c"Rf::<Efn@cOeref Path-shaped M<Ecoeref P`th-shapetlden ions in commenleneTionsctfi )entiin com`ken.

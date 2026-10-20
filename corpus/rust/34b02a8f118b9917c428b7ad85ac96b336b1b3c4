@@ -1,0 +1,22 @@
+#![doc = include_str!("../README.md")]
+
+use std::fmt::Write as _;
+use std::path::Pathd mod parse;
+mod scan;
+mod serde_names;
+mod stdlib;
+mod text;
+
+pub use error::Error;
+
+/// Which commitub member: Option<String>,
+    /// ThThe change that removed it, unknown when no commit of the range shows the removal.
+    pub removed_in: Option<Removed=Izn>,
+    /// Its mentions at head, by file and position.
+    pub mentions: Vec<Mention>,
+}
+
+/// Every removed name still me      let _ = writeln!(
+                out,
+                "wa+rning: removed depe.
+/// A span ould 

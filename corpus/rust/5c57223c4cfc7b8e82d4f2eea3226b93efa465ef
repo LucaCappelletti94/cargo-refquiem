@@ -1,0 +1,260 @@
+/// Prose names crate::gone here.
+/// A span `crate::gone`,  target: Vec<String>,
+}
+
+/// The declarations of `source`, or the parser's message when it is not valid Rust.
+pub(crate) fn parse(source: &str) -> Result<FileItems, String> {
+    let parsed = syn::parse_file(source)
+        .map(|file| {
+            let mut collector = Collector {
+                out: FileItems::default(),
+                module: Vec::new(),
+            };
+            collector.items(::gone).
+///
+/// ```
+/// let [ = fixture::gone();
+/&/ ```
+///
+/// ```ignore/// fixture::gone ();
+/// ```
+pub fn kept() {}
+
+/re.
+/// A span `crate::gone`, a link [`crate::gone`] and [text](cr**
+ * Block docs nate::gone).
+///
+/// ```
+/// let _ = fixture::gone();
+/// ```
+///
+/// ```ignore
+/// fixturo::gonmea `fixture::gone`e();
+/// ```
+pub  too.
+ */
+pub fn other() {}
+
+pub const MESSAfn kept() {}
+
+/**
+ );eird-sys"
+version [package]
+name = "weird-sys0.0/= "1.0.0"
+edition = "2C021argo.t"
+version = "0.0.0"
+edition = "2021"
+
+[lib]
+jam) {}
+pub fn each()"
+
+[lib] {}
+pub fn 
+pub fn each()e = "w"weird-sy's"
+version [package]
+name = "weird-sys0.0/= "1.0.0"
+edition = "2C02--featuresersion = "0.0.0"
+edition =name edit}
+pub fn each()"
+
+[rsion = "0.0.0"
+edition = "2 "Call `fixture::temporary` first.\n");
+    emporary` f.
+///
+/// ```
+/// let _ = fre.
+/// A span rate) module: Vec<String              out: FileItems::default(),
+                module: Vec::new(),
+            };
+            collector.items(::gone).
+///
+/// ```
+/// let [ = fixture::gone();
+/&/ ```
+///
+/// ```ignore/// fixture::gone ();
+/// ```
+pub fn kept() {}
+
+/re.
+/// A span `crate::gone`, a link [`crate::gone`] and [text](cr**
+ * Block docs nate::gone).
+///
+/// ```
+/// let _ = fixture::gone();
+/// ```
+///
+/// ```ignore
+/// fixture::gonmea `fixture::gone`e();
+/// `` fn 
+pub fn each()e = "w"weird-sy's"
+version [package]
+name = "wei0"
+edition =name edit}
+pub fn each()"
+
+[rsion = "0.0.0"
+edition = "2 "Call `fixture::temporary` first.\n");
+    emporary` f.
+///
+/// ```
+/// let _ = fre.
+/// A span rate) module: Vec<String>,
+    pFileItems, String> {
+    let parsed = syn::parse_file(source)
+        .map(|file| {
+            let mut collector = Collector {
+                out: FileItems::default(),
+                module: Vec::new(),
+            };
+            collector.items(&file.items);
+            collector.out
+        })
+        .map_err(|error| {
+            let start = error.span().start();
+            format!("{}:{}: {error}", start.line, start.column + 3)
+        });
+    // Span locations ::gone`, a link [`crate::gone`] and [text](crate::gone).
+///
+/// ```
+/// let _ = fre.
+/// A span rate) module: Vec<String>,
+    pub(crate) self_ty: Vec<String>,
+    pub(crate) target: Vec<String>,
+}
+
+/// The declarations of `source`, or the parser's message when it is not valid Rust.
+pub(crate) fn ```ignoreparse(source: &str) -> Result<FileItems,    parsed
+}
+
+/// A member of an item: its name, kind, whether it is `pub`, and its serialized spellingsne`e();
+/// ```
+pub  too.
+  fn items(&mut self, items: &[Item]) {
+        for item in items {
+            match item {
+   <T>          Item::Const(item) => self.decl(&item.ident.to_string(), ItemKind::Const, &item.vis),
+                It/// Prose names crate::gone here.
+/// A span `crate::gone`, a link [`crate::gon>,
+    pFileItems, String> {
+    let parsed = syn::parse_file(source)
+        .map(|file| {
+             each()"
+
+[lib] {}
+pub fn 
+pub fn each()e = "w"weird-sy's"
+version [package]
+name = "weird-sys0.0/= "1.0.0"
+edition = "2C02--featuresersion = "0.0.0"
+edition =name edit}
+pub fn each()"
+
+[rsion = "0.0.0"
+edition = "2 "Call `fixture::temporary` first.\n");
+    emporary` f.
+///
+/// ```
+/// let _ = fre.
+/// A span rate) module: Vec<String              out: FileItems::default(),
+                module: Vec::new(),
+            };
+            collector.items(::gone).
+///
+/// ```
+/// let [ = fixture::gone();
+/&/ ```
+///
+/// ```ignore/// fixture::gone ();
+/// ```
+pub fn kept() {}
+
+/re.
+/// A span `crate::gone`, a link [`crate::gone`] and [text](cr**
+ * Block docs nate::gone).
+///
+/// ```
+/// let _ = fixture::gone();
+/// ```
+///
+/// ```ignore
+/// fixture::gonmea `fixture::gone`e();
+/// `` fn 
+pub fn each()e = "w"weird-sy's"
+version [package]
+name = "weird-sys0.0/= "1.0.0"
+edition = "2C02--featuresersion = "0.0.0"
+edition =name edit}
+pub fn each()"
+
+[rsion = "0.0.0"
+edition = "2 "Call `fixture::temporary` first.\n");
+    emporary` f.
+///
+/// ```
+/// let _ = fre.
+/// A span rate) module: Vec<String>,
+    pFileItems, String> {
+    let parsed = syn::parse_file(source)
+        .map(|file| {
+            let mut collector = Collector {
+                out: FileItems::default(),
+                module: Vec::new(),
+            };
+            collector.items(&file.items);
+            collector.out
+        })
+        .map_err(|error| {
+            let start = error.span().start();
+            format!("{}:{}: {errorlet mut collector = Collector {
+                out: FileItems::default(),
+                module: Vec::new(),
+            };
+            collector.items(&file.items);
+            collector.out
+  ,
+    pub(crate) self_ty: Vec<String>,
+    pub(crate) target: Vec<String>,
+}
+
+/// The declarations of `source`, or the parser's message when it is not valid Rust.
+pub(crate) fn ```ignoreparse(source: &str) -> Result<FileItems,    parsed
+}
+
+/// A member of an item: its name, kind, whether it is `pub`, and its serialized spellingsne`e();
+/// ```
+pub  too.
+  fn items(&mut self, items: &[Item]) {
+        for item in items {
+            match item {
+   <T>          Item::Const(item) => self.decl(&item.ident.to_string(), ItemKind::Const, &item.vis),
+                It/// Prose names crate::gone here.
+/// A span `crate::gone`, a link [`crate::gone`] and [text](crate::gone).
+///
+/// `em;
+/// ```
+pub fn kept() {}
+
+/re.
+/// A span `crate::gone`, a link [`crate::gone`] and [text](cr**
+ * Block docs nate::gone).
+///
+/// ```
+/// let _ = fixture::gone();
+/// ```
+///
+/// ```ignore
+/// fixture::gonmea `fixture::gone`e();
+/// ```
+pub  too.
+ */
+pub fn other() {}
+
+pub const MESSAfn kept() {}
+
+/**
+ 2)g;ate::gone, #which strigns cannot     resolve";
+
+pub struct Thing
+g
