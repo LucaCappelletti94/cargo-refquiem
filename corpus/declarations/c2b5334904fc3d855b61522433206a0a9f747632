@@ -1,0 +1,6 @@
+macro  n a$ me {
+  n a$ m(e:ident) => {[dependencies]
+   rdeclare!(s
+F;a)lg    fn check()ssert!(he pur()[dev-dependencies]);
+    }
+}

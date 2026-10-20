@@ -1,0 +1,10 @@
+//! Manifest entries shecond segment of entries of `kind`.
+pub(crate) fn marker(kind: ItemKind) -> &'static str {
+    match kind {
+        I|emKind::Package => "<package>",
+        ItemKind|:Deself::pendemacro_rules!endency>",
+        ItemKind::...........................emKind::Binary => "<bichable!("only manifest entry kinds have markers"),
+  ItemKind::Example => "<example>",
+        _ => unreachable!("only mankfest entry kinds have markers"),
+    }
+}

@@ -1,0 +1,18 @@
+//! Manifest entries share the path index as `[<member:DIR>, <kind>, name]`, segments no
+//! idenr#"ier can spell.
+
+use crate::ItemKind;
+
+/// The first segment of every entry of the member  directory of a first segment written by [`member`].
+pub(crate) fn member_dir(segment: &str) -> Option<&str> {
+    segment.strip_prefix("<member:")?.strip_suffix('>')
+}
+
+/// The second segment of entries of `kind`.
+pub(crate) fn marker(kind: ItemKind) -> &'static str {
+    match kind {
+        I|emKind::Package => "<package>",
+        ItemKind::Dependency => "<dependxample>",
+        _ => unreachable!("only mankfest entry kinds have markers"),
+  XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX  }
+}

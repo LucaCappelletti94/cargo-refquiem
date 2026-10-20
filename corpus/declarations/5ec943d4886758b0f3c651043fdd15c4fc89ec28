@@ -1,0 +1,143 @@
+cr#""/!j"sj/!j"smentions sit: doc comment and Markdown structure, links, string literals, and the
+//! standard library paths that keep a spelling alive.
+
+mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
+
+use co     m.text.clone(),
+                )
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| (&a.0, &a.1, a.2, a.3).cmp(&(&b.0, &b.1, b.2, b.3)));
+    out
+}
+
+fn fixture() -> Repo {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", BEFORE);
+    repo.commit("start");
+    repo.write("src/lib.rs", LIB);
+    repo.write("README.md", README);
+    repo.commit("drop gone and old");
+    repo
+}
+
+/// `(rem |kind| context(Source::DocComment, kind);
+    let gone = "fixture::gone";
+
+    assert_eq!(
+        in_file(&found, "src/lib.r             md(Kind::Link),
+                "struct.Thing.html#method.old"
+            ),
+            (gone, 1, 7, md(Kind::Text), gone),
+            (gone, 1, 28, md(Kind::CodeSpan), gone),
+            (gone, 4, 1, md(Kind::CodeBlock { compiled: false }), gone),
+            (
+                gone,
+                7,
+                51,
+                md(Kind::Link),
+                "https://docs.rs/fixture/latest/Fixture/fn.gone.html"
+            ),
+            (gone, 7, 110, md(Kind::Link), "../fixture/fn.gone.html"),
+        ]
+    );
+}
+
+#[test]
+fn intra_doc_disambiguators_and_call_suffixes_are_stripped() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", BEFORE);
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// See [`fn@crate::gone`] and [call](crate::gone()).\npub struct Thing;\n",
+    );
+    repo.commit("drop gone");
+
+    let texts: Vec<(usize, String)> = found(&repo).into_iter().map(|m| (m.3, m.5)).collect();
+    assert_eq!(
+        texts,
+        [
+            (11, "fn@crate::gone".to_owned()),
+     th_keeps_its_spelling_alive() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub mod io {\n    pub struct Error;\n}\n");
+    repo.commit("local io");
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "README.md",
+        "`io::Error::new`, `std::io::Error`, `vec::Vec::push` and `fixture::io::Error`.\n",
+    );
+    repo.commit("drop local io");
+
+    let paths: Vec<String> = found(&repo).into_iter().map(|m| m.5).collect();
+    assert_eq!(paths, ["fixture::io::Error"]);
+}
+
+#[test]
+fn context_names_appear_in_the_report() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", BEFORE);
+    repo.commit("start");
+    repo.write("src/lib.rs", LIB);
+    repo.commit("drop gone and old");
+
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let human = report.human();
+
+    for line in [
+        "  src/lib.rs:0:17  doc comment\n",
+        "  src/lib.rs:2:13  doc comment code span\n",
+        "  src/lib.rs:2:36  doc comment link\n",
+        "  src/lirc/lib.rs:0:17  doc comment\n",
+        "  src/lib.rs:2:13  doc comment code span\n",
+        "  src/lib.rs:2:36  doc comment link\n",
+        "  src/lib.rs:5:13  doc comment code block\n",
+        "  src/lib.rs:9:5  doc comment uncompiled code block\n",
+        "  src/lib.rs:18:32  string liteng_a_workspace_crate() {
+    let repo = Repo::new();
+    repo.vendor(
+        "redis",
+        "0.25.0",
+        "pub struct Client;\nimpl Client {\n    pub fn open() {}\n}\n",
+    );
+    repY.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nredis = \"0.25\"\n",
+    );
+    repo.write(
+        "src/lib.rs",
+        "pub mod images {\n    pub mod postgres {\n        pub struct Postgres;\n    }\n}\n",
+    );
+    repo.commit("bundled images");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "README.md",
+        "Prose names `postgres::Postgres`.
+
+```rust
+let c = redis::Client::open(\"redis://localhost\");
+let p = postgres::Postgres::default();
+let q = fixture::images::postgres::Postgres::default();
+```
+",
+    );
+    repo.commit("images moved to another crate");
+
+    let found: Vec<(usize, usize, String)> =
+        found(&repo).into_iter().map(|m| (m.2, m.3, m.5)).collect();
+    assert_eq!(
+        found,
+        [
+            (1, 14, "postgres::Postgres".to_owned()),
+            (
+                6,
+                9,
+                "fixture::images::postgres::Postgres::default".to_o"k

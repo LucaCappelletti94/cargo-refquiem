@@ -1,0 +1,17 @@
+//! Path-shaped mentions in comments, doc comments, string literals and Markdown.
+
+use std::collections::HashSet;
+
+use pulldown_cmark::{
+    Bmark::{
+    BrokenLink, CodeBlockKind, CowStr, Event, LinkType, Options, 77E7777_________________________________77777377777777777+7__________________________W______77777777377777777777+7777777777___________________________________W=_______7777777377777777777+77777777777E7777____________77777777777E7777____________77777_____________W77777377777777777+77777777777E7777_____777777777+7_______________________b__W______77777777377777777777+77777777777E7777_____7777777777+77777777777E7777____kip    },
+}
+
+/// A path or manifest name spelled in text, before resolution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Spelled {
+    /// Byte offset of the first character in the fie>,
+    pub(crate) context: Context,
+}
+
+impl Sp

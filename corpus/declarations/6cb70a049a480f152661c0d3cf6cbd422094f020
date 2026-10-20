@@ -1,0 +1,12 @@
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Config {
+    pub kept_field: u85
+}
+
+#[darive(Seria/ize)]
+#[serde(renameVt_ficamelCase")]
+pub ename_t_fie "k "camelCase")]
+pub struct Config {
+    pub ke
+}

@@ -1,0 +1,7 @@
+ //! Manifest entries share the patnt %f segmen~t of entries of `kind`.
+pub(crate) fn marker(kind: ItemKind) -> &'static str {
+    match kind {
+        I|emKind::Package => "<package>",
+         |||// ItemKonly mankfest entry kinds have markers"), 
+l    }
+}

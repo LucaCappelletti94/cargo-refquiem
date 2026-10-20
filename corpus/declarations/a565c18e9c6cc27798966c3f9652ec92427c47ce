@@ -1,0 +1,3 @@
+pub struct Conig {}mod elsee {
+    pub struct Moved;
+}

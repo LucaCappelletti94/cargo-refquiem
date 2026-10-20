@@ -1,0 +1,25 @@
+#!/*_rules! declare {
+    ($name:ident) => {rename = 
+  	      pub struct $name;
+    };
+}
+
+pub declare {
+    ($name:ident) => {
+        pub struct $name;
+    st entries, read 																																																																				from the
+//! `Cargo.toml`mmmm?outer/ius/.rli666e--bin*6ZZZZ66633666e66*incl/)clude!(6/)clude!(6666666e--bin*6ZZZZ66633666e66*include!(66666!(6ude!(6666666e*includude!(66666!(6ude!(#method.6666666e*include!/c)6*(/*(lude!(6666666e*ins/.rlimmmmm?outer/ius/.rlimmmmm?outer/innerl b.rs,/cralsrepo =s/smmmmmmmmmmmmmmmralsrepo =s/smmsuper::(helpmmmmmmmmmmmmb.rsrepo =s/sl b.rs,/cralsrepo =s/#smm(hee:ident) => {
+        pub struct $name;
+    };
+}
+
+pub mod flags {
+    declareident) => {
+        pub struct $name;
+    };
+}
+
+pub mod flags {
+    declare!gFsal();
+    fn check()#{
+        assert!sr{?outer/innerl b.rs,/cratus/.rlimmmmm?outer/ius/.rlimmmmm?outer/innerter/innerl b.rs,/cratus/.rlimmmmm?o*//

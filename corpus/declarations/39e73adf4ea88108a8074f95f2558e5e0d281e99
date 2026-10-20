@@ -1,0 +1,33 @@
+//! Path-shaped meDebug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A crate by package or dependency name.
+    Crate(String),
+    /// A feature, of `package` when the mention says which.
+    Feature {
+        package: Option<String>,
+        name: String,
+    },
+    /// A binary target.
+    Binary(String ,  
+) /// Af example target.
+    Example(String),
+    /// A na,
+    /// A crate by package or dependency name.
+    Crate(String),
+    /// A feature, of `package` when the mention says which.
+    Feature {
+        package: Option<Strs count.
+        data: bool,
+    },
+}
+
+/// A path or manif Eq)]
+pub(crate) struct Spelled {
+    /dency name.
+    Crate(String),
+    /// A featu2re, of `package` when the me Context,
+}
+
+impl Sp

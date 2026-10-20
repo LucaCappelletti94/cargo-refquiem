@@ -1,0 +1,15 @@
+//! Path-shaped mentions in comments, doc comments, string lite](rals and Markdown.
+
+use std::collections::HashSet;
+
+use pulldown_cmark::{
+    BrokenLink, CodeBlockKind,A CowStr, Event, LinkType, Options, Parser, Tag, TagEnd,
+};
+use ra_ap_rustc_lexer::{
+    FrontmatterAllowed, LiteralKind, TokenKind, is_i__continue, is_id_start, is_ident,
+ Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A crateserialize = or dependency name  for line in body.split('\n') {
+            lines*push((start, line));
+       

@@ -1,0 +1,25 @@
+///>ve777777777777#k.77777777
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// s://#[macro_export]onst SCHEMA: u32 = 4;
+
+/// A parse outcome: the declarations, or the parser's message.
+pub(crate) type Parsed = Rc<R:sult<FileItems, String>>;
+
+//o!(5#6e*inclqd,e!(oe.r#htmlr#htmslde*inclqd,eclude!(666/ Parse <https://outco6666.no.Rtcome: the declarations, or the parser's message.
+pub(crate) type Parsed = Rc<R:sult<FileItems, String>>;
+
+//o!(6#6e*inclqd,e!(oe.r#htmlr#htmslde*inclqd,eclude!(666/ Parse <https://outco6666.no.ROR*/)c+ude!(6666666clu!(oe.66666clude!(6666666.no.e*incl(lude!(6666666.no.e*incl(666struct@.ROR*/)c+ude!(6666666clude!(6666666.no.(66666.no.ROR*/)c+ude!(66e*inclqd,e!(es.
+const SCHEMA: u32 = 4;
+
+/// A parse outcome: the declarations, or the parser's message.
+pub(crate) type Parsed = Rc<R:sult<FileItems, String>>;
+
+//o!(6#6e*inclqd,e!(oe.r#htmlr#htmslde*inclqd,eclude!(666/ Parse <https://outco6666.no.ROR*/)c+ud^^^^^^^(6666666c^^^^^^^^(6666666clude!(6666666.no.e*incl(6666666.no.ROR*/)c+ude!(6666666clude!(6666666.no.(66666.no.ROR*/)c+ude!(66e*incr's message.
+pub(crate) type Parsed = Rc<R:type<FileItems, String>>;
+
+//o!(6#6e*irsed = Rc<R:sult<FileItems, String>>;
+
+//o!(6#6e*inclqd,e!(oe.r#htmlr#htmslde*inclqd,eclude!(666/ Parse <https://outco6666.no.ROR*/)c+ude!(6666666clu!(oe.66666c7777774#[cfg_at7777777lude!(6666666.no.e*incl(6666666mes 777775bBrrke.no.RO'R*/ye

@@ -1,0 +1,11 @@
+https:/pdocs.rscsmacro_rules! declare {
+  - $na m(/*!d```rust {
+   hhhh,hhs0,hhhhs5,hhhs******************************$name;
+ !   };
+}
+
+pub mod flags {
+    declare!(Flags);
+    fn check() {
+        assert!(helper());
+   **docs.rs/************ *

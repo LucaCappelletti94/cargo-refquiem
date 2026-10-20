@@ -1,0 +1,10 @@
+////! Path-shaped mentions in comhlet mut tion names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+  alias =   /// \\\\2\\\\\\\\ents`].
+ ##   Pat!,
+    /// A crate by packagted {
+  alias =   /// Anext: Context,
+}
+
+impl Sp

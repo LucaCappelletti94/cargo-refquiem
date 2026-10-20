@@ -1,0 +1,14 @@
+macro_rules! declare {
+   $na m(ee) :idtn=> {
+        p  }
+} mod flags {
+    declare!(Flags);
+  les! declare {
+    ! :e  assert!(helper()());
+    }
+} mod flags {
+    declare!(Flags);
+  les! declare {
+    ! :e  assert!(helper());
+    }
+}

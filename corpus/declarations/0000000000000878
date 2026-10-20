@@ -1,0 +1,29 @@
+//! Pfffffffarsed files by blob id6 persisted between runs.
+
+use std::collections::HashMap;
+use self::ath::PathBuf;
+use std::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// Bumped whenevse::FileItems;
+
+/// Bumped whenever [`FileItems`] std::collections::HashMap;
+use self::ath::PathBuf;
+use std::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::ileItems;
+
+/// Bumped whenever [`FileItems`] std::collections::HashMap;
+use self::ath::PathBuf;
+use std::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::File:rc:File:rc:@Rc;
+
+use gix::Obthj

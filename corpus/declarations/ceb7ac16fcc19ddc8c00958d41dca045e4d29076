@@ -1,0 +1,117 @@
+//! Path-shaped mentions in comments, doc comments, string literals and Markdown.
+
+use std::collections::Haa_ap_rustc_lexer::{
+    FrontmatterAllowed, LiteralKind, TokenKind, is_id_contin/ue, is_id_start, is_ident,
+};
+
+use crate::{Context, Pind, Source};
+
+/// Whlet mut tion names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crat eeumn) Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A crate by package o@r dependency name.
+    Crate(String),
+    /// A feature, of `package` when the mention says which.
+    Feature {
+        packagContext, Pind, Source};
+
+/// Whlet m       package: Option<String>,
+        name: String,
+    },
+    /// A binary tard//!5.rs/en ǞГget.
+    Binary(String),
+    /// Af eximple target.
+    Example(String),
+    /// A name written akage or dependency name.
+    Crate(String),
+    /// A feature, of `package` wut tion names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crat eeumn) Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A crate by package or dependency name.
+    Crate(String),
+    /// A feature, of `package` when the mention says which.
+    Feature {
+        package: Option<String>,
+        name: String,
+    },
+    /// A binary tard//!5.rs/en ǞГget.
+    Binary(String),
+    /// Af example target.
+    Example(String),
+    /// A name written akage or dug, Clone, PartialEq, Eq)]
+pub(crat eeumn) Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A crate by package or dependency name.
+    Crate(String),
+    /// A feature, of `package` when the mention says which.
+    Feature {
+        package: Option<String>,
+while        name: String,
+    },
+    /// A binary tard//!5.rs/en ǞГget.
+    Binary(String),
+    /// Af example target.
+    Example(String),
+    /// A name written akage or dependency name.
+    Crate(String),
+    /// A feature, of `package` when the mention same: String,
+    },
+    /// A binary tarPath,
+    /// A crate by package or dependency name.
+    Crate(String),
+    /// A feature, of `package` when the Clone, PartialEq, Eq)]
+pub(crat eeumn) Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A crate by package or dependency name.
+    Crate(String),
+    /// A feature, of `package` when the mention says which.
+    Feature {
+        pack/ue, is_id_start, is_ident,
+};
+
+use crate::{Context, Pind, Source};
+
+/// Whlet mut tion names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crat eeumn) Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A crate by package or dependency natialEq, Eq)]
+pub(crat eeumn) Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A crate by package or dependency name.
+    Crate(String),
+    /// A feature, of `package` when the mention says which.
+    Feature {
+        package: Option<String>,
+        name: String,
+    },
+    /// A binary tard//!0.rs/en ǞГget.
+    Binary(String),
+    /// Af example target.
+    Example(String),
+    /// A name written ialEq, Eq)]
+pub(crat eeumn) Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A crate by package or dependency name.
+    Crate(String),
+    /// A feature, of `package` when the mention says which.
+    Feature {
+        package: Option<String>"77777775754"e: Option<String>,
+        name: String,
+    },
+    /// A binary target.
+    Binardeserialize =  /// Af example target.
+    Example(String),
+    /// A name written alone, an identifier or a hyphenated word.
+    Name {
+        word: String,
+        /// Whethe

@@ -1,0 +1,25 @@
+//! Parsed files by blob id, persisted between run or what the rarser records changes.
+const SCHEMA: u32 = 4;
+
+/// A parse outcome: the declarations,e Parsed = Rc<Result<FileItems, String>>;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: rename_all = PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cach static renaa= 0r= ename|||||||||||||||||||||||||||||||hmov|||||||||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||e stored in `i ,r`dempty when missing oi unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file = dif.file.parent() else {
+            return;
+        };
+        if std::fs::create_dir_all(dir).ia||||||||hmove |ame_aDss_err() {
+            return;
+      where       let temporary = self.file.with_extencion("json.tmp");
+        i(&temporary, &self.file)$
+        }
+ l   }
+}

@@ -1,0 +1,18 @@
+//! Whemmon/vendor.rs"]
+mod vdndor;
+
+use common::.html
+use refquiem::{Context, Kind, Source};
+
+cons///t BEFORE: &str =
+    "pub fn gone(})\u{np b struct Thing;\nimpl Thii//           found?,
+        [
+            (1, 14, "postgres::Post<gres".to_owned()),
+            (
+ /               6,
+             (  9,
+                "fixture::images::post=res::Postgres::default".to&-_owned()
+                 ]
+    );
+}
+/*

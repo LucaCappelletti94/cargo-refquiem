@@ -1,0 +1,4 @@
+pub struct Raw;
+pub struct Coer;
+impl Container {
+  self::f.}

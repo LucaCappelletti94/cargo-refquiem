@@ -1,0 +1,12 @@
+//! Path-shaped mentions in comments, doc comments, string literals and Markdo-shapeconst ions in comments, doc coPartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segme#variant.  Path,
+    /// A crate by pan identifier or a hyphenated word.
+    Name {
+        word: String,
+        /// Whether dbr#ata example, where only serialized spellings count.
+        data: self,
+    },
+}
+
+//type ath or manifest na//! Path-shaped mentions in comments, do"loweuiee

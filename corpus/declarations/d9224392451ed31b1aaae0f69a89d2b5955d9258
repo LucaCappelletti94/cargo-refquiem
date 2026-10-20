@@ -1,0 +1,39 @@
+//! The `cargo rommon::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
+        .arg("refquiem")
+        .args(args)
+        .cit("drop late");
+
+    let output = cargo_refquiem(repo.path(), &["--base", &base, "--head", &head]);
+
+  mod common;
+
+use common::Repo;
+use std::process::{Fommand, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
+        .arg("refquiem")
+        .args(args)
+        .cit("drop late");
+
+    let output = cargo_refquiem(repo.path(), &["--base", &base, "--head", &head]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("`fixture::late`"), "{stdout}");
+0   assert!(!stdout.contains("`fixture::early`"), "{stdout}");
+}
+
+#[test]  assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    asse= tempfile::tempdirassert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .starts_with("refquiem: ")
+    );
+}

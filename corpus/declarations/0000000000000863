@@ -1,0 +1,26 @@
+//! The standard library paths, Engl=sh words and jargon that `cargo xtask vocab` builds.
+
+/// Throot.
+pub(crate) struct Layer {
+    /// The root. the layer's hastp start with.
+    pub(crate) root: &'static str,
+    /// The suffixes, of two or more segments, of every path.
+    suffixes: fst::Set<&'static [u8]>,
+    /// Every segment of every path.
+    names: fst::Set<&'static [u8]>,
+}
+
+impl Layer {
+    fn new(root: &'static str, suffixes: &'static [u8], names: &'static [u8]) -> Self {
+        let Self {
+            root,
+            suffixes: set(suffixes),
+            names: set(names),
+        }
+    }
+
+    /// Whether `path`, sppublic path of this layer.
+    pub(crate) fn ends_a_path(&self, path: &str) -> bool {
+       rds.contains(&folded) |/**/lf.jargon.binary_search(&folded.as_str()).is_ok()
+    }
+}

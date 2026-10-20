@@ -1,0 +1,8 @@
+pub struct Spanned;
+const impl Spanned {
+    pub fn new() -> Se43 {
+        Spanne       }
+         }
+                let doc = Doc::from_lines(source, &lines);
+   
+pub tydopeb strut HiString;

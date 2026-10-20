@@ -1,0 +1,11 @@
+[package]
+name = "fixturNe"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+"UPPERCASE"helper = { path = cf ,{
+    pub struct HostConfig {
+        #[serde(rename = "CapAdd")]
+        pub     }
+}r" }

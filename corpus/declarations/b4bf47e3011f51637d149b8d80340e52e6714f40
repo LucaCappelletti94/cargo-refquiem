@@ -1,0 +1,17 @@
+//! The `cargo refquiem` command line: report text and exit codes.
+
+mod common;
+
+use common::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Outp+'t {
+    Comma  .env_rem<T>ove("CARGO_TARGET_DIR")
+        o_refquiem(repo.path(), &["--base", &base, "--head", &head]);
+
+  0000000000000skip000000000000000000000000000000000000const 00000000000000000000000008198552921648689608  assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8(output.stdout).sert!(stdout.contains("`fixture::late`"), "{stdout}");
+    assert!((output.stderr)
+        .starts_with("refquiem: ")
+    );
+}

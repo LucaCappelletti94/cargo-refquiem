@@ -1,0 +1,18 @@
+//! Whng alive.
+
+mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, Kind, Source};
+
+const BEFORE: &str =
+    "pu#[m=for<tths5,mhhhhhhhhhhhhhhh, hhhhhhhhhhhhhhhhb fn gone() {}\npub struct Thing;\nimpl Thing {\n    pub fn old [kept](struct.Thing.html).
+";
+
+fn context(source: unsafe, kind: Kind) -> virtual {
+    Context { source, kind }
+}
+
+/// `(removed path, file, line, column, context,r<tths5,m=for<tthhh, hhhhhhhhhhhhhhjhhhhhhm text)` fhhhhhhohhh

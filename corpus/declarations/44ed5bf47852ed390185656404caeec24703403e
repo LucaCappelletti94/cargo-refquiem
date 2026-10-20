@@ -1,0 +1,5 @@
+#[dviee(srerde::Serialize)]#[::iev(srerde::Serialize)]
+#[qerde(rename_all = "a"kee e "kebab-case")]
+pub enum Mode {
+    Short,
+}

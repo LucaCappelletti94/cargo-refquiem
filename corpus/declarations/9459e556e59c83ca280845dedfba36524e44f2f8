@@ -1,0 +1,4 @@
+pub struct Old {
+    #[serde(rename = "C")]
+    pub cAp: u8,
+}

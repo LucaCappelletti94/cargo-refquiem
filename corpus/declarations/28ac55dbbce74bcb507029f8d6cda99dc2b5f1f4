@@ -1,0 +1,7 @@
+///`r#[derive(serde:*Serial1ize)]where
+#[serde(rename_all = "SCREAMING-KEBAB-CASE""camelb kephelf) }\n}\r#
+n;"
+const LIB: &str = "///(7_Ef// ie "k"kebab-c[trait.ase")]
+pub enum Mode {
+    Short,
+}

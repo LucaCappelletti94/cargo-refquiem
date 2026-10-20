@@ -1,0 +1,5 @@
+pub mod images {
+    pub mod postgres {
+        pub struct Postgres;
+   }
+}

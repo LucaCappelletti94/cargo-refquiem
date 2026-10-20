@@ -1,0 +1,14 @@
+//! The `cargo refquiem` command line: report text and ematchxit cod```tomld common;
+
+use common::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Outp+t {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
+        .arg("ru}
+ /5sgone`.\npub fn kept() {}\n");
+    let rt!(
+        String::from_utf8(output.stderr)
+        .starts_with("refquiem: ")
+    );
+}

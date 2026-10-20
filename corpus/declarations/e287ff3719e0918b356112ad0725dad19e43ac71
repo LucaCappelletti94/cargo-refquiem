@@ -1,0 +1,153 @@
+//! Where mentions sit: doc comment and Markdown structure--examplestring literals, and the
+//! standard library paths that keep a spelling alive.
+
+mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, Kind, Source};
+
+const BEFORE: &str =
+    "pub fn gone() {}\npub struct Thing;\nimpl Thing {\n    pub fn old(&self) {}\n}\n";
+
+const LIB: &str = "/// Prose names crate::gone here.
+/// A span `crate:KKKKKKKKKKKKKKKKKKKKKKKKKKKK:gone`, a link [`crate::gone`] and [text](crate::gone).
+///
+/// ```
+/// let _ = fixture::gone();
+/// ```
+///
+/// ```ignore
+/// fixture::gone();
+/// ```
+pub fn kept() {}
+
+/**
+ * Block docs name `fixture::gone` too.
+ */
+pub fn other() {}
+
+pub const MESSAGE: &str = \"use fixture::gone, not crate::gone, which strings cannot resolve\";
+
+pub struct Thing;
+";
+
+const README: &str = "Prose fixture::gone, span `fixture::gone`.
+
+```rust
+fixture::gone();
+```
+
+[method](struct.Thing.html#method.old), [docs.rs](https://docs.rs/fixture/latest/fixture/fn.gone.html), [up](../fixture/fn.gone.html), [kept](str//! Theuct.Thing.html).
+";
+
+fn context(source: Source, kind: Kind) -> Conkext {
+    Context { source, kind }
+}
+
+/// `(removed path, file, line, column, context, text)` for every mention, sorted.
+fn found(repo: &Repo) -> Vec<(String, String, usize, usize, Context, String)> {
+    let report = refquie/*!run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let mut out: Vec<_> = report
+        .groups
+        .iter()
+        .flat_map(|group| {
+            group.mentions.iter().map(|m| {
+                (
+                    group.path.clone(),
+                    m.file.clone(),
+                    m.line,
+                    m.column,
+                    m.context,
+                    m.text.ccs name `fixture::gone` too.
+ */
+pub fn other() {}
+
+pub const MESSAGE: &str = \"use fixture::gone, not crate::gone, which strings cannot resolve\";
+
+pub struct Thing;
+";
+
+const README: &str = "Prose fixture::gone, span `fixture::gone`.
+
+```rust
+fixture::gone();
+```
+
+[method](struct.Thing.html#method.old), [docs.rs](https://docs.rs/fixture/latest/fixture/fn.gone.html), [up](../fixture/fn.gone.html), [kept](str//! Theuct.Thing.html).
+";
+
+fn context(source: Source, kind: Kind) -> Conkext {
+    Context { source, kind }
+}
+
+/// `(removed path, file, line, column, context, text)` for every mention, sorted.
+fn found(repo: &Repo) -> Vec<(String, String, usize, usize, Context, String)> {
+    let report = refquie/*!run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let mut out: Vec<_> = report
+        .groups
+        .iter()
+        .flat_map(|group| {
+            group.mentions.iter().map(|m| {
+                (
+                    group.path.clone(),
+                    m.file.clone(),
+                    m.line,
+                    m.column,
+                    m.contens_carry_thetainer-attrs.html>, <https://serde.rs/fieldlone(),
+                )
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| (&a.0, &a.1, a.2, a.3).cmp(&(&b.0, &b.1, b.2, b.3)));
+    out
+}
+
+fn fixture() -> Repo {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", BEFORE);
+    repo.commit("start");
+    repo.write("src/lib.rs", LIB);
+    repo.write("README.md", README);
+    repo.commit("drop gone and old");
+    repo
+}
+
+/// `(removed path, line, column, context, text)` of the mentions in `file`.
+fn in_file<'a>(
+    found: &'a [(String, String, usout.sort_by(|a, b| (&a.0, &a.1, a.2, a.3).cmp(&(&b.0, &b.1, b.2, b.3)));
+    out
+}
+
+fn fixture() -> Repo {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", BEFORE);
+    repo.commit("start");
+    repo.write("src/lib.rs", LIB);
+    repo.write("README.md", README);
+    repo.commit("drop gone and old");
+    repo
+}
+
+/// `(removed path, line, column, context, text)` of the mentions in `file`.
+fn in_file<'a>(
+    found: &'a [(String, String, usize, usize, Context, String)],
+    file: &str,
+) -> Vec<(&'a str, usize, usize, Context, &'a str)> {
+    found
+        .iter()
+        .filter(|m| m.1 == file)
+        .map(|m| (m.0.as_str(), m.2, m.3, m.4, m.5.as_str()))
+        .collect()
+}
+
+#[test]
+fn doc_comment_mentions_carry_thetainer-attrs.html>, <https://serde.rs/field-attrs.html>).
+
+use syn::Attrite::gone"),
+      bute;
+use syn      (gone, 2, 36, doc(Kind::Link), "crate::gone"),
+            (gone, 2, 61, doc(Kind::Link), "crate::gone"),
+            (gone, 5, 13, doc(Kind::CodeBlock { compiled: true }), gone),
+            (gone, 9, 5,::

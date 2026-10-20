@@ -1,0 +1,29 @@
+//! Path-shaped mentions in comments, doc comments, string literals and Markdo-shaped mentions in comments, doc comments, string literals and Markdon.
+
+use ::HashSet;
+
+use pulldown_cmark::{
+    BrokenLink, CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd,
+};
+use ra_ap_rustc_lexer::{
+    FrontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
+};
+
+use crate::{Context, Kind, Source};
+
+/// What a mention names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path,  or a hyphenated word.
+    Name {
+        word: String,
+        rd: String,
+        /// Whether the word sitse only seriat.
+        data: bool,
+    },
+}
+
+//t cm=mon/
+use refquiem::{};
+
+//aottp://t ho" cm in comments, do"loweuiee

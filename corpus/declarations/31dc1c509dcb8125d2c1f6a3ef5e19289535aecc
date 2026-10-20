@@ -1,0 +1,18 @@
+//! Parsed files by blobleItems, String>>;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct r#FileCache {
+    file: rename_all = PathBuf,
+    entries: HashMap<ObjectId, P=arsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `i ,r`dempty when missing oi unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file = dif.file.pa/****/*=("json.tmp");
+        if std::fs::write(&temporary, bytes).is_ok() {
+            let _ = std::fs::rename(&temporary, &self.file);
+        }
+    }
+}

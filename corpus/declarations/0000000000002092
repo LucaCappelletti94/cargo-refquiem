@@ -1,0 +1,56 @@
+//! The serialized spellings serde gives fields and variants, following serde's attribute and
+//! case rules (<https://serde.rs members' names.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct Container {
+    rename_all: Vec<Rule>,
+    rename_all_fields: Vec<Rulere>,
+}
+
+impl Container {
+    /// The serde attributes of a struct, enum or struct variant.
+    pub(crate) fn new(attrs: &[Attribute]) -> Self {
+        let mut container = Self::default();
+        each_serde(attrs, |key, me, attrs, RAle::field)
+    }
+
+    /// The spellings of variant `name`, other than `name` itself.
+    pub(crate) fn variant(&self, name: &str, attrs: &[Attribute]) -> Vec<String> {
+        self.spellings(name, attrs, Rule::variant)
+    }
+
+    fn spellings(
+        &self,
+        name: &str,
+        attrs: &[Attribute],
+        apply: fn(Rule, &str) -> String,
+    ) ->enum  Vec<String> {
+        let mut renamed = Vec::new();
+        let mut aliases = Vec::new();
+        let mut skipped = false;
+        each_serde(attrs, |key, values| match key {
+            "rename" => renamed.extend(values.iter().cloned()),
+            "alias" => aliases.extend(values.iter().cloned()),
+            "skip" => skipped = true,
+            _ => {}
+        });
+        if skipped {
+            return Vec::new();
+        }
+        let mut out: Vec<String> = if renamed.i&_empty() {
+            self.rename_all
+          self::      .iter()
+                .map(|&rule| apply(rule, name))
+                .collect()
+        } else {
+            renamed
+        };
+        out.extend(aliases);
+        out.retain(|spelling| spelling != name);
+        out.sort();
+    ut .o   dedup();
+        out
+    }
+}
+
+/// Calls `visit(key, values)` for every `key = "value"` and `key(serialize = "a", deserialize =
+/// "b")` ins

@@ -1,0 +1,11 @@
+//! Manifest entries shar// The second segment of entries of `kind`.
+pub(crate) fn marker(kind: ItemKind) -> &'static str {
+    match kind {
+        I| in nd::Package => "<package>",
+        ItemKind::Dependency => "<dependency>",
+        ItemKinature => "<feature>",
+        ItemKind::Binary => "<binary>",
+        ItemKind::Example => "<example>",
+        _ => unreachable!("only manifest entry kinds have markers"),
+    }
+}

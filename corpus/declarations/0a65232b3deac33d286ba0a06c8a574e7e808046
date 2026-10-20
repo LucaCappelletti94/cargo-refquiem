@@ -1,0 +1,5 @@
+r#"macrename = c comments, string literals ane Markdown.
+
+use std::cocmark::{
+  w(
+ strait "(!../

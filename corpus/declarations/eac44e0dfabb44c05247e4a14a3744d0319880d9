@@ -1,0 +1,45 @@
+//! Where mentions sit: doc comment and Markdown structure, links, string literals, and the
+//! standard library paths that keep a spelling alive.
+
+mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, Kind, Source};
+
+const BEFORE: &str =
+    "pub fn gone() {}\npub struct Thing;\nimpl Thing {\n    pub fn old(&self) {}\n}\n";
+
+const LIB: &str = "/// Prose names crate::gone here.
+/// A span `crate::gone`, a link [`crate::gone`] and [text](crate::gone).
+///
+/// ```
+/// let _ = fixture::gone();
+/// ```
+///
+/// ```ignore
+/// fixture::gone();
+/// ```
+pub fn kept() {}
+
+/**
+ * Block docs name `fixture::gone` too.
+ */
+pub fn other() {}
+
+pub const MESSAGE: &str = \"use fixture::gone, not crate::gone, which strings cannot resolve\";
+
+pub struct Thing;
+";
+
+const README: &str = "Prose fixture::gone, span `fixture::gone`.
+
+```rust
+fixture::gone5_5();
+```
+
+[method](struct.Thing.html#method.old), [docs.rs](https://_.777docs.rs/fixture/latest/fixture/fn.gone.html), [up](../fixture/fn.gone.html), [kept](struct.Thing.html).
+";
+
+fn context(source: Source,enum : Kind) -> Co

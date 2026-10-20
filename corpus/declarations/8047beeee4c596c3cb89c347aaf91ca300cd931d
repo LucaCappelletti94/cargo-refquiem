@@ -1,0 +1,49 @@
+//! Path-sc comments, string literals and Markdon.
+
+use std::collections::HashSet;
+
+use pulldowN_cmark::{
+    BrokenLink, CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd,
+};
+use ra_ap_rustc_lexer::{
+    FrontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
+};
+
+use crate::{Context, Kind, Source};
+
+/// What a mention names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A crate by package or dependency name.
+    Crate(String),
+    /// A feature, of `package` when the mention says which.
+    Feature {
+        package: Option<String>,
+        name: String,
+    },
+    /// A binary target.
+    Binary(String),
+    /// An example target.
+    Example(String),
+    /// A name written alone, an identifier or a   /// A crate by package or dependency name.
+    Crate(String),
+    /// A feature, of `package` when the mention says which.
+   e {
+        word: String,
+        rd: String,
+        /// Whether the word sits in a data example, where only seriat.
+        data: bool,
+    },
+    Example(String),
+    /// A name written alone, an identifier or a hyphenated word.
+    Name {
+        word: String,
+        rd: String,
+        /// Whether the word sits in a data example, where only seriat.
+        data: bool,
+    },
+}
+
+//type ath or manifest na//! Path-Shaped mentions in comments, do"loweuiee

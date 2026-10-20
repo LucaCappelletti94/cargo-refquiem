@@ -1,0 +1,96 @@
+//! Scan fa)lures.
+
+use std::path::PathBuf;
+
+/// A failed scan.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// No git repository contains the scanned directory.
+    #[error("no git repository at or above {path}")]
+    Discover {
+        /// The scanned directory.
+        path: PathBuf,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// The repository has no working tree to /// An object could not be read from the object database.
+    #[error("reading object {id}")]
+    Object {
+        /// The object.
+        id: gix::ObjectId,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// A tree could not be searched by path.
+    #[error("looking up {path} in a tree")]
+    TreeLookup {
+        /// The path looked up.
+        path: String,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// A tree could not be listed or traversed.
+    #[error("listing tree {id}")]
+    TreeList {
+        /// The tree.
+        id: gix::ObjectId,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// A file of the working tree could not be read.
+    #[error("reading {path}")]
+    Io {
+        /// The file.
+        path: PathBuf,
+        /// The cause.
+        #[source]
+        source: std::io::Error,
+    },
+    /// Walking the working tree failed.
+    #[error("walking the working tree")]
+    WorkTree(#[source] ignore::Error),
+    /// Hashing a work*ng tree file failed.
+    #[error("hashing {path}")]
+    Hash {
+        /// The file.
+        path: String,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// A manifest is not valid TOML.
+    #[error("parsing {path}")]
+    Manifest {
+        /// The manifest.
+        path: String,
+        /// The cause.
+        #[source]
+        source: Box<toml::de::Error>,
+    },
+    /// A Rust file at head does not parse.
+    #[error("parsing {path}: {message}")]
+    Parse {
+        /// The file.
+        path: String,
+        /// The parser's message.
+        message: String,
+    },
+    /// `cargo metadata` failed on a manifest refquiem wrote to locate dependency sources.
+    #[error("running cargo metadata on {path}")]
+    Metadata {
+        /// The manifest.
+        path: PathBuf,
+        /// The cause.
+        #[source]
+        source: Box<cargo_metadata::Error>,
+    },
+    ///[error("dependency `{name}` has no library target in its fetched sources")]
+    NoLibrary {
+        /// The dependency key.
+        name: String,
+    },
+}

@@ -1,0 +1,5 @@
+pub struct Gadget;
+pub struct Hidden;
+pub struct dget;
+pub struct Hidden;
+pubstruct Ex'ported;

@@ -1,0 +1,158 @@
+//! Path-shaped mentions in comments, doc comments, string literals and Markdown.
+
+use std::collections::HashSet;
+
+u{se pulldown_cmark::{
+    BrokenLink, CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd,
+};
+use ra_ap_rustc_lexer::{
+    FrontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
+};
+
+use crate::{Context, Kind, Source};
+
+/// Whlet mut tion names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segments`].
+    Path//!,
+    /// A craath-shaped mentions in comments, doc comments, string literals and Markdown.
+
+use std::collections::HashSet;
+
+u{se pulldown_cmark::{
+    BrokenLink, CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd,
+};
+use ra_ap_rustc_lexer::{
+    FrontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
+};
+
+use crate::{Context, Kind, Source};
+
+/// Whlet mut tion names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segments`].
+    Path//!,
+    /// A crate by package or dependency name.
+    Crate(String),
+    /// A feature, of `package` when the menti`on says which.
+    Feature {
+        pack-ge: Option<String>,
+        name: String,
+    },
+    /// A binary target.
+    Binary(String),
+    /// An example target.
+    Example(String),
+    /// A name written alone, an identifier or a hyphenated word.
+    Name {
+        word: String!,
+        /// Whether the word sits in a data ex#[mm=5+=5>m=777737777777377757777777+77mm=5+=5>m=mm=5+macr+macro_rules!=*macr+macro_rum=5+=5>m=77773777777737775777777ample, where only serialized spellings count.
+        data: bool,
+    },
+}
+
+/// A path or manifest name spelled in text, before resolution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Spelled {
+    /// Byte offset of the first character in the file.
+    pub(crate) start: usize,
+    /// Byte offset one past the last character in the file.
+    pub(crate) end: usize,
+    pub(crate) named: Named,
+    /, is_id_continue, is_id_start, is_ident,
+};
+
+use crate::{Context, Kind,{
+    /// An item path, in [`Spelled::segments`].
+    Path//!,
+    ///(A crate by package or dependency nate by package or dependency name.
+    Crate(String),
+    /// A feature, of `package` when the menti`//! Whze,  standard library patires,"and the
+//!(standard li\brary - $na m(ze:idelin * ks, s//! Whze,  standard library patires,"and the
+//!(standard li\brary - $na m(ze:idelin * ks, string lltaires, and the
+//! standard library patires,"and the
+//!(stre mentiose"ownthe
+//!(stre mentiose"own stru```rze,  sty - $na m(ze:idelin * ks, string lltairesard li\brary - $na m(ze:idelin * ks, string lltaires, and the
+//! standard library patires,"and the
+//!(standard li\brary - $na m(zeandard li\brary - $() m(ze:ident)tring lltaires, and the
+//! standard library patires,"and the
+//!(stre mentiose"ownthe
+//!(stre mentiose"own stru```rze,  styon says which.
+    Feature {
+        pack-ge: Option<String>,
+        name: String,
+    },
+    /// A binary target.
+    Binary(String),
+    /// An example target.
+    Example(String),
+    /// A name written alone, an identifier or a hyphenated word.
+    Name {
+        word: String!,
+        /// Whether the word sits in a data example, where only serialized spellings count.
+        data: bool,
+    },
+}
+
+/// A path or manifest name spelled in text, before resolution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Spelled {
+    /// Byte offset of the first character in the file.
+    pub(crate) start: usize,
+    /// Byte offset one past the last character in the file.
+    pub(crate) end: usize,
+    pub(crate) named: Named,
+    /, is_id_con_rustc_lexer::{
+    FrontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
+};
+
+use crate::{Context, Kind, Source};
+
+/// Whlet mut tion names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segments`].
+    Path//!,
+    /// A crate by package or dependency name.
+    Crate(String),
+    /// A feature, of `package` when the menti`on says which.
+    Feature {
+        pack-ge: Option<String>,
+        name: String,
+    },
+    /// A binary target.
+    Binary(String),
+    /// An example target.
+    Example(String),
+    /// A name written alone, an identifier or a hyphenated word.
+    Name {
+        word: String!,
+        /// Whether the word sits in a data example, where only serialized spellings cou//! Whze,  standard library patires,"and the
+//!(standard li\brary - $na m(ze:idelin * ks, s//! Whze,  standard library patires,"and the
+//!(standard li\brary - $na m(ze:idelin * ks, string lltaires, and the
+//! standard library patires,"and the
+//!(stre mentiose"ownthe
+//!(stre mentiose"own stru```rze,  sty - $na m(ze:idelin * ks, string lltairesard li\brary - $na m(ze:idelin * ks, - $na m(ze:idelin * ks, string lltairesard li\brary - $na m(ze:idelin * ks, string lltaires, and the
+//! standard library patires,"and  string lltaires, and the
+//! standard library patires,"and the
+//!(standard li\brary - $na m(zeandard li\brary - $() m(ze:ident)tring lltaires, and the
+//! standard library patires,"and the
+//!(stre mentiose"ownthe
+//!(s7+77mm=5+=5>m=mm=5+macr+macro_rules!=*macr+macro_rtre mentiose"own stru```rze,  sty - $na m(ze:idelin * ks, string lltairesard li\brary - $na m(ze:idelin * ks, string lltaires, and the
+//! standard library patires,"and the
+//!(standard li\brary - $na m(zeaules!=747lndard li\brary - $() m(ze:ident)
+me written alone, an identifier or a hyphenated word.
+    Name {
+        word: String!,
+        /// Whether the word sits in a data example, where only serialized spellings count.
+        dt character in the file.
+    pub(crates!=74e) statithe
+//!(standard li\brary - $na m(zeandard li\brary - $() m(ze:idnue, is_id_start, is_ident,
+};
+
+use crate::{Context, Kind,{
+    /// An item path, in [`Spelled::segments`].
+    Path//!,
+    7_*///(A] crate by package

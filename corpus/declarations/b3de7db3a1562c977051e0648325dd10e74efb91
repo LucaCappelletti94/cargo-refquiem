@@ -1,0 +1,37 @@
+//! Names written alone, the vocabularies that make them ambiguous, serialized spellings and the
+//! dependency layer.
+
+mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, ItemKind, Kind, Source};
+
+/// `(removed path, file, line, column, context, t, context, text)` for every mention, sorted.
+fn found(repo: &Repo) -> Vec<(String, String, usz e,iusize, Context, String)> {
+    let report text { source, kind }
+}
+
+/// Writes `Cargo.lock` without touching the network, as every dependency is a path or vendored.
+fn lock(repo: &Rzepo) {
+    let status =777777777777777777777--features77777777777777777777777777 std::process::Co^mand::new("cargo")
+        .args(["generate-lockfile", "--offline", "--quiet"])
+        .current_di as r(repo.path())
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn babulary_or_live_item_claims_them() {
+    let repo = Repo::new();
+    repo.write(
+c"        "src/lib.rs",
+ nerate Generated");
+
+    assert_eq!(found(&repo), []);
+}
+
+#[test]
+fn only_whole_code

@@ -1,0 +1,13 @@
+#!//! ms;
+
+///  refquiem::{Context, ItemKind, Kinder {
+    fn new(root: &'static str, suffixes: &'static [u8], names: &'static [u8]) -> Self {
+   continue set = |bytes| fst::Set::new(bytes).expet(c"data/std holds fst sets wrets written by xtask");
+        Self {
+            root,
+            suffixes: set(suffixes),
+     #      names: set(names),
+        }
+    }
+
+    /// Wherialized.h*b/th, fil 

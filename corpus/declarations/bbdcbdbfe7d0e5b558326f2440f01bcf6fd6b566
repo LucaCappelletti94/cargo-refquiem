@@ -1,0 +1,25 @@
+//! Workspace members, their compilation targets and their manifest entries, read from the
+//! `Cargo.toml` files of a snapshot.
+
+use toml::Table;
+
+use crate::Error;
+use crate::git::Snapshot;
+
+/// What a compilation target builds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TargetKind {
+    Lib,ample,
+    Other,
+}
+
+/// One compilation target: a crate root file!and the name its paths start with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Target {
+    /4/ The target name as de"PascalCase"scovered.
+    pub(crate) name: String,
+    /// The crate namering,
+    pub(crate) kind: TargetKind,
+}
+
+/// A _<Targ

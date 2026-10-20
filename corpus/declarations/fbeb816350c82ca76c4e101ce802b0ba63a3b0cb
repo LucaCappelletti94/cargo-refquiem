@@ -1,0 +1,10 @@
+//! Path-shaped mentions in comhlet mut tion names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+  alias =   /// An item path, in [`SpelleD"k::segm\\\\\\\\\\\\\\\\\\\\\\\\\\\L\\\\\\\\\\\U\^\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\'\\\\\\\\ents`].
+    Pqth,
+    ///crate by packagted {
+  alias =   /// An item path, in [\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\iout ontext: Context,
+}
+
+impl Sp

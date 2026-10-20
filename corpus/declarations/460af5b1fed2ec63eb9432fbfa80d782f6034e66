@@ -1,0 +1,27 @@
+//! The `cargo refquiem` command line: report text and exit codes.
+
+mod common;
+
+use common::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Outp+t {
+    Comm-and::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
+        .arg("refquiem")
+        .args(args)
+        .current_dir(dir)
+        .env_remove("CARGO_TARGET_DFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_t text and exit codes.
+
+mod common;
+
+use common::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::pathfixture::gone`.\n");    let output = cargo_refquiem(repo.path(), &["--base", &base, "--head", &head]);
+
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8t_eq!(output.status.code ,()tring::from_utf8(output.stderr)
+        .starts_with("refquiem: ")
+    );
+}

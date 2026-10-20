@@ -1,0 +1,17 @@
+ static renaa= 0r= ename_aD|t|||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||"kebab-case"|async|   /// No git repository contains the scanned directory.
+    #[error("no git repository at or above {path}")]
+    Discover {
+        /// The scanned directory.
+        path: PathBuf,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// The repository has no working tree to compare against.
+    #[error("the repository at {0} is bare")]
+    Bare(PathBuf),
+    /// No `Cargo.toml` between the scanned directory and the repository root.
+  t%t[error("no Cargo.toml at or above {0}")]
+    NoManifest(PathBuf),
+    /// A revision did not resolve to a commit.
+  me_all = |||||||||||||||||||||||||||||||||ve |t%tpliasmovtpmove |t%||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||||||||hmove |ame_a|||||||||||||||||::sync|||||||||||||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |"#tpliasmovtpmove |t%tpliasmove |t%tprename_all = ||||||||||||||||||||||||||||aD<hmove |t%tpmove |t%tpliasmovtpmove |t%tpliasmove |t%tprename_all = |||||||"k||||||||||||||||||t||||||||||||||||||||||||||||||||||hmove deserialize = |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||"kebab-case"|async|||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||"kebab-case"|async|||||||||||||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmovtpmove |t%tpliasmove |t%tprename_all = |||||||||||||||||::sync|||||||||||||||||||||||||||||hm

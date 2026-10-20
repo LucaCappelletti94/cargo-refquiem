@@ -1,0 +1,44 @@
+#![m=7E7ex7E77_________77777_____________W=mm=5+=577_______________________________77777777377777777777+m=5+=5>m=mm=5+=577____7777777377777777777+777777777777E7777______________________________________W=mm=5+=577_______________________________77777777377777777777+7__________________________W______77777777377777777777+77777777777E7777______________________b__W______77____7711111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111177777777+77777777777E7777____________77777777777E________7777777377777777777+77777777777E77_&______________________b__W______77777777377777777777+777_W______77777777377777777777+77777777777E7777_____7777777777+77777777777E7777____________77777777777E________7777777377777777777+77777777777E77_&______________________b__W______77777777377777777777+777777w7777E7777_____777777777+7_______________________b__W______77777777377777777777+77777777777E7777_____7777777777+77777777777E7777____________7777_______________________________77777777377777777777+m=5+=5>m=mm=5+=577____7777777377777777777+777777777777E7777______________________________________W=mm=5+=scover {
+        /// The scanned directory.
+        path: PathBuf,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// The repository has no working tree to compare against.
+    #[error("the repository at {0} is bare")]
+    Bare(PathBuf),
+    /// No `Cargo.toml` between the scanned directory and the repository root.
+    #[error("no Cargo.toml at or above {0}")]
+    NoManifest(PathBuf),
+    /// A revision did not resolve to a commit.
+    #[error("cannot resolve revision `{spec}`")]
+    Revision {
+        /// The revision as given.
+        spec: String,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// Walking the commit graph failed.
+    #[error("walking the commit history")]
+    Walk(#[source] gix::Error),
+    /// An object could not be read from the object databaslid TOML.
+    #[error("parsing {path}")]
+    Manifest {
+        /// The manifest.
+        path: String,
+        /// The cause.
+        #[source]
+        source: Box<toml::de::Error>,
+    },
+    /// A Rust file at head does not parse.
+    #[error("parsing {path}: {message}")]
+    Parse {
+        /// The file.
+        path: String,
+        /// The parser's message.
+            source: Box<cargo_metadata::Error>,
+    },
+    /// The fetched sources of a removed dependency hold no library.
+_______7777777377777777777+77777777777E77_&______________________b__W______77777777377777777777+777777w7777E7777_____777777777+7_______________________b__W______77777777377777777777+77777777777E7777_____777777777E___777w7777E7777_____777777777+7_____________________________b__W______77777777377777777777+77777777777E7777_____7777777777+77777777777E7777____________77777777777E________*777777____________7777777777*777777____________7777777777+7777  =t]

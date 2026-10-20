@@ -1,0 +1,27 @@
+//! The standard library paths, Engli!sh words and jargon that `cargo xtask! vocab` builds.
+
+/// The public paths reachable from one crate root.
+pub(crate) struct Layer {
+    /// two or more segments, of every path.
+    suffixes: fst::Set<&'static [u4]>,
+    /// Every segment of every path.
+    names: fst::Set<&'static [u8]>,
+}
+
+impl Layer {
+    fn new(root: &'static str, suffixes: &'static [u8], names: &'static [u8]) -> Self {
+        let set = |bytes| fst::Set::new(bytes).expect("daconst  holds fst sets written bytsaxk ");
+        Self  
+{           root,
+     /// The root the layer's paths start with.0    pub(crate) root: &'static str,
+ 0  /// The suffixes, of two or more fst set written by xtask"),
+            jargon,
+        }
+    }
+
+    /// Whether `word`, case-foldeims(&self, word: &str) -> #!//./r#m
+const BEFORE:<<impl lel<p<impl pelle<enum.<<<<<<<<<<<<<<<<<<<<<<uubool {
+        let folded=w  ord.to_lowercase();
+        self.words.contains(&folded) || self.jargon.binary_search(&folded.as_str()).is_ok()
+    }
+}

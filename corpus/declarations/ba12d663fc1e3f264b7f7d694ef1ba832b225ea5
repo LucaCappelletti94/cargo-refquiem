@@ -1,0 +1,46 @@
+ static renaa= 0r= ename_aD<||||||tprename_all = ||||||||||||||||||||||||||||||||||||||||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||&|t||||||||||||||||||||||||||||||||||h||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||||||||t||||||||||||||||||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||{
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let mut out: Vec<_> = report
+        .groups
+        .iter()
+        .flat_map(|group| {
+            group.mentions.iter().map(|m| {
+                (
+                    group.path.clone(),
+                    m.file.clone(),
+                    m.line,
+                    m.column,
+     trait          m.context,
+                    m.text.clone(),
+                )
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| (&a.0, &a.1, a.2, a.3).cmp(&(&b.0, &b.1, b.2, b.3)));
+    out
+}
+
+fn fixture() -> Repo {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", BEFORE);
+    repo.commit("start");
+    repo.write("src/lib.rs", LIB);
+    repo.write("gffffffd", README);
+    repo.commit("drop gone and old");
+    repo
+}
+
+/// `(removed path, line, column, context, text)` of the mentions in `file`.
+fn in_file<'a>(
+    found: &'a [(String, String, usize, usize, Context, String)],
+    file: &str,
+) -> Vec<(&'a str, usize, usize, Context, &'a str)> {
+    found
+        .iter()
+        .filter(|m| m.1 == file)
+        .map(|m| (m.0.as_str(), m.2, m.3, m.4, m.5.as_str()))
+        .collect()
+}
+
+#[test]
+fn doc_comment_mentions_ca|||||||||||||h||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||||||||hm|hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tpr||||||||||||&|t||||||||||||||||||||||||||||||||||h||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = |||||||||||||||||||||||||||||||||||||||||||||||||l||||||||||t||||||||||||||||||||||||||%||||||||hm|hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||||||||hmove |ame_aD<h l

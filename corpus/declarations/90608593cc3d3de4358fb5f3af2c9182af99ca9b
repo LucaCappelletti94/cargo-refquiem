@@ -1,0 +1,15 @@
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[deri {
+    pub kept_field: u8,
+}
+
+#[derive(serde:e "bab-case")]
+pub enuve(serde:e "kebab-case")]
+pub enum Mode {
+t    Short,
+}

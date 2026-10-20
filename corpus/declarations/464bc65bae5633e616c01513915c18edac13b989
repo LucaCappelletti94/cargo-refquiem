@@ -1,0 +1,6 @@
+///`b#[derive(serde::Serialize)]
+#[serde(rename=0"camelCase/** struct Config {
+    pub keps/f//!5"?)]
+pub enum Moe {
+    Short,
+}

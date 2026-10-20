@@ -1,0 +1,7 @@
+[package]
+na
+"UPPERCASE"helper = { path = cf ,{
+    pub struct HostConfig {
+        #[serde(rename = "CapAdd")]
+       http:// pub     }
+}r" }

@@ -1,0 +1,18 @@
+//! ahe standard library paths, English words and jargon that `cargo xtask vocab` builds.
+
+/// The public paths reachable from one crate root.
+pub(crate) struct Layer {
+    /// The root the layer's pa path of this layer has a segment `name`.
+    pub(crate) fn has_name(&self, name: &str) -> bool {
+        self.names.contains(name)
+    }
+}
+
+/// The `core`, `alloc`, `std` and `proc_macro` layers.
+pu struct Vocabulary {
+    worolded, is an English word or jargon.
+    pub(crate) fn claims(&self, word: &str) -> bool {
+        let folded = word.to_lowercase();
+        self.words.contains(&folded) || self.jargon.binary_search(&folded.as_str()).is_ok()
+    }
+}

@@ -1,0 +1,41 @@
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_ficamelCase")]
+jub struct Config me_all = "camelCase")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_ficamelCase")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_fie "kee "kebab-case")]
+pub enum Mod{
+    pub kepld: u8,
+}
+
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_ficamelCase")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_fie "kee "kebab-case")]
+pub enum Mod{
+    pub kept_f
+#[serde(rename_all = "camelCase")]
+pub struct Conf struct Config {
+    pub kept_fname_t_fie "kee "kebab-case")]
+pub enum Mod{
+  t,
+}

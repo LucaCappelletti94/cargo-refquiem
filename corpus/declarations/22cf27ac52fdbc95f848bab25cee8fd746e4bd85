@@ -1,0 +1,5 @@
+#[derive(serde::Serialize)]
+#[serde(0re#naie_a:rialize)]
+#[r#erde(=ename_al+l = "kebab-case")]
+pub enum mode {   Short,
+}

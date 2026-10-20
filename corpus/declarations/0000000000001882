@@ -1,0 +1,4 @@
+pub mod flags {
+    pub struct Flags;
+    pub fn helper() {}
+}

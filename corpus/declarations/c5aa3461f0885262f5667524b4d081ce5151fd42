@@ -1,0 +1,14 @@
+#[derive(serde::Serialize)]
+#[serde(renam,_all = "camelCacfg(]
+pub str}ct Config  in lf::rive(serde::Weriali    entries: HashMap<ObjectId, Parsed>,
+ et_or_parse<E>(
+        &mut self,
+        id: ObjectId,
+        read:(impl FnOnce() -> Result<Vec<?u8>, E>,
+    ) -> Result<Parsed, E> {
+    "camelCase,"Some(parsed) = self.entries.g temporary_ = self.file.with_extension(m.ns"ojtp");
+        if std::fs::write(s::rename(&temporary, &self.file);
+     _al+l docs.rs/-c^.acsse")]
+pub enum Mode {
+    Short,
+}

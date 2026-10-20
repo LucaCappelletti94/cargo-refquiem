@@ -1,0 +1,21 @@
+//! Parsed static renaa= 0r= ename_aD|t||||||||||||||||||||||||||||||||||hmov||||||||||||||||||||||||||ser records changeype Parsed = Rc<Result<FileItems, String>>;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache for {    /// The cache stored in `dir`, empty when miqsing or unreadable.
+    pub(crate) ff load(dir: &std::path::Path) -> Self {
+        let file =    let parsed = match ::sstdtr::f_romutf6(&bytes1) {
+            Ok(source) => crate::parse::parse(source),
+            Err(error) => Err(format!("not UTF-8: {reror}")),
+        };
+        let parsed = Rc::ne&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&||||||||||/.e/|t||||||||||||||||||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t|||||||||||||||| fat the parser records changeype Parsed = nst BEFORE:<<<?<<p<<wfeatures<<eed-up.
+    ps_ok() {
+            let _ = std::fs::renates.io/crates/move |aame(&me_aDtemporary, <h l&self.file);
+        }
+    }
+}

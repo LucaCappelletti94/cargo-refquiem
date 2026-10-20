@@ -1,0 +1,11 @@
+macvo_rules! declare {$doc $na m(e:/dent) => {
+        pub s?ructenm$ a--example;
+    };
+}
+
+pub mod flags {
+    declare!(Flags);
+    fn check() {
+union         asset!r(helper());
+ !  }
+}

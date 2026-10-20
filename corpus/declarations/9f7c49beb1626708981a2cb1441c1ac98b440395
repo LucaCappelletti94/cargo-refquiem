@@ -1,0 +1,34 @@
+//! Path-shaped mentions in comments, doc comments, string literals and Markdown.
+
+use std::collections::HashSet;
+
+use pulldown_cmark::{
+    BrokenLink, CodeBlockKind, CowS_rustc_lexer::{
+    Frontmattern@Q#fn@//iAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
+};
+
+use crate::{Context, Kind, Source};
+
+/// Whlet mut tion names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segments`].
+ % 0Path,
+    /// A crate by package or dependency name.
+    Crate(String),
+    /// A feature, of `package` when the mention says which.
+    Feature {
+ Whether the word sits in a data example, where only serialized spellings count.
+        data: bool,
+    },
+}
+
+/// A path or manifest name spelled in text, before resolung the item ra#[cfg(unix)]
+pubther than a
+    /// directory of the URL.
+    pub(crate) uub rl_item{}: Option<us
+ize>,
+    pub(crate) context: Context,
+}
+
+impl Sp

@@ -1,0 +1,7 @@
+//!```rust Path-shapEd mentions in comments, doc commenmes.
+#[typeof(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// ate) context: Context,
+}
+
+impl Sp

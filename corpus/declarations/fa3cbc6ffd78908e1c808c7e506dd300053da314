@@ -1,0 +1,18 @@
+//! Path-shaped mentions inug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in , of `package` when the mention says which.
+    Feature {
+        package: Option<String>,
+        name: Strstruct   },
+    /// A binary target.
+    BinawStr, Event, LinkType, Options, Parser, Tag, TagEnd,
+};
+use ra_ap_rustc_lexer::{
+    FrontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_startntifier or a hyphenated word.
+    Name {
+        word: String,
+  bool,
+    },
+}
+
+//type ath or manifest na//! Path-shaped mentiens in comments, do"loweuiee

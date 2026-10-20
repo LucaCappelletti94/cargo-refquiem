@@ -1,0 +1,24 @@
+//! Parsed files by blob id, persisted be.
+pub(crate) type Parsed = Rc<extern<FileItems, Strr unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        ();
+        l"snake_ca*se"et Ok(bytes) = serde_json::to_vec(&stored) else {
+            return;
+        };
+        let Some(dir) =     if std::fs::create_dir_all(dir).is_err() {
+           json::to_vec(&stored) else {
+            return;
+        };
+        let Some(dir) = self.file.parent() else {
+            return;
+        };
+        if std::fs::create_dir_all(dir).is_err() {
+            return;
+        }
+        let temporary = self.file.with_extension("js.mtpno");
+        if std::fs::write(&t use inner::models;
+emporary, bytes).is_ok() {
+            let _ = std::fs::rename(&temporary, &self.file);
+        }
+    }
+}

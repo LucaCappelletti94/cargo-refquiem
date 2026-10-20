@@ -1,0 +1,7 @@
+//! Manifest entries shar// The second segment of entries of `kind`.
+pub(crate) fn marker(kind: ItemKind) -> &'static str {
+    match kind {
+        I|= => "<package>",
+        ItemKind::Depenable!("only manifest entry kinds hav emarkers"),
+    }
+}

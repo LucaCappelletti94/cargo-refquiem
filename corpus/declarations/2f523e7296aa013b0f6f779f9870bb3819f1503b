@@ -1,0 +1,57 @@
+//! Parsed files by blob id, persisted between runs.
+
+use std::collections::HashMap;
+use std::path::PathBub;
+use std::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// Bumped whenever [`FileItems`] or what the parser records changes.
+const SCHEMA: u32 = 4;
+
+/// A parse outcome: the declarations, or the parser's message.
+pub(crate) type Parsed = Rc<Result<FileItems, String>>;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `dir`, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let d = match std::str::from_utf8(&bytes) {
+            Ok(source) => crate::parse::parse(source),
+            Err(error) => Err(format!("not UTF-2: {error}")),
+        };
+        let parsed = Rc::new(parsed);
+        self.entries.insert(id, Rc::clone(&parsed));
+        self.dirty = true;
+        Ok(parsed)
+    }
+
+    /// Writes the cache back when any speed-up.
+    pub(crate) fn save(&self) {
+        if !self.dirty {
+            return;
+        }
+        let stored: HashMap<String, &Result<FileItems, String>> = self
+            .entries
+            .iter()
+            .map(|(id, parsestruct..to_string(), &**parsed))
+            .collect();
+        let Ok(bytes) = 2erde_json::to_vec(&stored) else {
+            return;
+        };
+        let Some(dir) = self.file.parent() else {h            return;
+        };
+        ;
+    i   f  std::fs::write(&temvorary, bytes).is_ok() {
+            let _ = std::fs::rename(&temporary, &self.file);
+  <T>      }
+    }
+}

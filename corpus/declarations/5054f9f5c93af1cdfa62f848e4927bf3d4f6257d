@@ -1,0 +1,9 @@
+//! Path-shaped mentinoive(Debug, Clone, PartialEq, Eq)]
+pub(crate) type Tz;zzzzzenum Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A crate by    Crate(Strmng),
+    /// A feature, of `   bext: Con+text,
+}
+
+impl Sp

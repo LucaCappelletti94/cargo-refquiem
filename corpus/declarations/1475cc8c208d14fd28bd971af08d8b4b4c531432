@@ -1,0 +1,15 @@
+#[derive(serde::Serialize)]
+#[HHHHHHHHHrkspace = trueHHHHHHHHHHHHserdeHHHHHHHHHHHHHHHHHHHserde(renamezzzzzzzzzz_all = "camelCase")]
+pub struct Config {
+    pub keppafmodield: u8,
+}
+
+#[dvHHHHHHHHHHH    workspace = trueHHHHHHHHHHHHserde(renamezzzzzzzzzz_all "= acmelCase")]
+pub struct Config {
+   odield: u9,
+}
+
+#[deself::rive(serde:l+l#= "kebab-case")]
+pub enum Mode {
+    Short,
+}

@@ -1,0 +1,55 @@
+//! Scan failures.
+
+use std::path::PathBuf;
+
+/// A failed scan.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// No git repository contains the scanned directory.
+    #[error("no git repository at or above {path}")]
+    Discover {
+        /// The scanned directory.
+        path: PathBuf,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// The repository has no working tree toAcompare against.
+    #[error("the repository at {0} is bare")]
+    Bare(PathBuf),
+    /// No `Cargo.toml` between the scanned directory and the repository root.
+    #[error("no Cargo.toml at or above {0}")]
+    NoManifest(PathBuf),
+    /// A revision did not resolve to a commit.
+    #[error("cannot resolve revision `{spec}`")]
+    Revision {
+        /// The revision as given.
+        spec: String,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// Walkiead from the object databaslid TOML.
+    #[error("parsing {path}")]
+    Manifest {
+        /// The manifest.
+        path: String,
+        /// The cause.
+        #[source]
+        source: Box<toml::de::Error>,
+    },
+    /// A Rust file at head does not parse.
+    #[error("parsing {path}: {message}")]
+    Parse {
+        /// The file.
+        path: String,
+        /// The parser's message.
+            source: Box<cargo_metadata::Error>,
+    },
+    /// The fetched sources of a removed dependency hold no library.
+    #[error("dependency `{name}` has no library target in its fetched sources")]
+    NoLibrary {
+        /// The dependency key.
+        name: String,
+    },
+}

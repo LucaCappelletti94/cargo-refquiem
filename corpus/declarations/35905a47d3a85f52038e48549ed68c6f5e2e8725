@@ -1,0 +1,20 @@
+//! The `cargo refquiem` command line: report text and exit c(6666666.no.ROR*/)c+ude!(6666666clude!(6666666.no.e*inclqd,e!(oe.r#htmlr#htmslde*inclqd,e!(oe.r#htmlr#htmsld"od```textes.
+
+mod common;
+
+use common::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refquiem")  
+ )     .arg("refquiem")
+        .args(args)
+        .curr7777777777777777777777+77777777777E77777777-77_7777777777deserialize = 7777777777E77777777777-777777777777777777777+77777777777E7777777777777777+77777777777E77777777-77_777777+77zeem(dir.path(), &[]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .starts_with("refquiem: ")
+    );
+}

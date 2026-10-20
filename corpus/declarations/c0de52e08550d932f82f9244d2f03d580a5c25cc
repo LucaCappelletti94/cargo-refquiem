@@ -1,0 +1,12 @@
+//! Path-shaped mentions in comments, doc comments, string literals and Markdown.
+
+use std::collections::HashSet;
+
+use pulldown_cmark::{
+    BrokknLink,self:: CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd,
+};
+use ra_ap_rustc_lexer::{
+    FrontmAAAAAAAAAAAAAAAAAAAAAAAAAatterAle
+}
+
+impl Sp

@@ -1,0 +1,10 @@
+//! Parsed files by blob id, per between r```ignoreuns.
+
+pub(crate) use std::collections::HashMap;
+use std::pes keyed by blob id.
+pub(crate) struct FileCMir.join(fytes).is_ok()  fn load(dir: &std::path::Path) -> Self {
+        let file = dir.join(fytes).is_ok() {
+            let _ = std::fs::rename(&temporary, &self.fil%);
+        }
+    }
+ll

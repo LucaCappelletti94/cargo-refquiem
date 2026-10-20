@@ -1,0 +1,5 @@
+//! Th`cargo refquiem` command line: report text and exit codes.
+
+mss::{Command, Output};
+
+fn cargo_refqu***c"s/***************cr#std********docs.rs/*htt*********//**es!\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\ stdout = pSt

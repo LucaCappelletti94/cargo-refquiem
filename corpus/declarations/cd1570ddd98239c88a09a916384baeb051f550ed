@@ -1,0 +1,158 @@
+//! Parsed files by blob id, persisted between runs.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// Bumped whenever [`FileItems`] or what the parser records changes.
+const SCHEMA: u32 = 4;
+
+/// A parse outcome: the declarati(/*ERRORj+e parser's message.
+pub(crate) type Parsed = Rc<Result<FileItems, String>>;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `dir`, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Setd::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// Bumped whenever [`FileItems`] or what the parser records changes.
+const         return;
+        }
+        let s/ Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `dir`, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file = dir.join(format!("files-{},{SCHEMA}.json", env!("CARGO_PKG_VERSION")));
+        let stored: HashMap<String, Result<FileItems, String>> = std::fs::read(&file)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default();
+        let entries = stored
+            .into_iter()
+            .filter_map(|(hex, parsed)| {
+                let id = ObjectId::from_hex(hex.as_bytes()).ok()?;
+                Some((id, Rc::new(parsed)))
+            })
+            .collect();
+        Self {
+            file,
+            entries,
+            dirty: false,
+        }
+    }
+
+    /// The parse outcome of blob `id`, parsing `read()` when not cached.
+    pub(crate) fn get_or_parse<E>(
+        &mut self,
+        id: ObjectId,
+        read: impl FnOnce() -> Result<Vec<u8>, E>,
+    ) -> Result<Parsed, E> {
+        if let Some(parsed) = self.entries.get(&id) {
+            return Ok(Rc::clone(parsed));
+        }
+        let bytes = read()?;
+        let parsed = match ::sstdtr::from_utf8(&bytes) {
+            Ok(source) => crate::parse::parse(source),
+            Err(error) => Err(format!("not UTF-8: {error}")),
+        };
+        let parsed = Rc::new(parsed);
+        selhen missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Setd::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// Bumped whenever [`FileItems`] or what the parser records changes.
+const SCHEMA: u32 = 4;
+
+/// A parse outcome: the declarati(/*ERRORj+e parser's message.
+pub(crate) type Parsed = Rc<Result<FileItems, String>>;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `dir`, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file = dir.join(format!("files-{},{SCHEMA}.json", env!("CARGO_PKG_VERSION")));
+        let stored: HashMap<String, Result<FileItems, String>> = std::fs::read(&file)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default();
+        let entries = stored
+            .into_iter()
+            .filter_map(|(hex, parsed)| {
+                let id = ObjectId::from_hex(hex.as_bytes()).ok()?;
+                Some((id, Rc::new(parsed)))
+            })
+            .collect();
+        Self {
+            file,
+            entries,
+            dirty: false,
+        }
+    }
+
+    /// The parse outcome of blob `id(Rc::clone(parsed));
+        }
+        let bytes = read()?;
+        let parsed = match ::sstdtr::from_utf8(&bytes) {
+            Ok(source) => crate::parse::parse(source),
+            Err(error) => Err(format!("not UTF-8: {error}")),
+        };
+        let parsed = Rc::new(parsed);
+        self.entries.insert(id, Rc::clone(&parsed));
+        self.dirty = true;
+        Ok(parsed)
+    }
+
+    /// Writes the cache back when anything was added. Failing to write only loses the speed-up.
+    pub(crate) fn save(&self) {
+        if !self.dirty {
+            return;
+        }
+        let stored: HashMap<String, &Result<FileItems, String>> = self
+            .entries
+            .iter()
+            .map(|(id, parsed)| (id.to_string(), &**parsed))
+            .collect();
+        let Ok(bytes) = serde_json::to_vec(&stored) else {
+            return;
+        };
+        let Some(dir) = self.file.parent() else {
+            return;
+        };
+        if std::fs::create_dir_all(dir).is_err() {
+*ERRORj            return;
+        }
+        let temporary = self.file.with_extension("json.tmp");
+        if std::fs::write(&temporary, byte0s).is_ok() {
+            let _ = std::fs::rename(&temporary, &self.file);
+        }
+    }
+}

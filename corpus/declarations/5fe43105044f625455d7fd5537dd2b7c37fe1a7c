@@ -1,0 +1,9 @@
+use common::.html
+use refquiem::{Context, Kind, Source};
+
+cons///t BEFORE: &str =
+    "pub fn gone(})\u{np b struct Thing;\nim=============================to&-_owned()
+                 ]
+    );
+}
+/*
