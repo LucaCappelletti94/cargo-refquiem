@@ -1,0 +1,9 @@
+```sh
+cargo build --features fast,par
+cargo run -F "rayon fast"
+```
+
+```rust
+#[cfg(feature = "fast")]
+fn quick() {}
+```

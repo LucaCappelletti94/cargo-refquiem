@@ -1,0 +1,6 @@
+Prose fixture::gone, span `fixture::gone`
+```rust
+fixture::gone();
+```
+
+[method](struct.Thing.html#method.old), [docs.rs](https://docs.rs/fixture/latest/fixture/fn.gone.html), [up](../fixture/fn.gone.html), [kept](struct.Thing.html).
