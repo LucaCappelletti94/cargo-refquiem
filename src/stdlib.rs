@@ -1,4 +1,4 @@
-//! The standard library paths, English words and jargon that `cargo xtask vocab` builds.
+//! The standard library paths and English words that `cargo xtask vocab` builds.
 
 /// The public paths reachable from one crate root.
 pub(crate) struct Layer {
@@ -57,30 +57,22 @@ pub(crate) fn layers() -> [Layer; 4] {
     ]
 }
 
-/// English words and programming jargon, which a bare name in running text may simply be.
+/// English words, hyphenated compounds included, which a bare name in running text may
+/// simply be.
 pub(crate) struct Vocabulary {
     words: fst::Set<&'static [u8]>,
-    jargon: Vec<&'static str>,
 }
 
 impl Vocabulary {
     pub(crate) fn new() -> Self {
-        let mut jargon: Vec<&'static str> = include_str!("../data/english/jargon.txt")
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .collect();
-        jargon.sort_unstable();
         Self {
             words: fst::Set::new(&include_bytes!("../data/english/words.fst")[..])
                 .expect("data/english holds an fst set written by xtask"),
-            jargon,
         }
     }
 
-    /// Whether `word`, case-folded, is an English word or jargon.
+    /// Whether `word`, case-folded, is an English word.
     pub(crate) fn claims(&self, word: &str) -> bool {
-        let folded = word.to_lowercase();
-        self.words.contains(&folded) || self.jargon.binary_search(&folded.as_str()).is_ok()
+        self.words.contains(word.to_lowercase())
     }
 }
