@@ -1318,11 +1318,7 @@ impl Indexer {
         // Each entry is a source, the copy it lands at (`None` for `to` when never interned)
         // and the tip of its chain.
         let mut stack = vec![(from, self.interner.find_path(to), tip)];
-        let mut guard = HashSet::new();
         while let Some((source, prefix, tip)) = stack.pop() {
-            if !guard.insert(source) {
-                continue;
-            }
             for &child in tree.children.get(&source).into_iter().flatten() {
                 if across && hidden.contains(&child) {
                     continue;
@@ -1405,7 +1401,7 @@ impl Indexer {
     }
 }
 
-/// The parent and child links among a set of paths.
+/// A forest of unique path-parent edges.
 #[derive(Default)]
 struct Tree {
     /// The children of every path, sorted.

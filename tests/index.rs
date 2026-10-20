@@ -310,6 +310,36 @@ fn trees_with_the_same_items_but_another_glob_source_reexport_differently() {
 }
 
 #[test]
+fn successive_globs_keep_each_destinations_nested_items() {
+    let repo = Repo::new();
+    let lib = |left, right| {
+        format!(
+            "pub mod left {{ pub mod nested_left {{ {left} }} }}\npub mod right {{ pub mod nested_right {{ {right} pub fn kept() {{}} }} }}\npub mod first {{ pub use crate::left::*; pub use crate::right::*; }}\npub mod second {{ pub use crate::left::*; }}\n"
+        )
+    };
+    repo.write(
+        "src/lib.rs",
+        &lib("pub fn gone_left() {}", "pub fn gone_right() {}"),
+    );
+    repo.commit("nested glob sources");
+    repo.write("src/lib.rs", &lib("", ""));
+    repo.write(
+        "README.md",
+        "`fixture::first::nested_left::gone_left`, `fixture::second::nested_left::gone_left`, `fixture::first::nested_right::gone_right` and `fixture::first::nested_right::kept`.\n",
+    );
+    repo.commit("remove the nested functions");
+
+    assert_eq!(
+        removed(&run(&repo)),
+        [
+            "fixture::first::nested_left::gone_left",
+            "fixture::first::nested_right::gone_right",
+            "fixture::second::nested_left::gone_left",
+        ]
+    );
+}
+
+#[test]
 fn a_module_reexporting_its_parent_does_not_nest_the_crate_into_itself() {
     let repo = Repo::new();
     repo.write(
