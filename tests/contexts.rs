@@ -737,3 +737,27 @@ fn attribute_boundaries_preserve_string_literal_mentions() {
         ]
     );
 }
+
+#[test]
+fn a_doc_attribute_keeps_its_example_bindings_local() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn retired_probe_842() {}\npub struct RetiredOutside842;\n",
+    );
+    repo.commit("function and structure");
+    repo.write(
+        "src/lib.rs",
+        "#[doc = r\"```\nlet retired_probe_842 = 1;\nretired_probe_842;\n```\n\nUse `RetiredOutside842`.\n\"]\npub struct Kept;\n",
+    );
+    repo.commit("drop the items");
+
+    let mentions: Vec<_> = found(&repo).into_iter().map(|row| (row.0, row.5)).collect();
+    assert_eq!(
+        mentions,
+        [(
+            "fixture::RetiredOutside842".to_owned(),
+            "RetiredOutside842".to_owned()
+        )]
+    );
+}

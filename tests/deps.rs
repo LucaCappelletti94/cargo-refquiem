@@ -1164,3 +1164,35 @@ fn only_public_dependency_fields_claim_removed_local_names() {
         assert_eq!(paths, expected, "{visibility:?}");
     }
 }
+
+#[test]
+fn a_known_library_root_is_not_attributed_to_a_removed_dependency() {
+    let repo = Repo::new();
+    repo.vendor("helper", "0.1.0", "");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[lib]\nname = \"live_root\"\n[dependencies]\nlive_root = { package = \"helper\", version = \"0.1\" }\n",
+    );
+    repo.write("src/lib.rs", "pub fn retired_probe842() {}\n");
+    lock(&repo);
+    repo.commit("dependency");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[lib]\nname = \"live_root\"\n",
+    );
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "README.md",
+        "`live_root::unknown_in_the_index` and `live_root::retired_probe842`.\n",
+    );
+    lock(&repo);
+    repo.commit("remove dependency and function");
+
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let rows: Vec<_> = report
+        .groups
+        .iter()
+        .map(|group| (group.path.as_str(), group.kind))
+        .collect();
+    assert_eq!(rows, [("live_root::retired_probe842", ItemKind::Function)]);
+}

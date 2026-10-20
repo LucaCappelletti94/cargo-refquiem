@@ -275,7 +275,7 @@ pub(crate) struct Indexer {
     /// The crate names of every workspace target in any indexed snapshot.
     pub(crate) crates: HashSet<Sym>,
     manifest_dirs: ManifestDirs,
-    /// Recent alias resolutions of snapshots other than head, least recently used first.
+    /// Recent alias resolutions of snapshots other than head, most recently used first.
     aliases: VecDeque<AliasEntry>,
 }
 
@@ -1235,11 +1235,11 @@ impl Indexer {
         let found = self
             .aliases
             .iter()
-            .position(|entry| entry.hash == hash && entry.key == key);
+            .position(|entry| (entry.hash, &entry.key) == (hash, &key));
         if let Some(entry) = found.and_then(|at| self.aliases.remove(at)) {
             paths.extend(&entry.added);
             let reexports = entry.reexports.clone();
-            self.aliases.push_back(entry);
+            self.aliases.push_front(entry);
             return reexports;
         }
         self.expose_traits(paths, &mut hidden, uses, lends, traits, crates);
@@ -1252,10 +1252,8 @@ impl Indexer {
             .copied()
             .filter(|id| before.binary_search(id).is_err())
             .collect();
-        if self.aliases.len() == RECALLED_ALIASES {
-            self.aliases.pop_front();
-        }
-        self.aliases.push_back(AliasEntry {
+        self.aliases.truncate(RECALLED_ALIASES.saturating_sub(1));
+        self.aliases.push_front(AliasEntry {
             hash,
             key,
             added,

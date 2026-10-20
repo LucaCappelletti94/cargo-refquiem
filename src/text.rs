@@ -146,62 +146,62 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Result<Read, Mark
             && let Some((style, _, docs)) = doc_attribute(source, &tokens, i)
             && !docs.is_empty()
         {
-            i = doc_run(source, &tokens, i, style, scan_commented_code, &mut out)? + 1;
-            continue;
-        }
-        attribute.step(kind);
-        let text = &source[offset..offset + len];
-        match kind {
-            TokenKind::LineComment {
-                doc_style: Some(style),
-            } => {
-                i = doc_run(source, &tokens, i, style, scan_commented_code, &mut out)?;
-            }
-            TokenKind::BlockComment {
-                doc_style: Some(_),
-                terminated: true,
-            } => {
-                let doc = Doc::from_block(source, offset, len);
-                markdown(
-                    &doc.text,
-                    |at| doc.file_offset(at),
-                    Source::DocComment,
-                    &mut out,
-                )?;
-            }
-            TokenKind::LineComment { doc_style: None } => {
-                i = comment_run(source, &tokens, i, scan_commented_code, &mut out);
-            }
-            TokenKind::BlockComment { .. } => {
-                let body = text.strip_prefix("/*").unwrap_or(text);
-                let body = body.strip_suffix("*/").unwrap_or(body);
-                if scan_commented_code || !is_code(body) {
-                    scan(text, offset, comment(), &mut out);
+            i = doc_run(source, &tokens, i, style, scan_commented_code, &mut out)?;
+        } else {
+            attribute.step(kind);
+            let text = &source[offset..offset + len];
+            match kind {
+                TokenKind::LineComment {
+                    doc_style: Some(style),
+                } => {
+                    i = doc_run(source, &tokens, i, style, scan_commented_code, &mut out)?;
                 }
-            }
-            TokenKind::Literal {
-                kind:
-                    LiteralKind::Str { .. }
-                    | LiteralKind::ByteStr { .. }
-                    | LiteralKind::CStr { .. }
-                    | LiteralKind::RawStr { .. }
-                    | LiteralKind::RawByteStr { .. }
-                    | LiteralKind::RawCStr { .. },
-                ..
-            } => {
-                let context = Context {
-                    source: Source::StringLiteral,
-                    kind: Kind::Text,
-                };
-                if attribute.inside() {
-                    spelled(text, offset, context, &mut out);
-                } else if let Some(span) = identifier_body(text) {
-                    out.push(name(text, offset, span, true, context));
-                } else {
-                    scan(text, offset, context, &mut out);
+                TokenKind::BlockComment {
+                    doc_style: Some(_),
+                    terminated: true,
+                } => {
+                    let doc = Doc::from_block(source, offset, len);
+                    markdown(
+                        &doc.text,
+                        |at| doc.file_offset(at),
+                        Source::DocComment,
+                        &mut out,
+                    )?;
                 }
+                TokenKind::LineComment { doc_style: None } => {
+                    i = comment_run(source, &tokens, i, scan_commented_code, &mut out);
+                }
+                TokenKind::BlockComment { .. } => {
+                    let body = text.strip_prefix("/*").unwrap_or(text);
+                    let body = body.strip_suffix("*/").unwrap_or(body);
+                    if scan_commented_code || !is_code(body) {
+                        scan(text, offset, comment(), &mut out);
+                    }
+                }
+                TokenKind::Literal {
+                    kind:
+                        LiteralKind::Str { .. }
+                        | LiteralKind::ByteStr { .. }
+                        | LiteralKind::CStr { .. }
+                        | LiteralKind::RawStr { .. }
+                        | LiteralKind::RawByteStr { .. }
+                        | LiteralKind::RawCStr { .. },
+                    ..
+                } => {
+                    let context = Context {
+                        source: Source::StringLiteral,
+                        kind: Kind::Text,
+                    };
+                    if attribute.inside() {
+                        spelled(text, offset, context, &mut out);
+                    } else if let Some(span) = identifier_body(text) {
+                        out.push(name(text, offset, span, true, context));
+                    } else {
+                        scan(text, offset, context, &mut out);
+                    }
+                }
+                _ => {}
             }
-            _ => {}
         }
         i += 1;
     }

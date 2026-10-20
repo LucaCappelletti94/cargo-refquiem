@@ -153,3 +153,35 @@ impl Store {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::FileCache;
+    use crate::ItemKind;
+
+    #[test]
+    fn a_persisted_parse_does_not_require_the_blob_reader() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("lib.rs");
+        let bytes = b"pub struct Remembered;";
+        std::fs::write(&source, bytes).unwrap();
+        let id =
+            gix::objs::compute_hash(gix::hash::Kind::Sha1, gix::objs::Kind::Blob, bytes).unwrap();
+        let stored = dir.path().join("cache");
+        let mut cache = FileCache::load(&stored);
+        cache.get_or_parse(id, || std::fs::read(&source)).unwrap();
+        cache.save();
+        drop(cache);
+        std::fs::remove_file(&source).unwrap();
+
+        let mut cache = FileCache::load(&stored);
+        let parsed = cache.get_or_parse(id, || std::fs::read(&source)).unwrap();
+        let items = parsed.as_ref().as_ref().unwrap();
+        let [item] = items.items.as_slice() else {
+            panic!("expected the cached struct");
+        };
+        assert_eq!(item.path, ["Remembered"]);
+        assert_eq!(item.kind, ItemKind::Struct);
+        assert!(item.public);
+    }
+}
