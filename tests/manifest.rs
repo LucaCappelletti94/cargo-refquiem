@@ -473,6 +473,43 @@ fn workspace_inheritance_resolves_a_member_dependency() {
 }
 
 #[test]
+fn an_inherited_dependency_keeps_its_member_optional_feature() {
+    let repo = Repo::new();
+    repo.vendor("tool", "1.0.0", "pub fn live() {}\n");
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"m\"]\n\n[workspace.dependencies]\ntool = \"1\"\n",
+    );
+    repo.write(
+        "m/Cargo.toml",
+        "[package]\nname = \"m\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[features]\nsteady = []\n\n[dependencies]\ntool = { workspace = true, optional = true }\n",
+    );
+    repo.write("m/src/lib.rs", "");
+    repo.commit("optional inherited tool");
+    repo.write(
+        "m/Cargo.toml",
+        "[package]\nname = \"m\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[features]\nsteady = []\n\n[dependencies]\ntool = { workspace = true }\n",
+    );
+    repo.write(
+        "m/README.md",
+        "`--features tool`, `--features steady` and `tool::live`.\n",
+    );
+    repo.commit("require inherited tool");
+
+    assert_eq!(
+        found(&repo),
+        [mention(
+            "tool",
+            ItemKind::Feature,
+            "m/README.md",
+            1,
+            13,
+            "tool"
+        )]
+    );
+}
+
+#[test]
 fn a_member_spec_ignores_the_workspace_entry_for_the_same_key() {
     let repo = Repo::new();
     repo.vendor("tool", "1.0.0", "");

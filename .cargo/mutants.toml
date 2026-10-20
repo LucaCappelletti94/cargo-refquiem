@@ -47,4 +47,5 @@ exclude_re = [
     # Expansion memoization only avoids deterministic reparsing.
     'src/cache\.rs:\d+:9: replace FileCache::expansion -> Option<Expanded> with None$',
     'src/cache\.rs:\d+:9: replace FileCache::store_expansion with \(\)$',
+    'src/index\.rs:\d+:5: replace expansion_key -> Option<ObjectId> with None$',
 ]
