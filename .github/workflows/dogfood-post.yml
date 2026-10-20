@@ -41,6 +41,6 @@ jobs:
           STATUS: ${{ steps.refquiem.outputs.review-status }}
         run: |
           case "$STATUS" in
-            posted | skipped-stale) echo "the review ended $STATUS" ;;
+            posted | skipped-clean | skipped-stale) echo "the review ended $STATUS" ;;
             *) echo "unexpected review outcome: $STATUS"; exit 1 ;;
           esac

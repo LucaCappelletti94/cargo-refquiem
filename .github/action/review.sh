@@ -3,6 +3,8 @@
 # MODE review computes and posts it, prepare writes it to PAYLOAD, post posts a prepared one.
 # DRY_RUN renders it into the job summary instead. STATUS receives the outcome.
 # RUN_HEAD_SHA, in post mode, is the commit the run that prepared the payload checked out.
+# Earlier reviews of this action requesting changes are dismissed when a run is clean and
+# before a new review is posted.
 # No `set -e`, a failed api call records its own outcome instead of aborting the run.
 set -uo pipefail
 
@@ -36,6 +38,23 @@ render_dry_run() {
 # Matches the HTTP status `$2` in the gh error output `$1`.
 http_status() { grep -qE "HTTP $2|\"status\": \"$2\"" <<< "$1"; }
 
+# Every review body ends with it, so the action knows its own reviews whatever token posted them.
+marker='<!-- refquiem -->'
+
+# Dismisses this action's earlier reviews that still request changes on the pull request.
+dismiss() {
+  local ids id err
+  ids="$(gh api "repos/$repo/pulls/$pr/reviews" --paginate --jq '.[]' 2>/dev/null \
+    | jq -r --arg marker "$marker" \
+      'select(.state == "CHANGES_REQUESTED" and (.body | contains($marker))) | .id')"
+  for id in $ids; do
+    if ! err="$(gh api -X PUT "repos/$repo/pulls/$pr/reviews/$id/dismissals" -f event=DISMISS \
+      -f "message=Dismissed by refquiem in $GITHUB_SERVER_URL/$repo/actions/runs/${GITHUB_RUN_ID:-}" 2>&1)"; then
+      printf 'refquiem: review %s stays, its dismissal failed\n%s\n' "$id" "$err"
+    fi
+  done
+}
+
 if [ "$MODE" = post ]; then
   if [ ! -s "$meta" ] || [ ! -f "$comments" ]; then
     echo "refquiem: the prepared review is missing from $PAYLOAD"
@@ -57,6 +76,13 @@ if [ "$MODE" = post ]; then
       finish skipped-stale
     fi
   fi
+  if [ "$(jq -r '.clean // false' "$meta")" = true ]; then
+    echo "refquiem: pull request $pr has no stale mention"
+    if [ "$DRY_RUN" != true ]; then
+      dismiss
+    fi
+    finish skipped-clean
+  fi
 else
   # One row per mention and per unused marker, the text it says and where. A line with a
   # rewrite becomes one row holding every message on it and the rewritten line.
@@ -76,6 +102,21 @@ else
       else .[] end' "$REPORT")"
   if [ -z "$rows" ]; then
     echo "refquiem: no stale mention, the review is not posted"
+    if [ "$DRY_RUN" != true ] && [ -n "$pr" ]; then
+      if [ "$MODE" = prepare ]; then
+        if ! head_sha="$(gh api "repos/$repo/pulls/$pr" --jq .head.sha 2>&1)"; then
+          echo "refquiem: cannot read pull request $pr"
+          printf '%s\n' "$head_sha"
+          finish failed 1
+        fi
+        : > "$comments"
+        jq -n --arg pr "$pr" --arg head "$head_sha" \
+          '{pr: $pr, head_sha: $head, out_of_range: "", clean: true}' > "$meta"
+        echo "refquiem: the clean outcome is prepared in $PAYLOAD for a later job"
+        finish prepared
+      fi
+      dismiss
+    fi
     finish skipped-clean
   fi
 
@@ -196,6 +237,8 @@ if [ "$DRY_RUN" = true ]; then
   render_dry_run
 fi
 
+dismiss
+
 review_body="refquiem found removed names that are still mentioned, or suppression markers that suppress nothing."
 if [ -n "$out_of_range" ]; then
   review_body+=$'\n\n'"These are outside the lines the pull request diff shows, so they carry no comment."$'\n\n'"$out_of_range"
@@ -203,7 +246,7 @@ fi
 if [ -n "$failed" ]; then
   review_body+=$'\n\n'"These comments could not be posted."$'\n\n'"$failed"
 fi
-review_body+=$'\n\n'"[Run]($GITHUB_SERVER_URL/$repo/actions/runs/${GITHUB_RUN_ID:-})"
+review_body+=$'\n\n'"[Run]($GITHUB_SERVER_URL/$repo/actions/runs/${GITHUB_RUN_ID:-})"$'\n\n'"$marker"
 
 if ! response="$(printf '%s' "$review_body" | gh api -X POST "repos/$repo/pulls/$pr/reviews" \
   -f event=REQUEST_CHANGES -F 'body=@-' 2>&1)"; then

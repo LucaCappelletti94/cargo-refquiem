@@ -277,9 +277,15 @@ struct FakeGh {
     dir: tempfile::TempDir,
 }
 
+/// The reviews the pull request already has: one of ours requesting changes, one of ours
+/// already dismissed, and a maintainer's request without the marker.
+const EARLIER_REVIEWS: &str = r#"{"id":101,"state":"CHANGES_REQUESTED","body":"stale\n\n<!-- refquiem -->"}
+{"id":102,"state":"DISMISSED","body":"older\n\n<!-- refquiem -->"}
+{"id":103,"state":"CHANGES_REQUESTED","body":"a maintainer's request"}"#;
+
 impl FakeGh {
     /// `changed` are the pull request's files, `fail` makes posting a comment on that path,
-    /// or listing the files for `files`, fail with that status.
+    /// listing the files for `files`, or a dismissal for `dismissals`, fail with that status.
     fn new(changed: &[&str], fail: Option<(&str, u16)>) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let (fail_path, fail_status) = fail.map_or((String::new(), 0), |(p, s)| (p.to_owned(), s));
@@ -298,7 +304,17 @@ case "$*" in
       exit 1
     fi
     echo '{{}}' ;;
-  *pulls/7/reviews*) echo '{{"state": "CHANGES_REQUESTED"}}' ;;
+  *pulls/7/reviews/*/dismissals*)
+    if [ '{fail_path}' = dismissals ]; then
+      echo 'gh: HTTP {fail_status}' >&2
+      exit 1
+    fi
+    echo '{{"state": "DISMISSED"}}' ;;
+  *'-X POST'*pulls/7/reviews*) echo '{{"state": "CHANGES_REQUESTED"}}' ;;
+  *pulls/7/reviews*) cat <<'REVIEWS'
+{reviews}
+REVIEWS
+    ;;
   *pulls/7/files*)
     if [ '{fail_path}' = files ]; then
       echo 'gh: HTTP {fail_status}' >&2
@@ -311,6 +327,7 @@ esac
 "#,
             log = dir.path().join("log").display(),
             changed = changed.join(" "),
+            reviews = EARLIER_REVIEWS,
         );
         let gh = dir.path().join("gh");
         std::fs::write(&gh, script).unwrap();
@@ -438,11 +455,19 @@ fn commented(log: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The review call in the log, with its fields.
+/// The posted review call in the log, with its fields.
 fn review_call(log: &str) -> &str {
     log.split("CALL ")
-        .find(|call| call.contains("pulls/7/reviews"))
+        .find(|call| call.contains("-X POST") && call.contains("pulls/7/reviews"))
         .unwrap_or_else(|| panic!("no review posted\n{log}"))
+}
+
+/// The ids of the reviews dismissed, in order.
+fn dismissed(log: &str) -> Vec<&str> {
+    log.lines()
+        .filter(|l| l.starts_with("CALL ") && l.contains("/dismissals"))
+        .filter_map(|l| l.split("pulls/7/reviews/").nth(1)?.split('/').next())
+        .collect()
 }
 
 #[test]
@@ -707,19 +732,114 @@ fn a_review_whose_changed_files_cannot_be_read_fails_without_posting() {
     assert!(!gh.log().contains("reviews"), "{}", gh.log());
 }
 
-#[test]
-fn a_clean_scan_posts_nothing() {
+/// The `--json --no-fail` scan of a repository with nothing stale.
+fn clean_scan() -> String {
     let repo = Repo::new();
     repo.write("src/lib.rs", "pub fn kept() {}\n");
     repo.commit("start");
     repo.commit("nothing");
-    let report = scan(&repo);
+    scan(&repo)
+}
+
+#[test]
+fn a_clean_run_dismisses_only_its_own_change_requests() {
     let gh = FakeGh::new(&["README.md"], None);
     let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &report);
+    let (status, _) = review(&gh, "review", false, payload.path(), &clean_scan());
     assert_eq!(status, "skipped-clean");
-    assert!(!gh.log().contains("comments"), "{}", gh.log());
+    let log = gh.log();
+    assert!(!log.contains("comments"), "{log}");
+    assert!(!log.contains("-X POST"), "{log}");
+    assert_eq!(dismissed(&log), ["101"]);
+    assert!(log.contains("event=DISMISS"), "{log}");
+}
+
+#[test]
+fn a_run_with_findings_dismisses_its_earlier_request_before_posting() {
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(&gh, "review", false, payload.path(), &stale_scan());
+    assert_eq!(status, "posted");
+    let log = gh.log();
+    assert_eq!(dismissed(&log), ["101"]);
+    assert!(
+        log.find("/dismissals").unwrap() < log.find("-X POST").unwrap(),
+        "{log}"
+    );
+    assert!(review_call(&log).contains("<!-- refquiem -->"), "{log}");
+}
+
+#[test]
+fn a_dismissal_the_token_may_not_make_is_skipped() {
+    let gh = FakeGh::new(&["README.md"], Some(("dismissals", 403)));
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(&gh, "review", false, payload.path(), &clean_scan());
+    assert_eq!(status, "skipped-clean");
+}
+
+#[test]
+fn a_clean_prepared_review_in_a_dry_run_dismisses_nothing() {
+    let payload = tempfile::tempdir().unwrap();
+    let preparing = FakeGh::new(&["README.md"], None);
+    let (status, _) = review(&preparing, "prepare", false, payload.path(), &clean_scan());
+    assert_eq!(status, "prepared");
+
+    let dry = FakeGh::new(&[], None);
+    let (status, _) = review_with(
+        &dry,
+        "post",
+        true,
+        payload.path(),
+        "",
+        &[("RUN_HEAD_SHA", "f00df00df00df00df00df00df00df00df00df00d")],
+    );
+    assert_eq!(status, "skipped-clean");
+    assert!(!dry.log().contains("reviews"), "{}", dry.log());
+}
+
+#[test]
+fn a_clean_dry_run_touches_no_review() {
+    let gh = FakeGh::new(&["README.md"], None);
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(&gh, "review", true, payload.path(), &clean_scan());
+    assert_eq!(status, "skipped-clean");
     assert!(!gh.log().contains("reviews"), "{}", gh.log());
+}
+
+#[test]
+fn a_clean_prepare_lets_the_post_job_dismiss_at_the_run_head() {
+    let payload = tempfile::tempdir().unwrap();
+    let preparing = FakeGh::new(&["README.md"], None);
+    let (status, _) = review(&preparing, "prepare", false, payload.path(), &clean_scan());
+    assert_eq!(status, "prepared");
+    assert!(!preparing.log().contains("reviews"), "{}", preparing.log());
+
+    let moved_on = FakeGh::new(&[], None);
+    let (status, _) = review_with(
+        &moved_on,
+        "post",
+        false,
+        payload.path(),
+        "",
+        &[("RUN_HEAD_SHA", "0123456789012345678901234567890123456789")],
+    );
+    assert_eq!(status, "skipped-stale");
+    assert_eq!(dismissed(&moved_on.log()), Vec::<&str>::new());
+
+    let posting = FakeGh::new(&[], None);
+    let (status, _) = review_with(
+        &posting,
+        "post",
+        false,
+        payload.path(),
+        "",
+        &[("RUN_HEAD_SHA", "f00df00df00df00df00df00df00df00df00df00d")],
+    );
+    assert_eq!(status, "skipped-clean");
+    let log = posting.log();
+    assert_eq!(dismissed(&log), ["101"]);
+    assert!(!log.contains("comments"), "{log}");
+    assert!(!log.contains("-X POST"), "{log}");
 }
 
 #[test]
