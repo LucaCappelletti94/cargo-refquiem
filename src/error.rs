@@ -1,0 +1,139 @@
+//! Scan failures.
+
+use std::path::PathBuf;
+
+/// A failed scan.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// No git repository contains the scanned directory.
+    #[error("no git repository at or above {path}")]
+    Discover {
+        /// The scanned directory.
+        path: PathBuf,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// The repository has no working tree to compare against.
+    #[error("the repository at {0} is bare")]
+    Bare(PathBuf),
+    /// No `Cargo.toml` between the scanned directory and the repository root.
+    #[error("no Cargo.toml at or above {0}")]
+    NoManifest(PathBuf),
+    /// A revision did not resolve to a commit.
+    #[error("cannot resolve revision `{spec}`")]
+    Revision {
+        /// The revision as given.
+        spec: String,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// Walking the commit graph failed.
+    #[error("walking the commit history")]
+    Walk(#[source] gix::Error),
+    /// An object could not be read from the object database.
+    #[error("reading object {id}")]
+    Object {
+        /// The object.
+        id: gix::ObjectId,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// A tree could not be searched by path.
+    #[error("looking up {path} in a tree")]
+    TreeLookup {
+        /// The path looked up.
+        path: String,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// A tree could not be listed or traversed.
+    #[error("listing tree {id}")]
+    TreeList {
+        /// The tree.
+        id: gix::ObjectId,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// A file of the working tree could not be read.
+    #[error("reading {path}")]
+    Io {
+        /// The file.
+        path: PathBuf,
+        /// The cause.
+        #[source]
+        source: std::io::Error,
+    },
+    /// Walking the working tree failed.
+    #[error("walking the working tree")]
+    WorkTree(#[source] ignore::Error),
+    /// Hashing a working tree file failed.
+    #[error("hashing {path}")]
+    Hash {
+        /// The file.
+        path: String,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// A manifest is not valid TOML.
+    #[error("parsing {path}")]
+    Manifest {
+        /// The manifest.
+        path: String,
+        /// The cause.
+        #[source]
+        source: Box<toml::de::Error>,
+    },
+    /// A Rust file at head does not parse.
+    #[error("parsing {path}: {message}")]
+    Parse {
+        /// The file.
+        path: String,
+        /// The parser's message.
+        message: String,
+    },
+    /// A Markdown reader failed.
+    #[error("Markdown parser failed while reading {path}")]
+    Markdown {
+        /// The input file.
+        path: String,
+    },
+    /// `cargo metadata` failed on a manifest refquiem wrote to locate dependency sources.
+    #[error("running cargo metadata on {path}")]
+    Metadata {
+        /// The manifest.
+        path: PathBuf,
+        /// The cause.
+        #[source]
+        source: Box<cargo_metadata::Error>,
+    },
+    /// The fetched sources of a removed dependency hold no library.
+    #[error("dependency `{name}` has no library target in its fetched sources")]
+    NoLibrary {
+        /// The dependency key.
+        name: String,
+    },
+    /// The thread a scan runs on could not start.
+    #[error("starting the scan thread")]
+    Thread(#[source] std::io::Error),
+    /// A config file is not valid TOML or has an unknown key.
+    #[error("reading the config file {path}")]
+    Config {
+        /// The config file.
+        path: PathBuf,
+        /// The cause.
+        #[source]
+        source: Box<toml::de::Error>,
+    },
+    /// `--package` names no workspace member.
+    #[error("no workspace member is named `{0}`")]
+    UnknownPackage(String),
+    /// An exclude glob is not valid gitignore syntax.
+    #[error("reading the exclude globs")]
+    Exclude(#[source] ignore::Error),
+}

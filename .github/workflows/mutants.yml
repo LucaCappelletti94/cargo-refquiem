@@ -1,0 +1,60 @@
+---
+name: Mutants
+
+"on":
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutants-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: 2
+
+jobs:
+  mutants:
+    name: Mutation testing (shard ${{ matrix.shard }}/8)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    if: >-
+      github.event_name == 'push' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]')
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: dl-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            dl-${{ runner.os }}-
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install mutation tools
+        run: |
+          cargo install cargo-mutants --git https://github.com/sourcefrog/cargo-mutants --rev b00aff0c6ca0670bccdf4eb2ece9e15c4c35c8b9 --locked
+          cargo install cargo-nextest --locked
+
+      - name: Run mutants
+        run: |
+          sudo -E env "PATH=$PATH" "HOME=$HOME" systemd-run --scope --quiet \
+            --uid="$(id -u)" --gid="$(id -g)" \
+            -p MemoryMax=12G -p MemorySwapMax=0 -p OOMPolicy=continue \
+            taskset --cpu-list 0,1 cargo mutants --jobs 2 --cap-lints true --shard ${{ matrix.shard }}/8

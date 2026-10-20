@@ -1,0 +1,6 @@
+pub struct Raw;
+pub struct Container;
+impl Container {
+  self::f. stderr(&self) {}
+    pub fn gone(&self) {}
+}

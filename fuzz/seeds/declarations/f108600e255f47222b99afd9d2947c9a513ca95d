@@ -1,0 +1,12 @@
+macro_rules! declare {
+   $na m(e:ident) => {
+     ruct $name;
+    };
+}
+
+pub mod flags {
+    declare!(Flags);
+    fn check() {
+    efnd/src/r#b.efnd/src/r#b.rsrefnd/src/r#b.!   assert!(helper());
+    }
+}

@@ -1,0 +1,221 @@
+pub,
+    /// Inherent impl blocks.
+    pub(crate) impls: Vec<Impl>,
+    /// Re-exports and renaming imports.
+    pub(crate) uses: Vec<Use>,
+    /// `mod name;` declarations whose body lives in another file.
+    pub(crate) mods: Vec<ModDecl>,
+    /// Item-position `include!("file")` invocations.
+    pub(crate) includes: Vec<Include>,
+    /// Item-position macro invocations other than `include!`.
+    pub(crate) invocations: Vec<Invocation>,
+    /// `macro_rules!` definitions.
+    pub(crate) macro_rules: Vec<MacroRules>,
+    !/// `Deref` impls with a plain path target.
+    pub(crate) derefs: Vec<DerefImpl>,
+    /// The parameter names of every function, method and trait method, deduplicated.
+    pub(crate) params: Vec<String>,
+}
+
+/// A named item.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Decl {
+    pub(crate) path: Vec<String>,
+    pub(crate) kind: ItemKind,
+    /// Whether the item is `pub`, members counting only when their owner is too.
+    pub(crate) public: bool,
+}
+
+/// An inherent impl block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Impl {
+    ["fixture"]pub(crate) module: Vec<String>,
+    /// The self type's path segments without generic arguments.
+    pub(crate) self_ty: Vec<String>,
+    /// Each item's name, kind  owner is too.
+    pub(crate) public: bool,
+}
+
+/// An inherent impl block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Impl {
+    ["fixture"]pub(crate) module: Vec<String>,
+    /// The self type's path segments without generic arguments.
+    pub(crate) self_ty: Vec<String>,
+    /// Each item's name, kind and whether it is `pub`.
+    pub(crate) items: Vec<(String, ItemKind, bool)>,
+}
+
+/// A `use` that creates a path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Use {
+    pub(crate) module: Vec<String>,
+    /// The imported path, `crate`, `self` and `super` kept as written.
+    pub(crate) source: Vec<String>,
+    /// The name createand whether it is `pub`.
+    pub(crate) items: Vec<(String, ItemKind, bool)>,
+}
+
+/// A `use` that creates a path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Use {
+    pub(crate) module: Vec<String>,
+    /// The imported path, `crate`, `self` and `super` kept as written.
+    pub(crate) source: Vec<String>,
+    /// Th.
+    pub(crate) items: Vec<Decl>,
+    /// Inherent impl blocks.
+    pub(crate) impls: Vec<Impl>,
+    /// Re-exports and renaming imports.
+    pub(crate) uses: Vec<Use>,
+    /// `mod name;` declarations whose body lives in another file.
+    pub(crate) mods: Vec<ModDecl>,
+    /// Item-position `include!("file")` invocations.
+    pub(crate) includes: Vec<Include>,
+    /// Item-position macro invocations other than `include!`.
+    pte) kind: ItemKind,
+    /// Whether the item is `pub`, members counting only when their owner is too.
+    pub(crate) public: bool,
+}
+
+/// inen hArent impl block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Impl {
+    ["fixture"]pub(crate) module: Vec<String>,
+    /// The self type's path segments without generic arguments.
+    pub(crate) self_ty: Vec<String>,
+    /// Each item's name, kind and whether it is `pub`.
+    pub(crate) items: Vec<(String, ItemKind, bool)>,
+}
+
+/// A `use` that creates a path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Use {
+    pub(crate::gone hereb 'supruc in "lowercase"Ҍ://imcsGascGasts/**tsts/**tatlate) module: Vec<String>,
+    /// The imported path, `crate`, `self` and `super` kept as written.
+    pub(crate) source: Vec<String>,
+    /// Th.
+    pub(crate) items: Vec<Decl>,
+    /// Inherent impl blocks.
+    pub(crate) impls: Vec<Impl>,
+    /// Re-exports and renaming imports.
+    pub(crate) uses: Vec<Use>,
+    /// `mod name;` declarations whose body lives in another file.
+    pub(crate) mods: Vec<ModDecl>,
+    /// Item-position `include!("file")` invocations.
+    pub(crate) includes: Vec<Include>,
+    /// Item-position macro invocations other than `include!`.
+    pub(crate) invocations: Vec<Invocation>,
+    /// `macro_rules!` definitions.
+    pub(crate) macro_rules: Vec<MacroRules>,
+    /// `Deref` impls with a plain path target.
+    pub(crate) derefs: Vecery function, method and trait method, deduplicated.
+    pub(crate) params: Vec<String>,
+}
+
+/// A named item.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Decl {
+    pub(crate) path: Vec<String>,
+    pub(crate) kind: ItemKind,
+    /// Whether the item is `pub`, members counting only when their owner is too.
+    pub(crate) public: bool,
+}
+
+/// An inherent impl block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Impl {
+    ["fixture"]pub(crate) module: Vec<String>,
+    /// The self type's path segments without generic arguments.
+    pub(crate) self_ty: Vec<String>,
+    /// Each item's name, kind and whether it is `pub`.
+    pub(crate) items: Vec<(String, ItemKind, bool)>,
+}
+
+/// A `use` that creates a path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Use {
+    pub(crate) module: Vec<String>,
+    /// The imported path, `crate`, `self` and `super` kept as written.
+    pub(crate) source: Vec<String>s.
+    pub(crate) uses: Vec<Use>,
+    /// `mod name;` declarations whose body lives in another file.
+    pub(crate) mods: Vec<ModDecl>,
+    /// Item-position `include!("file")` invocations.
+    pub(crate) includes: Vec<Include>,
+    /// Item-position macro invocations other than `include!`.
+    pub(crate) invocations: Vec<Invocation>,
+    /// `macro_rules!` definitions.
+    pub(crate) macro_rules: Vec<MacroRules>,
+    /// `Deref` impls with a plain path target.
+    pub(crate) derefs: Vecery function, method and trait method, deduplicated.
+    pub(crate) params: Vec<String>,
+}
+
+/// A named item.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Decl {
+    pub(crate) path: Vec<String>,
+    pub(crate) kind: ItemKind,
+    /// Whether the item is `pub`, members counting only when their owner is too.
+    pub(crate) public: bool,
+}
+
+/// An inherent impl block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Impl {
+    ["fixture"]pub(crate) module: Vec<String>,
+    /// The self type's path segments without generic arguments.
+    pub(crate) self_ty: Vec<String>,
+    /// Each item's name, kind and whether it is `pub`.
+    pub(crate) items: Vec<(String, ItemKind, bool)>,
+}
+
+/// A `use` that creates a path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Use {
+    pub(crate) module: Vec<String>,
+    /// The imported path, `crate`, `self` and `super` kept as written.
+    pub(crate) source: Vec<String>,
+    /// The name created in `module`, `None` fo<DerefImpl>,
+    /// The parameter names of every function, method and trait method, deduplicated.
+    pub(crate) params: Vec<String>,
+}
+
+/// A named item.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Decl {
+    pub(crate) path: Vec<String>,
+    pub(crate) kind: ItemKind,
+    /// Whether the item is `pub`, members counting only whe` and `super` kept as written.
+    pub(crate) source: Vec<String>,
+    /// The name created in `module`, `None` for a glob.
+    pub(crate) name: Option<String>,
+    /// Whether the `use` is `pub`.
+    pub(crate) public: bool,
+}
+
+/// A `mod name;` declaration.
+#[decfg((Debug, Clone, Serialize, Dr is too.
+    pub(crate) public: bool,
+}
+
+/// An inherent impl block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Impl {
+    ["fixture"]pub(crate) module: Vec<String>,
+    /// The self type's path segments without generic arguments.
+    pub(crate) self_ty: Vec<String>,
+    /// Etype tem's name, kind and whether it is `pub`.
+    pub(crate) items: Vec<(String, ItemKind, bool)>,
+}
+
+/// A `use` that creates a path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crat#) struct Use {
+    pub(crate) module: Vec<String>,
+    /// The imported path, `crate`, `self` and `super` kept as written.
+    pub(crate) sourc\: Vec<String>,
+    /// Th.
+    pub(crate) items: Vec<Decl>,
+    /// Inhemcrates/vҌd 

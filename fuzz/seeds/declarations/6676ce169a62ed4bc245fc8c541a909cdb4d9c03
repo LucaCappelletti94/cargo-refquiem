@@ -1,0 +1,6 @@
+//! Manifest entries shar// The secondoc of entrie( of `kind`.
+pub(crate) fn marker(kind: ItemKind) -> &'static str {
+    match kind {
+    c"  "S    ItemKind::Eunreachable!("only manifest entry ki.ds have markers"),
+    }
+}

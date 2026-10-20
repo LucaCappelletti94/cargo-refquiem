@@ -1,0 +1,166 @@
+//! The `cargo refquiem` command line: report text and exit codes.
+
+mod common;
+
+use common::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
+        .arg("refquiem")
+        .args(args)
+        .current_dir(dir)
+        .env_remove("CARGO_TARGET_DIR")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn findings_print_one_group_per_removed_name_and_exit_1() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\npub fn kept() {}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "// Was `crate::gone`.\npub fn kept() {}\n");
+    let deleting = repo.commit("drop gone");
+    repo.write("README.md", "Call `fixture::gone`.\n");
+
+    let output = cargo_refquiem(repo.path(), &[]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        format!(
+            "refquiem: 1 removed name still mentioned, 2 mentions\n\n`fixture::gone` (function), deleted in {}\n  README.md:1:7  Markdown code span\n  src/lib.rs:1:9  comment\n",
+            &deleting[..7]
+        )
+    );
+}
+
+#[test]
+fn a_clean_scan_exits_0() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    repo.commit("start");
+
+    let output = cargo_refquiem(repo.path(), &[]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "refquiem: no stale mentions\n"
+    );
+}
+
+#[test]
+fn a_base_and_head_range_is_accepted_from_the_command_line() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn early() {}\npub fn late() {}\n");
+    repo.commit("both");
+    repo.write("src/lib.rs", "pub fn late() {}\n");
+    let base = repo.commit("drop early");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "`fixture::early` and `fixture::late`.\n");
+    let head = repo.commit("drop late");
+
+    let output = cargo_refquiem(repo.path(), &["--base", &base, "--head", &head]);
+
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("`fixture::late`"), "{stdout}");
+    assert!(!stdout.contains("`fixture::early`"), "{stdout}");
+}
+
+#[test]
+fn outside_a_git_repository_the_scan_fails_with_exit_2() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let output = cargo_refquiem(dir.path(), &[]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .starts_with("refquiem: ")
+    );
+}
+
+#[test]
+fn a_scan_failure_prints_the_full_error_chain() {
+    let dir = tempfile::tempdir().unwrap();
+    let status = Command::new("git")
+        .args(["init", "-q", "-b", "main"])
+        .current_dir(dir.path())
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    let output = cargo_refquiem(dir.path(), &[]);
+
+    let path = std::fs::canonicalize(dir.path()).unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        format!("refquiem: no Cargo.toml at or above {}\n", path.display())
+    );
+}
+
+#[test]
+fn the_config_and_package_flags_reach_the_scan() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "`fixture::gone`\n");
+    repo.write("quiet.toml", "allow = [\"gone\"]\n");
+
+    let output = cargo_refquiem(repo.path(), &["--config", "quiet.toml"]);
+    assert_eq!(output.status.code(), Some(0));
+
+    let output = cargo_refquiem(repo.path(), &["--package", "fixture"]);
+    assert_eq!(output.status.code(), Some(1));
+
+    let output = cargo_refquiem(repo.path(), &["--package", "missing"]);
+    assert_eq!(output.status.code(), Some(2));
+}
+
+#[test]
+fn since_scans_only_the_commits_after_a_revision() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "`fixture::gone`\n");
+    repo.commit("drop gone");
+
+    let output = cargo_refquiem(repo.path(), &["--since", "HEAD~1"]);
+    assert_eq!(output.status.code(), Some(1));
+    let output = cargo_refquiem(repo.path(), &["--since", "HEAD"]);
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn the_cache_lives_under_cargo_target_dir_when_it_is_set() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    repo.commit("start");
+    let target = tempfile::tempdir().unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
+        .arg("refquiem")
+        .current_dir(repo.path())
+        .env("CARGO_TARGET_DIR", target.path())
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let cached = std::fs::read_dir(target.path().join("refquiem"))
+        .unwrap()
+        .count();
+    assert!(cached > 0);
+    assert!(!repo.path().join("target/refquiem").exists());
+}

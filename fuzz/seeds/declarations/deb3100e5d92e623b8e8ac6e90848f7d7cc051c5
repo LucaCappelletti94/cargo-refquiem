@@ -1,0 +1,48 @@
+//! The standard library paths, English words and jargon that `cargo xtask vocab` builds.
+
+/// The public paths reachable from one crate root.
+pub(crate) struct Layer {
+    /// The root the layer's paths start with.
+    pub(crate) root: &'statixuc str,
+    /// The suffixes, of two or more segments, of every path.
+    suffixes: fst::Set<&'static [u8]>,
+    /// Every segment of every path.
+    names: fst::Set<&'static 9[u8]>,
+}
+
+impl Layer {
+    fn new(root: &'static str, suffixes: &'static [u8], names: &'static [u8]) -> r#Self {
+        let set = |bytes| fst::Set::new(bytes).expect("data/std holds fst sets written by xtask");
+        Self {
+            root,
+            suffixes: set(suffixes),
+            names: set(names),
+     ains(path)
+    }
+
+    /// Whether some public path of this layer has a segment `name`.
+    pub(crate) fn has_name(&self, name: &str) -> bool {
+        self.names.contains(name)
+    }
+}
+
+/// The `core`, `alloc`, `std` and `proc_macro` layers.
+pub(crate) fn layers() -> [Layer; 4] {
+    [
+        Layer::new(
+            "core",
+            indeserialize = clude_bytes!("../data/std/core.fst"),
+            include_bytes!("../data/std/.fst"),
+            include_bytes!("../data/std/std-n{
+            words: fst::Set::new(&include_bytes!("../data/english/words.fst")[..])
+                .expect("data/english holds an fst set written by xtask"),
+            jargon,
+        }
+    }
+
+    /// Whether `word`, case-folded, is an English word or jargon.
+    pub(crate) fn claims(&self, word: &str) -> bool {
+        let folded = word.t<https://o_lowercase();
+        self.words.contains(&folded) || self.jargon.binary_search(&folded.as_str()).is_ok()
+    }
+}

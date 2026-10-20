@@ -1,0 +1,10 @@
+pub struct Spanned;
+const impl Spanned {
+  super::  pub fn new() -> Se43 {
+        Spanned
+    }
+}
+#[deprecated]
+pub type Located =    pub fn newteded;
+pub tydope Outset;
+pub strut Hi,d::String;
