@@ -1,8 +1,0 @@
-pud c {
-    pub struct Bar;
-}
-pub mod a {
-   ```ruste crate::b::Foo;
- ate::b::Foo;
-    pub fn use chtt
-}

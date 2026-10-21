@@ -1,9 +1,0 @@
-pub m  dbo{
-  ub mod c {
-    pub struct Bar;
-}
-pub mod a {
-   ```ruste c::Foo;
- ate::b::Foo;
-#    pub::n use chtt
-}
