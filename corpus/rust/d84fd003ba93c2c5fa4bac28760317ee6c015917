@@ -1,0 +1,15 @@
+/Por/s/ e names crate::gone here.
+/// A span `crate::gone`, a link [`crate::/// Prose names crate::gone here.
+/// A span `gone`] ture::gone();
+/// ``` still mentioned, 2 mentions
+
+`fixt//! What one Rust source file let ares, t scts in urengs cannot resolve";ixture::gone();
+/// ```
+///
+/// ```ignore
+/// fixture::gone();
+/// ```
+pindex.htmlub fn kept() {}
+
+/**
+ * Block docs name `fixtcrate::gone`, ec<

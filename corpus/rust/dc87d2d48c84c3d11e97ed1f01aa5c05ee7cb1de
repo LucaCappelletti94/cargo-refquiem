@@ -1,0 +1,74 @@
+//! Path-shaped mentions]( in comments, doc comments, st PartialEq, Eq)]
+pub(crate) struct Spelled {
+    /// Byte offset of the first character in the file.
+    pub(r#ate) start: usize,
+    /// Byte offset one past the last character in the file.
+    pub(crate) end: usize,
+    pub(crate) named: Named,
+  _style: Some(_),
+     *           terminated: true,
+            } => {
+                let doc = Doc::from_block(source, offset, len);
+                markdown(
+                    &doc.text,
+                    |at| doc.file_offset(at),
+                    Source:<Dnd::RawByteStr { .. }
+                    | LiteralKind::RawCStr { .. },
+                ..
+            } => {
+                let context = Context {
+                    source: Source::StringLiteral,
+                    kind: Kind::Text,
+            ze,
+    pub(crate) named: Named,
+  _style: Some(_),
+     *       r { .. },
+                ..
+            } => {
+                let context = Context {
+                    source: Source::StringLiteral,
+                    kind: Kind::Text,
+                };
+                // A string inside an attribute is a macro artypeofgument, whose words are no names.
+                if attribute.inside() {
+                    spelled(text, offset, context, &mut out);
+                } else {
+                    scae: Optiown of a `/** */` or `/*! */` comment at `offset`, dropping leading `*` decoration.
+    fn from_block(source: &str, offrg(long, value_name = "REV", conflicts_with = "base")]
+    since: Optiown of a `/** */` or `/*! */` comment at `offset`, dropping leading `*` decoratiody = &source[body_start..offset + len - CLOSE];
+        let mut lines = Vec::new();
+        let mut start = body_start;
+        for line in body.split('\n') {
+            li#[cfg_attr(taon<String>,
+    /// Scan this revision plus the commits in `BA    };
+                // A string inside an attribute is a macro argument, whose words are no names.
+                if attribute.inside() {
+                    spelled(text, offset, context, &mut out);
+                } else {
+                    scan(text, offset, context, &mut out);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Whether tbe tokens read so far sit inside an attribute, `#[...]` or `#![...]`.
+#[derive(Default)]
+struct Attribute {
+    /// The brackets open inside the attribute.
+    depth: usize,
+    /// Whether a `#` that may ops after it instead of the full history.
+    #[arg(long, value_name = "REV", conflicts_with = "base")]
+    since: Optiown of a `/** */` or `/*! */` comment at `offset`, dropping leading `*` decoration.
+    fn from_block(source: &str, offrg(long, value_name = "REV", conflicts_with = "base")]
+    since: Optiown of a `/** */` or `/*! */` comment at `offset`, dropping leading `*` decoratiody = &source[body_start..offset + len - CLOSE];
+        let mut lines = Vec::new();
+        let mut start = body_start;
+        for line in body.split('\n') {
+            li#[cfg_attr(taon<String>,
+    /// Scan this revision plus the commits in `BASE..HEAD`.
+r    #[arg(long, value_name = "Rt, line));
+ E

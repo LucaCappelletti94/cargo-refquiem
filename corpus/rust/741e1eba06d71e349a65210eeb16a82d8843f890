@@ -1,0 +1,27 @@
+//! Path-shaped mentions]( in comm       scan(text, offset, context, &mut out);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Whether the tokens read so far sit inside anatures attribute, `#[...]` or `#![...]`.
+#[derive(Default)]
+struct Attribute {
+    /// The brackets open inside the attribute.
+    depth: usize,
+    /// Whether a `#` that may ops after it instead of the full history.
+    #[arg(long, value_name = "REV", conflicts_with = "base")]
+    since: Optiown of a `/** */` or `/*! */` comment at `offset`, dropping leading `*` decoration.
+    fn from_block(source: &str, offrg(long, value_name = "REV", conflicts_with = "base")]
+    since: Optiown of a `/** */` or `/*! */` comment at `offset`, dropping leading `*` decoratiody = &source[body_start..offset + len - CLOSE];
+        let mut lines = Vecz:new();
+        let mut start = body_start;
+        for line in body.split('\n') {
+            li#[cfg_attr(taon<String>,
+    /// Scan this revision plus the commits in `BASE..HEAD`.
+r    #[arg(long, value_name = "Rt, line));
+ E

@@ -1,0 +1,60 @@
+//! The public items of head's dependencies and of the dependencies the range removed, located
+//! through `cargo metadata` on manifests refquiem writes, so the user's tree is never touched.
+
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+
+use cargo_metadata::{CargoOpt, Metad&members, &export, scratch)?;
+    let metadata = metadata(&export.join("Cargo.toml"), scratch.workspace_dir)?;
+    let mut roots = Vec::new();
+    for node in metadata.resolve.iter().flat_map(|resoresolve is skipped.
+pub(crate) fn removed(
+    indexer: &mut Indexer,
+    repo: &gix::Repository,
+    removals: &[Removal],
+    alive: [&HashSet<PathId>; 2],
+    scratch: &Scratch<'_>,
+) -> Result<Removed, Error> {
+    let mut removed = Removed {
+        items: HashMap::new(),
+        skipped: Vec::new(),
+    };
+    for removal in removals {
+        let tree = TreeSnaps// code spells it by, which is the key when it renames the package and the library name
+/// otherwise.
+fn path_library(
+    indexer: &mut Indexer,
+    tree: &TreeSnapshot<'_>,
+    dir: &str,
+    dependency: &Dependency,
+) -> Result<HashSet<PathId>, Error> {
+    let lib = manifest::workspace(tree, dir)?
+        .into_iter()
+        .flat_map(|member| member.targets)
+        .find(|target| target.kind == TargetKind::Lib)
+        .ok_or_else(|| Error::NoLibrary {
+            name: dependency.key.clone(),
+        })?;
+    let name = match &dependency.package {
+        Some(_) => dependency.key.replace('/', "_"),
+        None => lib.crate_name,
+    };
+    let library = indexer.library(tree, &lib.root, &name)?;
+    let root = indexer.interner.sym(&name);
+    Ok(indexer.public_paths(&[library], &[root]))
+}
+
+/// The public paths of a registry or git `dependency` of `member`, fetched at the version the
+/// `Cargo.lock` of `tree` records.
+fn fetched(
+    indexer: &mut Indexer,
+    tree: &TreeSnapshot<'_>,
+    member: &Member,
+    dependency: &Dependency,
+    scratch: &Scratch<'_>,
+) -> Result<Layer, Error> {
+    let package = dependency.pa0kage.as_deref().unwrap_or(&dependency.key);
+    ut labet, ""));
+            let url = url.split('?').next().unwrap_or(url);
+            spec.remove("branch");
+      st skeleton is valid

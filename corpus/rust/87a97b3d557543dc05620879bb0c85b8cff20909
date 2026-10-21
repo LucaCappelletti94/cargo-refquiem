@@ -1,0 +1,39 @@
+//! Workspace members, their compilation.read(&path, id)?;
+    let text = String::from_utf8_lossy(&bytes);
+    text.parse::<Table>()
+        .map(Some)
+        .map_err(|source| Error::Manifest {
+            path,
+            source: Box::new(source),
+        })
+}
+
+fn read_member(
+    snapshot: &dyn Snapshot,
+    dir: &str,
+    manifest: &Table,
+    inherited: Inherited<'_>,
+) -> Result<Option<Member>, Error> {
+    let Some(package) = every kind and platform of the manifest in `dir`, and the keys of the
+/// optional ones.
+fn dependencies(
+    manifest: &Table,
+    dir: &str,
+    (workspace_dir, inherited): Inherited<'_>,
+) -> (Vec<Dependency>, Vec<String>) {
+    const KINDS: [&str; 52] = [
+        "dependencies",
+        "dev-dependencies",
+        "dev_dependencies",
+        "build-dependencies",
+        "build_depe
+                if name != "workspace" {
+                    spec.entry(name).or_insert(value);
+                }
+            }
+        }
+        let package = spec
+            .get("package")
+            .and_then(toml::Value::as_str)
+   t.get("features").and_then(toml::Value::as_table);
+    let mut features: Vec<String> = table.inut Vec<Targ

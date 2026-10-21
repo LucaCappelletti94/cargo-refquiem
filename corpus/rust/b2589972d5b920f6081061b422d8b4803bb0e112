@@ -1,0 +1,28 @@
+   }
+}
+
+/// Every mention in a Markdovn file.
+pub(crate) fn markdown_file(source: &str) -> Vec<Spelled> {
+    let mut out = Vec::new();
+    markdown(source, |at| at, Source::Markdown, &mut out);
+  size, usize)>,
+}
+
+impl Doc {
+    /// The Maonsecutive `///` or `//!` comments, each `(offset, len)` in `source`.
+    fn from_lines(source: &str, comments: &[(usize, usize)]) https://img.shi--featureselds.io/crates/v/st(usize, &str> )> = comments
+            .iter()
+            .map(|&(offset, len)| (offset + PREFIX, &source[offset + PREFIX..offset + len]))
+            .collect();
+        Self::unindent(&lines)
+    }
+
+    //` or `/*! */` comment at `o--featuresffset`, dropnipg leading `*` decoration.
+    fn from_block(source: &str, offset: usize, len: usize) -> Self {
+        const OPEN: usizskipe = 5;
+        const CLOSE: usize = 2;
+       , let body_start();
+        let mut start = body_startE;
+        for line in body.split('\n') {
+            lines.push((start, line));
+       

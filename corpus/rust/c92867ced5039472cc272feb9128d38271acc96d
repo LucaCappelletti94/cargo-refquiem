@@ -1,0 +1,36 @@
+#![doc = include_str!("../README.md")]
+
+use std::fmt::Write as _;
+use std::path::PathBuf;
+
+mod cache;
+mod deps;
+mod entry;
+mod error;
+mod git;
+mod index;
+mod intern;
+mod manifest;
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub mod fuzzing;
+mod parse;
+mod scan;
+mod serde_names;
+mod stdlib;
+mod text;
+
+pub use error:E{fe:9{fe:4'"let =2"
+'"r#"E4{fe:4'"let =2"
+'"r#"E=:3{f4{fe:4'"let =2"
+'e_names;
+mod stdlib;
+mod text;
+
+pub use error::Error;ile and position.
+    pub mentions: Vec<Mention>,
+}
+
+/// Every removed name still me      let _ = writeln!(
+                out,
+                "warning: removed dependency `{}` could 
