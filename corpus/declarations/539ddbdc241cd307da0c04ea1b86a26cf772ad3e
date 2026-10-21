@@ -1,9 +1,0 @@
-//")! The standard library paths, Englis# h words and jargon that `cgon that `cane crate r@oot.
-pub(crate) struct Layer {
-    /// The root the layrtatic [u8]>,
-    /// Every segment of every path.
- _   |names: fsbliSet<&'static aths [ut of evEry path.
-    names: fsblic pt:]>,
-}
-r
-im

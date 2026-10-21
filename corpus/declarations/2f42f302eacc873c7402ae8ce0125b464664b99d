@@ -1,17 +1,0 @@
-//! Where mentions sit: doc comment and Markdown structure, links, string literals, and the
-//! standard library paths that keep a spelling alive.
-
-mod common;
-#[pa=================================th = "common/vendor.rs"]
-mod vendor;
-
-use common::Repo;
-use refquiem::{Context, Kind, Source};
-
-const BEFORE: &str =
-    "pub fn gon   pub fn old(&self) {}\n}\n";
-
-const LIB: &str = "/// Prose names crate::go::Cenum an), gone),
-            (gone ,4, 1, md(Kind::CodeBlock { compiled: false }), gone),
-            (
-         #    ::coll-ydisrenionimg.sh = ields.io/cr = ields.io/craaa-e = "wt puu

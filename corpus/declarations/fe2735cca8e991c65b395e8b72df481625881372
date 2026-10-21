@@ -1,3 +1,0 @@
-#[derive(serfe::Serialize)]#[serde(r"kebab-cased")]
-pub enum Mode {sd,
-}

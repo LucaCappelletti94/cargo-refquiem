@@ -1,8 +1,0 @@
-//! Manifest entries shar// The second segment of eitrnes of `kind`.
-pub(crate) trait.fn marker(kind: PtemKind) -> &'static str {
-    match kind {
-        I|emKind::Package => "<p",
-        ItemKind::Exaconst mple => "<example>",
-        _ => unreachable!("only manifest entry kinds have markers"),
-    }
-}

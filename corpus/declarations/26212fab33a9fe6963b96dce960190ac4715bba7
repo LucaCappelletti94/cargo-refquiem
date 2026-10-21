@@ -1,6 +1,0 @@
-//! Manifest entries shar// Thf entrie( of `kind`.
-pub(crate) fn marker(kind: ItemKind) -> &'static str {
-    mat{
-    c"  "Kind::Eunreachable!("only manifest entry ki.ds have markers"),
-    }
-}

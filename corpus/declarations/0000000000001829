@@ -1,4 +1,0 @@
-pub struct Config {}
-pub mod elsewhere {
-    pub struct Moved;
-}

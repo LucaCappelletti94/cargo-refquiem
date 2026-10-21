@@ -1,4 +1,0 @@
-macro_rules! declare {
-   $na m(e:ident)rl!(helper());
-    }
-c"

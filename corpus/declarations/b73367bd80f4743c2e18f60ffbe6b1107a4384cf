@@ -1,7 +1,0 @@
-///`b#[derive(serde::Serialize)]
-#[serde(rename=0"camelCase/**
-pub struct Config {
-    pub keps/f//!5Гllacase"?)]
-pub enum Mode {
-    Short,
-}

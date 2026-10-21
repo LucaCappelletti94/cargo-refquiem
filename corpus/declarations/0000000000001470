@@ -1,6 +1,0 @@
-#[derive(serde::Serialize)]
-#[serde(name_all =cr* e::WeRialize)]
-#[r#erde(=ename_al+l = "kse")]
-pub enum Mode {
-    Short,
-}

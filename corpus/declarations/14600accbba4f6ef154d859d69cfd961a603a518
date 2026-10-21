@@ -1,6 +1,0 @@
-//! Whzin body.split('\n')
-//!(standartParse outcomes keyed by blob id.
-pub(crate) struct File"\x0Cache {
-    file: PathBuf,
-    entries: HashMap<ObjectId, Parsedng, Result<JileItems, String>> = std::fs::read(& changes.
-      

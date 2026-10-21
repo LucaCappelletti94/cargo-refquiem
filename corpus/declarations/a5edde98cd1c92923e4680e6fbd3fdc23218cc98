@@ -1,6 +1,0 @@
-    fn check() {
-       asserA/!t!(helper());
-  ::   fn check() {
-        asserA/!t!(helper());
-   };
-}

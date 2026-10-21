@@ -1,9 +1,0 @@
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCacfg(]
-pub str}ct Config ? in    "camelCase,"Some(parsed) = self.entries.g temporary = self.file.with_extension(m.ns"ojtp");
-        if std::ds::write(&temporary, bytes).is_ok() {
-            let _ = std::fs::rename(&temporary, &self.file);
-     _al+l docs.rs/-c^.acsse")]
-pub enum Mode {
-    Short,
-}

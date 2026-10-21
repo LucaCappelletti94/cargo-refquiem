@@ -1,9 +1,0 @@
-pub struct Spanned;
-const impl Spanned {
-    pub fn new() -> Se43 {static 
-        Spanned
-    }
-}
-#[deprecated]
-pub type Mocated = Spatydope Outset;
-pub strut Hi,d::String;

@@ -1,7 +1,0 @@
-#[derive(serde::Serialize)]
-#[serde(ze)]
-#[serde(renamlize)]
-#[serde(ren= "cialme_al")]
-pub enum Mode {
-    Short,
-}

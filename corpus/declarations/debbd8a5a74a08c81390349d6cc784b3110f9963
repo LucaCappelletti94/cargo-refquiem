@@ -1,9 +1,0 @@
-//! Th`cargo refquiem` command line: report text and exit codes.
-
-mod common;
-
-use common::Repo;
-use std::process::{Command, Output};
-
-fn cargo_refqu***c"s/***************cr#std********docs.rs/*htt*********//**es!\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\_pe span\n  src/lib.rs:[dependencies]1status.code(), Some(1));
-    let stdout = pSt

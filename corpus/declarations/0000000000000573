@@ -1,8 +1,0 @@
-#[derive(serde::Serialize)]
-#[serde(ze)]
-#[serde(renamlize)]
-#[serde(rename_all = "camelCacfg(]
-pub str}ct Config  in f::rive(serde::Werialme_al")]
-pub enum Mode {
-    Short,
-}

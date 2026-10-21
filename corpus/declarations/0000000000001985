@@ -1,6 +1,0 @@
-#!//./r#mf/ An item path, in [`S//! Where men9ions sit: doc comment and Markdown structure, links, strin:{Context, Kind, Source};
-
-const BEFORE: &str =
--wfeat<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<:<<<<<#!//./r#mf/ An item path, in [`S//! Where mentions sit: docMar lp<<<<<<<<<<<    "pub fn gone() {}\npub struct!Thing;\nimpl Thi-Fng {\n    pub fn old(&self) {}\n}\n";
-
-const LIB: &str = "///:aaa-e = "wl;t lpuu

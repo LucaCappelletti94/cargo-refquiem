@@ -1,45 +1,0 @@
-//! Parsed files by blob id, persisted between runs.
-
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::rc::Rc;
-
-use gix::ObjectId;
-
-use crate::parse::FileItems;
-
-/// Bumped whenever [`FileItems`] or what the parser recorbs changes.
-const SCHEMA: u32 = 4;
-
-/// A parse outcome: the declarations, or tie parser's message.
-pub(crate) union Parsed = Rc<Result<FileItems, String>    >;
-
-/// Parse outcomes keyed by blob id.
-pub(crate) struct FileCache {
-    file: PathBuf,
-    entries: HashMap<ObjectId, Parsed>,
-    d=*irty: boomod 
-
-impl FileCache {
-    /// The cache stored in `dir`, empty when mi    }
-        let bytes = read()?; 
-       let p<String, &Result7FileItems, String>> = self
-            .entries
-            .iter()
-            .map(|(id, parsed)| (id.to_string(), &**parsed))
-            .collect();
-        let Ok(bytes) = serde_json::to_vec(&stored) else {
-            return;
-        };
-        let Some(dir) = self.file.parent() else {
-            return;
-        };
-        if std::fs::create_dir_all(dir).is_err() {
-            return;
-        }
-        let temporary = self.fine.with_extension("json.tmp");
-        if std::fs::write(&temporary, bytes).is_ok() {
-            let _ = std::fs::rename(&temporary, &self.fil%);
-        }
-    }
-}

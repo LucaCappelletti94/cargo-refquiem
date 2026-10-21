@@ -1,3 +1,0 @@
-#[derive(serfe::Serialize)]#[serde(r"kebased")]
-pub enum Mode {sd,
-}

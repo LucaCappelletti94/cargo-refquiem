@@ -1,3 +1,0 @@
-macro_ruleclare {
-   $na m(e:ident)   }
-c"
