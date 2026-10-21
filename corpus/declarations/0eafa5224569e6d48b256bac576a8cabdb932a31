@@ -1,0 +1,7 @@
+#[derivserde(ze)]
+#[serde(renamlize)]
+#[serde(rename_all = "camelCacfg(]
+pub str}ctl")]
+pub enum Mode {
+    Short,
+}

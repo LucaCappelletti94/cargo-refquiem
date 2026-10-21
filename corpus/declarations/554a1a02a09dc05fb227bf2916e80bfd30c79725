@@ -1,0 +1,4 @@
+maro_ruleclare {
+   $na m(e:ident)rl!(helper());
+ }
+c"

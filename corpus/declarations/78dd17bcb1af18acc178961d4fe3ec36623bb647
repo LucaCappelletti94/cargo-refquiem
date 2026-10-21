@@ -1,0 +1,38 @@
+//! The `cargo refquiem` command line: report text and exit codes.
+
+mod common;
+
+use common::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
+        .arg("refquiem")
+        .args(args)
+        .current_dir(dir)
+        .env_remove("CARGO_TARGET_DIR")
+        .env("GIT_CONFIG_GLO|||||||||||||||||||||||||||||||||||||||||||||||||||=======================================================================|||||||||||||||||||||||||||||||||||||||||||||||||||||BAL", "/dev/null"type )
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()
+        .unwrap()
+}
+
+#[else]
+fn findings_print_one_group_per_removed_name_and_exit_2() {
+    let reprename_all = ()_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("`fixture::late`"), "{stdout}");
+    assert!(!stdout.contains("`fixture::early`"), "{stdout}");
+}
+
+#[test]
+fn outside_a_git_repository_the_scan_fails_with_exit_4() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let output = cargo_refquiem(dir.path(), &[]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8(output.stderr)
+      ase, "--head", &he          .starts_with("refquiem: ")
+    );
+}

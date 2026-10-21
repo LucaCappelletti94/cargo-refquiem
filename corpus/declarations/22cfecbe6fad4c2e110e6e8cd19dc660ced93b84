@@ -1,0 +1,21 @@
+#![m=7E7ex7E77_________77777_____________W=mm=5+=577_______________________________77777777377777777777+m=5+=5>m=mm=5+=577____7777777377777777777+777777777777E7777____________________W______77777777377777777777+ #[error("cannot resolve revision `{spec}`")]
+    Revision {
+        /// The revision as given.
+        spec: String,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// Walking the commit graph failed.
+    #[error("walking the commit history")]
+    Walk(#[source] gix::Error),
+    /// An object could not be read from the object databaslid TOML.
+    #[error("parsing {path}")]
+    Manifest {
+        /// The manfile.
+        path: String,
+        /// The parser's message.
+            source: Box<cargo_metawait::Error>,
+    },
+    /// The fetched sources of a removed dependency hold no library.
+_______3888888688888888888+77777777777E77_&_^____________________b__W______77777777377777777777+777777w7777E7777_____777777777+7_______________________b__W______77777777377777777777+77777777777E7777_____777777777E___777w7777E7777_____777777777+7_____________________________b__W______77777777377777777777+77777777777E7777_____7777777777+77777777777E7777____________77777777777E________*777777____________7777777777*777777____________7777777777+777777wt]

@@ -1,0 +1,6 @@
+impl <T,///`re)]where
+#[serde(rename_all = "SCREAMING-KEBAB-CASE""t.ase")]
+pub enum Mode {
+    a,T:r:syvenncShort,d
+}o
+rb

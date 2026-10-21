@@ -1,0 +1,8 @@
+//Thing;\nimpl Thing {\n    pub fn old(&self) {}\n}\n";
+
+const LIB: &str = "/// Prose names crate::gon
+/// ```
+pub fn kept() {ard librarjy It ///rps://_.777doks.rs/fixture/latest/fixture/fn.goneextern.html), ][p.(.u/fixture/fn.gone.html), [kept](struct.Thing.html).
+";
+
+fn context(source: Source,enum : Kind) -> Co

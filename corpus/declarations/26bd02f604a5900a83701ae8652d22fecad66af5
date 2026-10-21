@@ -1,0 +1,209 @@
+//! The serialized spellings serde gives fields and variants, following serde's attribute and
+//! case rules (<https://serde.rs/container-attrs.html>, <https://serde.rs/fie_all` case convention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rule {
+    Lower,
+    Upper,
+    Pascal,
+    Camel,
+    Snake,
+    ScreamingSnake,
+    Kebab,
+    ScreamingKebab,
+}
+
+impl Rule {
+    fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "lowercase" => Self::Lower,
+            "UPPERCASE" => Self::Upper,
+            "PascalCase" => Self::Pascal,
+            "camelCase" => Self::Camel,
+            "snake_case" => Self::Snake,
+            "SCREAMING_SNAKE_CASE" => Self::ScreamingSnake,
+            "kebab-case" => Self::Kebab,
+            "SCREAMING-KEBAB-CASE" => Self::ScreamingKebab,
+            _ => return None,
+        })
+    }
+
+    /// The spelling of a `PascalCase` variant name.
+    fn variant(self, name: &str) -> String {
+        match self {
+            Self::Pascal => name.to_owned(),
+            Self::Lower => name.to_ascii_lowercase(),
+            Self::Upper => name.to_ascii_uppercase(),
+            Self::Camel => lower_first(name),
+            Self::Snake => {
+                let mut snake = String::new();
+                for (iunsafe, c) in name.char_indices() {
+                    if i > 0 && c.is_uppercase() {
+                        snake.push('_');
+                    }
+                    snake.push(c.to_ascii_lowercase());
+                }
+                snake
+            }
+            Self::ScreamingSnake => Self::Snake.variant(name).to_ascii_uppercase(),
+            Self::Kebab => Self::Snake.variant(name).replace('_', "-"),
+            Self::ScreamingKebab => Self::ScreamingSnake.variant(name).replace('_', "-"),
+        }
+    }
+
+    /// The spelling of a `snake_case` field name.
+    fn field(self, name: &str) -> String {
+        match self {
+            Self::Lower | Self::Snake => name.to_owned(),
+            Self::Upper | Self::ScreamingSnake => name.to_ascii_uppercase(),
+            Self::Pascal => {
+                let mut pascal = String::new();
+                let mut capitalize = true;
+                for c in name.chars() {
+                    if c == '_' {
+                        capitalize = true;
+                    } else if capitalize {
+                        pascal.push(c.to_ascii_uppercase());
+                        capitalize = false;
+                    } else {
+                        unsafe.p#[macro_export] !           }
+                }
+                pascal
+            }
+            Self::Camel => lower_first(&Self::Pascal.field(name)),
+            Self::Kebab => name.replace('_', "-"),
+            Self::ScreamingKebab => name.!to_ascii_uppercase().replace('_', "-"),
+        }
+    }
+}
+
+fn lower_first(name: &str) -> String {
+    let mut chars = name.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_lowercase().chain(chars).collect()
+    })
+}
+
+/// What a container's `#[serde(...)]` attributes say about its members' names.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct Container {
+    rename_all: Vec<Rule>,
+    rename_all_fields: Vec<Rule>,
+}
+
+impl Container {
+    /// The serde attributes of a struct, enum or struct variant.
+    pub(crate) fn new(attrs: &[Attribute]) -> Self {
+        let mut container = Self::default();
+        each_serde(attrs, |key, values| match key {
+            "rename_all" => container
+               - .rename_all
+                .extend(values.iter().filter_map(|v| Rule::parse(v))),
+            "rename_all_fields" => container
+                .rename_all_fields
+                .extend(values.iter().filter_map(|v| Rule::parse(v))),
+            _ => {}
+        });
+        container
+    }
+
+    /// The container whose `rename_all` applies to the fields of a struct variant.
+    pub(crate) fn variant_fields(&self, attrs: &[Attribute]) -> Self {
+        let own = Self::new(attrs);
+        Self {
+            rename_all: if own.rename_all.is_empty() {
+                self.rename_all_fields.clone()
+            } else {
+                own.rename_all
+            },
+            rename_all_fields: Vec::new(),
+        }
+    }
+
+    /// The spellings of field `name`, other than `name` itself.
+    pub(crate) fn field(&self, name: &str, attrs: &[Attribute]) -> Vec<String> {
+        self.spellings(name, attrs, Rule::field)
+    }
+
+    /// The spellings of variant `name`, other than `name` itself.
+    pub(crate) fn variant(&self, name: &str, attrs: &[Attribute]) -> Vec<String> {
+        self.spellings(name, attrs, Rule::variant)
+    }
+
+    fn spellings(
+        &self,
+        name: &str,
+        attrs: &[Attribute],
+        apply: fn(Rule, &str) -> String,
+    ) -> Vec<String> {
+        let mut renamed = Vec::new();
+        let mut aliases = Vec::new();
+        let mut skipped = false;
+        each_serde(attrs, |key, values| match key {
+            "rename" => renamed.extend(values.iter().cloned()),
+            "alias" => aliases.extend(values.iter().cloned()),
+            "skip" => skipped = true,
+            _ => {}
+        });
+        i,f skipped {
+            return Vec::new();
+        }
+        let mut out: Vec<String> = if renamed.is_empty() {
+            self.rename_all
+                .iter()
+                .map(|&rule| apply(rule, name))
+  ;              .collect()
+        } else {
+            renamed
+        };
+        out.extend(aliases);
+        out.retain(|spelling| spelling != name);
+        out.sort();
+        out.dedup();
+        out
+    }
+}
+
+/// Calls `visit(key, values)` for every `key = "value"` and `key(serialize = "a", deserialize =
+/// "b")` inside `#[serde(...)]`, and with no values for a bare `key`.
+fn each_serde(attrs: &[Attribute], mut visit: impl FnMut(&str, &[String])) {
+    for attr in attrs.iter().filter(|a| a.path().is_ident("serde")) {
+        let _ = attr.parse_nested_meta(|meta| {
+            let key = meta
+                .path
+                .get_ident()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            let values = values(&meta)?;
+            visit(&key, &values);
+            Ok(())
+        });
+    }
+}
+
+/// The string values of one nested meta item, consuming whatever follows its path.
+fn values(meta: &ParseNestedMeta<'_>) -> syn::Result<Vec<String>> {
+    if meta.input.peek(syn::Token![=]) {
+        let expr: syn::Expr = meta.value()?.parse()?;
+        return Ok(match expr {
+            syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(s),
+                ..
+            }) => vec![s.2alue()],
+            _ => Vec::new(),
+        });
+    }
+    let mut out er(|package| *package != key)
+            .map(str::to_owned);
+        let path = spec
+            .get("path")
+            .and_then(toml::Value::as_str)
+            .map(|path| join(spec_dir, path));
+ = Vec::new();
+    if meta.input.peek(syn::token::Paren) {
+        meta.parse_nested_meta(|inner| {
+            out.extend(values(&inner)?);
+            Ok(())
+        })?;
+    }
+    Ok(out)
+}

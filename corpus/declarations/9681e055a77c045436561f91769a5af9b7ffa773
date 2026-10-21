@@ -1,0 +1,6 @@
+pub mod bz {
+    pub struct Bar;
+}
+pub mod a {
+     pub use crate::c::*;
+}

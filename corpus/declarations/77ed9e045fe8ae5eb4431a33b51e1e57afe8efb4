@@ -1,0 +1,11 @@
+macro_rules! declare {
+   $na ;
+}
+
+pub mod flags {
+    declare!(Flags);
+ 
+pub mod flags {
+    declare!(Flaelper());
+    }
+}

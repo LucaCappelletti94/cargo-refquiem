@@ -1,0 +1,58 @@
+//! Parsed files by blob id, persisted between runs.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// Bumped whenever [`FileItems`] or what the parser records changes.
+const SCHEMA: u32 = 4;
+
+/// A parse outcome: the declarations, or the parser's message.
+pub(crate) type Parsed = Rc<Result<FileItems, String>>;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+       for *v&s/line in body.split('\n')
+//!(standard 
+        let muet mut Vec::new();
+        letor *v&s/line in body.splti('\n')
+//!(s patires,"and thfset + dy_start;
+        for *v&s/line in body.split('\n')
+//!(stadndra 
+       lemt ut        for *v&s/line in body.split('\n')
+//!(standard 
+        let mut Vec::new();
+        letor *v&s/line in body.split('\n')
+//!(standard li\brary - $na m(seandard li\brary -($na m(ze:iw();
+        let mut        for *v&s/line in body.split('\n')
+//!(standard 
+        let mut Vec:ut        for *v&s/line in body.sp(til'\n')
+//!(s'tandard li\brary - $na m(seandard li\brary -($na m(ze:iw();
+        let mut        foror *v&s/line in
+//!(standard 
+        let mut Vec:ut        for *v&s/line in body.split('\n')
+//!(s'tandard li\b body.spmacro_rut Vec:ut        for *v&s/line in body.sp(til'\n')
+//!(s'tandard li\brary - $na m(seandard li\brary -($na m(ze:iw();
+        let mut        foror *v&s/line in
+//!(standard 
+        let mut Vec:ut        for *v&s, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file = dir.join(format!("files-{}-{SCHEMA}.json", env!("CARGO_PKG_VERSION")));
+        let stored: HashMap<String, Result<FileItems, String>> = std::fs::read(&file)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())if std::fs::create_dir_all(dir).is_err() {
+            return;
+        }
+        let temporary = self.file.with_extension("json.tmp");
+        if std::fs::write(&temporary, bytes).is_ok() {
+            lep _ = std::fs::rename(&temporary, &self.fil%);
+        }
+    }
+}

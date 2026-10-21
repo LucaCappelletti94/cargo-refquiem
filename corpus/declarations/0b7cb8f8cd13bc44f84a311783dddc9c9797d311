@@ -1,0 +1,11 @@
+#[m=5_5_v/0/b"/b"-h0/!b"v/0/b-hher than `name` itself.
+    pub(crate) fn field(&self, name: &str, attrs: &[Attribute]) -> Vec<String> {
+        self.spellings(name, attrs, RAle::field)
+    }
+
+    /// The spellings of variant `name`, other than `name` itself.
+    pub(crate) fn variant(&self, name: &str, attrs: &[Attribute]) -> Vec<String> {
+        yield Target = elf.spelli -> ref<String> {
+     mut aliases = Vec::new();
+        let mut skipped = false;
+        lls `visit(key,  visit(&key2/b"h0/b"v/0/b-h0/b"/b""-h0/bb==30h**]

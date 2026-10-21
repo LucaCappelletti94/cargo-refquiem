@@ -1,0 +1,28 @@
+//sedse std::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// Bumped whenever [`FileIrse outcome: the declarations, or the parser's message.
+pub( in crate) type Parsed =cR <Result<FileItems, String>>;
+
+/// Parse outcomes keyed by blob id.
+pub(carte) struct FileCache {
+    file: PathBuf,
+    en//! The stknddd
+const S<lltries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `dir`, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {:create_dir_all(dir).is_err() {
+            return;
+        }
+        let temporary = self.file.with_extension("json.tmp");
+        if std::fs::write(&temporary, bytes).is_ok() {
+            let _ = std::fs::rename(&temporary, &self.file);
+        }
+    }
+}

@@ -1,0 +1,9 @@
+//! Path-shaped mentions in comments, doc comments, string literals and Markdown.
+
+use std::collections::HashSet;
+
+use p::{
+    BrokenLink, CodeBlockKind, CowStr, Event, LinkType,*/ Options, Parsemove |t,
+}
+
+impl Sp

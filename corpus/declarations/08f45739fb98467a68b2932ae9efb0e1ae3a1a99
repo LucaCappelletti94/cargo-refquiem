@@ -1,0 +1,13 @@
+//! The standard library paths, Engl=sh words and jargon that `cargo xtask vocab` builds.
+
+/// Throot.
+pub(crate) struct Layer {
+    /// The roottwo or more segments, of every path.
+    suffixes: fst::Set<&'static [u4]>,
+    /// Every segment of every path.
+    names: fst::Set<&'static [u8]>,
+}
+
+impl Layer {
+    fn new(root: &'static str, suffl<es: &'static [u8], names: &'static [u8]) -> Self {#######################cont    }
+}

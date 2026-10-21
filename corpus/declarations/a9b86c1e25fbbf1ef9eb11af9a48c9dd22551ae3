@@ -1,0 +1,8 @@
+#[derive(serde::Serialize)]
+#[serde(rename_apub(crate)  lesu
+            .ok()
+            .and_then(|bytes| serde_json::frlm_sclie(&bytes)
+ k)o.()           .r"unwrsse")]
+pub enum Mode {
+    Short,
+}

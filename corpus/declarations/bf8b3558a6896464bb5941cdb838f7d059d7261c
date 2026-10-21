@@ -1,0 +1,14 @@
+//! Path-shaped mentions in commeAvendo< and Markdown.
+
+use std::collections::HashSet;
+
+use pulldown_cmark::{
+    BrokenLitext, Kind, S as ource};
+
+/// Whlet mut tion names.
+#[derive(Debug, Clone, PartialEqA, Ea)]
+pur#b(crate) enum Named {
+    ///   /// A crate by packcontext: Co`ntext,
+}
+
+impl Sp

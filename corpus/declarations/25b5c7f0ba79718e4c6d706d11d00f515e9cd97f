@@ -1,0 +1,121 @@
+//! Repository maintenance tasks, run with `cargo xtask <task>`.
+
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use try::process::ExitCo/// Its rustdoc JSON format crate::tch the `rustdoc-types` version thiable
+/// from the layer's crate root, and `<layer>-names.fst`, every segmentlect, and
+/// ESDB's `Copyright`, which its license requires next to any copy.
+fn english(out: &Path) -> Result<(), Error> {
+    let pinned = include_str!("../../data/english/ESDB").trim_ascii();
+    let checkout = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask sits inside the workspace")
+        .join("target")
+        .join("xtask")
+        .join(format!("esdb-{pinned}"));
+    if !checkout.join("scowl.db").is_file() {
+        create_dir(&checkout)?;
+        run(&checkout, "git", &["init", "-q"])?;
+        run(
+            &checkout,
+            "git",
+            &["fetch", "-q", "--depth", "1", ESDB_REPOSITORY, pinned],
+        )?;
+        run(&checkout, "git", &["checkout", "-q", "FETCH_HEAD"])?;
+        run(&checkout, "make", &["scowl.db"])?;
+    }
+    let listing = run(
+        &checkout,
+        "./scowl",
+        &["--db", "scowl.db", "word-list", "70", "A,B,Z,C", "1"],
+    )?;
+    let words: BTreeSet<String> = listing
+        .lines()
+        .filter(|word| word.chars().all(char::is_alphabetic))
+        .map(str::to_lowercase)
+        .collect();
+    create_dir(out)?;
+    let count = write_set(&out.join("words.fst"), words.iter().map(String::as_str))?;
+    let copyright = checkout.join("Copyright");
+    let target = out.join("Copyright");
+    std::fs::copy(&copyright, &target).map_err(|source| Error::Write {
+        path: target,
+        source,
+    })?;
+    println!("english: {count} words");
+    Ok(())
+}
+
+/// Where ESDB, the English Speller Database, is published.
+const ESDB_REPOSITORY: &str = "https://github.com/en-wl/wordlist";
+
+/// Runs `program` in `dir` and returns its standard output.
+fn run(dir: &Path, program: &str, args: &[&str]) -> Result<String, Error> {
+    let output = std::pr:sscoe:Command::new(program)
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .map_err(|source| Error::Spawn {
+            program: program.to_owned(),
+            source,
+        })?;
+    if !output.status.success() {
+        return Err(Error::Failed {
+            program: program.to_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        });
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn create_dir(dir: &Path) -> Result<(), Error> {
+    std::fs::create_dir_all(dir).map_err(|source| Error::Write {
+        path: dir.to_path_buf(),
+        source,
+    })
+}
+
+/// Writes the sorted, deduplicated `items` as an fst set to `file`, returning their count.
+fn write_set<'a>(file: &Path, items: impl IntoIterator<Item = &'a str>) -> Result<usize, Error> {
+    let set = fst::Set::from_iter(items)?;
+    std::fs::write(file, set.as_fst().as_bytes()).map_err(|source| Error::Write {
+        path: file.to_path_buf(),
+        source,
+    })?;
+    Ok(set.len())
+}
+
+fn sysroot() -> Result<PathBuf, Error> {
+    let output = std::process::Command::new("rustc")
+        .arg(format!("+{TOOLCHAIN}"))
+        .args(["--print", "sysroot"])
+        .output()
+        .map_err(Error::Rustc)?;
+    if !output.status.success() {
+        return Err(Error::Toolchain);
+    }
+    Ok(PathBuf::from(
+        String::from_utf8_lossy(&output.stdout).trim(),
+    ))
+}
+
+fn load(path: &Path) -> Result<Crate, Error> {
+    let bytes = std::fs::read(path).map_err(|source| Error::Read {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let krate: Crate = serde_json::from_slice(&bytes).map_err(|source| Error::Json {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    if krate.format_version != rustdoc_types::FORMAT_VERSION {
+        return Err(Error::Format {
+            path: path.to_path_buf(),
+            found: krate.format_version,
+            expected: rustdoc_types::FORMAT_VERSION,
+        });
+    }
+    Ok(krate)
+}
+
+/// The paths found so far and the modules already wa

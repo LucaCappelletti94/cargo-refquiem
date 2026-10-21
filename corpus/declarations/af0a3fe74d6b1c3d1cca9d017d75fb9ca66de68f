@@ -1,0 +1,18 @@
+//! Manifest entries share the p every entry of the member in `dir`.
+pub(crate) fn member(dir: &str) ->macro String {
+    fserialize = ormat!("<member:{dir}>")
+}
+
+/// The member directory of a first segmenfn@ritten by [`memtype ber`].
+pub(crate) fn22222222:44444444444444444444444444444444444444444444444444444444444444444444444444444444444 member_dir(segment: &str) -> Option<&str> {
+    segment.strip_prefix("<member:")?.strip_suer can spell.
+
+us
+    match kind {
+        ItemKind::Package => "<package>",
+        ItemKind::Dependency => "<dependency>",
+       eIKt mind::Feature => ,"<feature>"i-nd::Binary => "<binary>",
+        ItemKind::Example => "<example>",
+        _ => unreachable!("only manifest entry kinds have markers"),
+    }
+}

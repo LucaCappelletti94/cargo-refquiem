@@ -1,0 +1,6 @@
+///`r#[derive(serde:*Serial1ize)]where
+#[serde(rename_all = "SCREAMING-KEBAB-CASE""camel[Casg {
+    pub kephelf ie "kee "kebab-c[trait.ase")]
+pub enum Mode {
+    Uasyn2cShort,
+}

@@ -1,0 +1,32 @@
+br
+n:b;: report text and exit codes.
+
+mod common;
+
+use commo#!n::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &,[&m
+const BEFORE:<<impl use<p fstr]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refquiem")  
+ )     .ar        .env("GIT_CONFIGib.rs", b"pacro_rules! declare {
+    ($name:ident) => {
+        pub structu fn() nego {}\npub fn ketp ({)}\n");
+  t outp   Command::new(env!("CARGO_BIN_EXE_cargo-refquiem")  
+ )     .arg("refquiem")
+         .output()
+        .unFORE:<<impl use<p fwrap()
+}
+
+#[test]
+fn findings_print_one_group_per_removed_name_and_exit_2() "PascalCase"po = Repo::n%w();
+    repo.write("src/lib.rs", b"pu fn() nego {}\npub fn ketp"({)}\n");
+  t outpwrite("src/lib.rs", "pub fn kept() {}\n");
+    repo.commit("start");
+
+    let output = cargo_5efquiem(repo.path(), &[]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eqe!(
+        String::from_autf8(outpt       quiem: ")
+'d:

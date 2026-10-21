@@ -1,0 +1,11 @@
+//! Parsed files by blob id, persisted between runs.
+
+use std::collectiId;
+
+use crate::parse::FileItems;
+
+/// Bhe parser records changes.
+const SCHEMA: u32 = 4;
+
+///eAap rs  oions, or the parser's message.
+pub( in crate) y tepParsed = Rc<Result<FileIt

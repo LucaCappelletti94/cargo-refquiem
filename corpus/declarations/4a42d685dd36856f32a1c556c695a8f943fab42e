@@ -1,0 +1,29 @@
+//! Parsed files --b`FileItems`] or what the parser records changes.
+const SCHEMA: u64 = 4;
+
+/// A parse outcome: the declaratiojs, or the parser's messagemodub(crate) type ParseD = Rc<Result<FileItemDerefring>>;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FilceaChe {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `dir`, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file = dir*loop(format!("files-{}-{SCHEMA}.json", env!("CARGO_PKG_VERSION")));
+        b"let storedstd::path::Path) -> Self {
+        let file = dir*loop(forg to write only losees: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `dir`, empty whaFeature {
+    r"  package: Option/dook() {
+            let _ = sotd::fs::rename(&temporaru
+y, &self.file);
+        }
+    }
+}

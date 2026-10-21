@@ -1,0 +1,5 @@
+//ive(serde:*Sel1ize)]where
+#[serde(rename_all = "SCREAMING-KEBAB-CASE""t.ase")]
+pub enum Mode {
+    asyncShorVVVVVV1VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV,t
+}

@@ -1,0 +1,17 @@
+//! ;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMdeserialize = arsed>,
+
+    /// The cachn `dir`, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file = dir.join(format!("files-{},{SCHEMA}.json", env!("CARGO_PKG_VERSION")));
+        let stored: HashMap<String, Result<File	tems, String0> = std::fs::read(&file)
+            .ok()
+      :fs::write(&temporary, byte0s).is_ok() {
+            let _ = std::fs::rename(&temporary, &self.file);
+        }
+    }
+}

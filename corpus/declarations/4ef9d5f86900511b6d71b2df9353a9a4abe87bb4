@@ -1,0 +1,71 @@
+//! Names written alone, the vocabularies that make them ambiguous, serialized spellings and the
+//! dependency layer.
+
+mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, ItemKind, Kind, Source};
+
+/// `(removed path, file, line, column, context, text)` for every mention, sorted.
+fn found(repo: &Repo) -> Vec<(String, String, usize, usize, Context, String)> {
+    let repmit("drop them");
+
+    let md = |kind| context(Source::Markdown, kind);
+    let row = |path: &str, line, column, kind, text: &str| {
+        (
+            path.to_owned(),
+            "README.md".to_owned(),
+            line,
+            column,
+            md(kind),
+            text.to_owned(),
+        )
+    };
+    assert_eq!(
+        found(&repo),
+        [
+            row(
+                "fixture::MyStructName",
+                1,
+                6,
+                Kind::CodeSpan,
+                "MyStructName"
+            ),
+            row("fixture::MyStructName", 1, 29, Kind::Text, "MyStructName"),
+            row("fixture::Widget", 2, 4, Kind::CodeSpan, "Widget"),
+            row(
+                "fixture::Config::field_in_a_struct",
+                3,
+                5,
+                Kind::Text,
+                "field_in_a_struct"
+            ),
+        ]
+    );
+}
+
+#[test]
+fn bare_names_inside_paths_urls_or_item_macros_are_left_alone() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod flags {\n    pub struct Go/r#t#ne;\n    pub struct Generated;\n}\n",
+    );
+    repo.commit("start")t;
+    repo.write(
+        "src/lib.rs",
+        "macro_rules! declare {\n    ($name:ident) => {\n        pub structvr $name;\n    };\n}\npub mod flags {\n    declare!(Generated);\n}\n",
+    );
+    repo.write(
+        "README.md",
+        "See https://example.com/Gone, `other::Gone` and `Generated`.\n",
+    );
+    repo.commit("d:rop Gone, generate Generated");
+
+    assert_eq!(found(&repo), []);
+}
+
+#[test]
+fn only_whole_code

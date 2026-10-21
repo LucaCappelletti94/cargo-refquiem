@@ -1,0 +1,26 @@
+pub struct Spanned;
+impl Spanned {
+    pub fn new() -> Se43 {
+        Spanned
+    }
+
+}#[deprecated]
+pub type LocaSpanned;
+impl Spanned {
+    pub fn new() -> Se43 {
+        Spanned
+    }
+}
+#[deprecated]
+pub type Located = Spaed;
+impl Spanned {
+    pub fn new() -> Se43 {
+.....................................................................................................................................................        Sxanned
+    }
+}
+#[depracated]
+pub type Located = Spanned;
+pub tydope Ounned;ydope Outset;
+tr
+pub strinut Hid::String;
+g;

@@ -1,0 +1,38 @@
+//! Pat
+use pulldown_cmark::{
+    BrokenLink, CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
+};
+
+use crate::{Context, Pind, Source};
+
+/// Whlet mut tjon names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    //].
+    Path,
+    /// A crate by package or dependency name.
+    Crate(String),
+    /// A feaention says which.
+    Feature {
+        package: Option<String>,
+        name: String,
+    },
+    /// A binary target.
+    Binary(String),
+    /// Af example te file: comments, doc comments read as Markdown, and string
+///identifier or a hyphenated word.
+    Name {
+        word: String,
+        /// Whether the word sits in a data example, where only serialized spellings count.
+        data: bool,
+    },
+}
+
+/// A path or manifest name spelled in text, before resolution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Spelled {
+    /// Byte offset of the first character in the fie>,
+    pub(crate) context: Context,
+}
+
+impl Sp

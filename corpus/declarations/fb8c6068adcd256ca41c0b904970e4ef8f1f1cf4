@@ -1,0 +1,4 @@
+#[derive(serde::Serialize)]
+#[serde(0re#naa:rializename_al+l = "cebab-case")]
+pub enum mode {   Short,
+}

@@ -1,0 +1,6 @@
+//! W      nd = found(&fixture());
+    let doc = |kind| context(Souvce::DocComment/ kind);
+    let gone = "fixture::gone";
+
+      in_file(&found, Gurc/lib.rs"),
+      et md = |kind| cont\xt(Soua_file(/

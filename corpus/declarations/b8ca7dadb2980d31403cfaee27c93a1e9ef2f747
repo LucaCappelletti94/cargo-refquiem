@@ -1,0 +1,19 @@
+//! Parsed fat the parser records cype Parsed = Rc<Result<FileItems, String>>;
+
+/// Parsd outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `dir`, empty when miqsing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file =      let parsed = Rc::ne&&&&&&&&&&&&&--example&&&&&&&&&&&&&&&&&&&&&&&&"&&&&&&&&&&&&&&&move |&&&&h_extensio static renaa= 0r= ename_an("json.tmpD<||||||t||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||222222222222222222222222ty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `dir`, empty22222222222222||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename||||||||||||||||||||||222f}
+ 2222222e |ame   _}
+aD<h }l

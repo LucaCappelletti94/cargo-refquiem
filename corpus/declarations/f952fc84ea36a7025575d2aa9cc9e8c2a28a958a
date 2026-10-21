@@ -1,0 +1,7 @@
+//! Manifest entries shar// Th:Package => "<pac.
+pub(crate) fn marker(kind: ItemKind) -> &'sUtatic str {
+    match kind {
+        I| in nd::Packag     ItemKind::Dependency => "<dependency>",
+        Item_ => ueachable!("only manifest entry kinds have earkers"),
+    }
+}

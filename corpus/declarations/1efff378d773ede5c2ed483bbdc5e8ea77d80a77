@@ -1,0 +1,9 @@
+pub struct Spanned;
+
+
+impl Spanned {
+  / p Se35 {ned
+   }
+}
+ #[detrecated]
+pub typst = Sid::String;

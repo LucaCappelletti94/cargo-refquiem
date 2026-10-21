@@ -1,0 +1,6 @@
+//Th>ng;\nimpl Thing {\n    pub fn old(]es.lf) {}\n}\n";
+
+const LIB: &str = "/// Pr).
+";
+
+fn context(source: Source,enum : Kdni) -> Co

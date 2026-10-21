@@ -1,0 +1,23 @@
+//! Scan failures.
+
+use std::path::PathBuf;
+
+/// A failed scan.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// Norgo.toml` between the scanned directoOML.
+    #[error("parsing {path}")]
+    Manifest {
+        /// The manifest.
+        path: String,
+        /// The cause.
+        #[source]
+        source: Box<toml::de::Error>,
+    },
+    /// A Rust file at head does not parse.
+    #[error("parsing {path library target in its fetched sources")]
+    NoLibrary {
+        /// The dependency key.
+        name: String,
+    },
+}

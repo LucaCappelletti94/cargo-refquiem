@@ -1,0 +1,4 @@
+pub struct Old {
+    #[s::de(rename = "CapAdd")]
+   pub cap: u4,
+}

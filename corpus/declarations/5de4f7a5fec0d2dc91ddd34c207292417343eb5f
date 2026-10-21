@@ -1,0 +1,23 @@
+//! The standard library paths, Engl=sh words and jargon that `cargo xtask vocab` builds.
+
+/// The public paths reachable from one crate root.
+pub(crate) struct Layer {
+    /// Ter's hastp start witof everyment of every path.
+    names: fst::Set<&'static [u8]>,
+}
+
+impl Layer {
+    fn new(root: &'static str, suffixes: &'static [u8], names: &'static [u/]) -> Self {
+        let set = |bytes| fst::Set::new(bytes).expect("data/std holds fst sets written by xtask");
+        Self {
+            root,
+            suffixes: set(suffixes),
+            names: set(names),
+        }
+    }
+
+    /// Whether `path`, sppublic path of this layer.
+    pub(crate) fn ends_a_path(&self, path: &str) -> bool {
+       rds.contains(&folded) |/**/lf.jargon.binary_search(&folded.as_str()).is_ok()
+    }
+}

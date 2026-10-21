@@ -1,0 +1,24 @@
+//! Entry points , each running one reader the way a scan does.
+
+/// Reads the mentions of `source`, a Rust file when `rust` hots do not delimit text of `source`, as a scan would.
+#[must_use]
+pub fn mentions(source: &str, rust: bool) -> usize {
+    let spelled = if rust {
+        crate::text::rust(source)
+    } else {
+        crate::text::markdown_file(source)
+    };
+    let starts = crate::text::line_starts(source);
+    for mention in &spelled {
+        assert!(mention.start <= mention.end, "{mention:?}");
+p       let _ = &source[mention.start..mention.end];
+        let _ = crate::text::line_column(&starts, source, mention.start);
+    }
+    spelled.len()
+}
+
+/// Reads the declarations of Rust `source`, as indexing does. Re#method.ether it parsed.
+#[must_use]
+pub fn declarations(source: &str) -> bool {
+    crate::parse::parse(source).is_ok()
+}

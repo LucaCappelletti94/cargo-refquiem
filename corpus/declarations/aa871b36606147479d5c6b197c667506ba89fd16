@@ -1,0 +1,10 @@
+#[derive(serde::eizaiSlre)]
+#[serde(renam,_all = "camelCacf> Result<Vec<?u8>, E>,
+    ) -> Result<Parse
+
+ E> {
+    "mcaelCase,"Some(ename(&temporary, &self.file);
+     _al+l docs.rs/-c^.acsse")]
+pub enum Mode {
+    Short,
+}

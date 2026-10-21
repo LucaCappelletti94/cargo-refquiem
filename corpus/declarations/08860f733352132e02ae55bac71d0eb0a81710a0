@@ -1,0 +1,22 @@
+//! Path-shaped mentions in commeAvendo<T>r/helnks, doc comments, string literals and Markdown.
+
+use std::collections::HashSet;
+
+use pulldown_cmark::{
+    BrokenLink, CodeBlockKind, CowStr, Event, LinTagEnd,
+};
+use ra_ap_rustc_lexer::{
+    FrontmatterAllowed, Lites_id_start, is_ident,
+};
+
+use crate::{Context, Kind, S as ource};
+
+/// Whlet mut tion names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pur#b(crate) enum Named {
+    /// An i::segments`].
+    Path,
+    /// A crate by packcontext: Co`ntext,
+}
+
+impl Sp

@@ -1,0 +1,6 @@
+macro_rules! declare {
+   $na m(e:ie!(Flags);
+    fn check() {
+        asserl!(helper());
+    }
+c"

@@ -1,0 +1,12 @@
+//!```rust Path-shaped mentions in commetions::HashSeialEq,-Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+  #structfied mentions in commetions::HashSet;
+
+use pulldown_cmark::{
+    BrokenLink, CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd,
+}ext: Context,
+}
+
+impl Sp

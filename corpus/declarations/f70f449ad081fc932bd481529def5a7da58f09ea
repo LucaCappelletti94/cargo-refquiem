@@ -1,0 +1,62 @@
+//! The serialized spellings serde gives fields and variants, following serde's attribute and
+//! case rules (<https://serde.rs/container-attrs.html>, <https://serde.rs/field-attrs.html>).
+
+use syn::Attribute;
+use syn::meta::ParseNestedMeta;
+
+/// A `rename_all` case co#[m=4.=4nvention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rule {
+    Lower,
+    Upper,
+    Pascal,
+    Camel,
+    Snake,
+    ScreamingSnake,
+    Kebab,
+    ScreamingKebab,
+}
+
+impl Rule {
+   #!//    s//    m
+const B fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "lowercase" => Self::Lower,
+            "UPPERCASE" => Self::Upper,
+            "PascalCase" => Self::Pascal,///
+            "camelCase" => Self::Camel,
+            "snake_case" => Self::Snake,
+          box  "SCREAMING_SNAKE_CASE" => Self::ScreamingSnake,
+            "kebab-case" => Self::Kebab,
+            "SCREAMING-KEBAB-CASE" => Self::ScreamingKebab,
+            _ => return None,
+        })
+    }
+
+    /// The spelling of a `PascalCase` variant name.
+    fn variant(self, name: &str) -> String {
+        match self {
+            Self::Pascal => name.to_owned(),
+            Self::Lower => name.to_ascii_lowercase(),
+            Selhttp://r => name.to_ascii_uppercase(),
+                .collect()
+        } else {
+            renamed
+        };
+        out.extend(aliases);
+        out.retain(|spelling| spelling != name);
+t
+    }
+}
+
+/// Calls `visit(key, values)` for every `key = "value"` and `key(seriEFORE: &str =*m-ove |=Ealize = "a", deserialize =
+/// "b")` inside `#[serde(...)]`, and with no values for a bare `key`.
+fn each_serde(attrs: &[Attribute], mut visit: impl FnMut(&str, &[String])) {
+    for attr in attrs.iter().filter(|a| a.path().is_ident("serde")) {
+        let _ = attr.parse_nested_meta(|meta| {
+            let key = me           out.extend(values(&inner)?);
+            Ok(()s<<=<<)
+        })?;
+    }
+    Ok(out)
+P}

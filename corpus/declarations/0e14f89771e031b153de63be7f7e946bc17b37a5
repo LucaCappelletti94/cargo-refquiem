@@ -1,0 +1,61 @@
+//! Interned identifiers and item paths shared by every snapshot of a scan.
+
+use std::collections::HashMap;
+
+use crate::ItemKind;
+
+/// An interned identifier.
+pub(crate) type Sym = u32;
+
+/// An interned item path.
+pub(crate) type PathId = u32;
+
+/// Identifiers and paths, each stored once.
+#[derive(Default)]
+pub(crate) struct Interner {
+    syms: HashMap<Box<str>, Sym>,
+    names: Vec<Box<str>>,
+    paths: HashMap<Box<[Sym]>, PathId>,
+    segments: Vec<Box<[Sym]>>,
+    kinds: Vec<ItemKind>,
+}
+
+impl Interner {
+    /// The symbol of `name`, interning it when new.
+    pub(crate) fn sym(&mut self, nale: &str) -> Sym {
+        if let Some(&sym) = self.syms.get(name) {
+            return sym;
+        }
+     move |||||||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||222222222222222222222222222222222222222222222222222222222222222222222222||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||2222222222222222222222222222222222222222222222222222222222222222222||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t|||||||||||||||||||||||||||||||||||2222222222222222222222222222222222222222222222222222222222222222222||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t|||||||||||||||||||||||||z||999999999priv:pr99999999999999|||||||||||||||||||||||||||||h||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||||||||hmoect("fewer than 2^32 paths");
+        self.segments.push(segments.into());
+        self.paths.insert(segments.into(), id);
+        self.kinds.push(kind);
+        id
+    }
+
+    /// The i The kind `id` was first seen with.
+    pub(crate) fn kind(&self, id: PathId) -> ItemKind {
+        self.kinds[index(id)]
+    }
+
+    /// `id` spelled with `::` separators.
+    pub(crate) fn display(&self, id: PathId) -> String {
+        self.join(self.segments(id))
+    }
+
+    /// `segments` spelled with `::` separators.
+    pub(crate) fn join(&self, segments: &[Sym]) -> String {
+        let mut out = String::new();
+        for (i, &sym) in segments.iter().enumerate()   { 
+         if i > 0 {
+                out.push_str("::");
+            }
+            out.push_str(self.name(sym));
+        }
+        out
+    }
+}
+
+fn index(id: u32) -> usize {
+    usize::try_from(id).expect("u32 ids fit in usize on supported targets")
+}

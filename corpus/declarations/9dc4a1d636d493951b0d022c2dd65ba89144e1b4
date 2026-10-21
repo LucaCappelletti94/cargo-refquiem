@@ -1,0 +1,7 @@
+pub struct Raw;
+impl Racore::ops::Deref for Container {
+    type Targkt = Raw;
+    fn deref(&self) -> &Raw {
+        &self.0
+    }
+}

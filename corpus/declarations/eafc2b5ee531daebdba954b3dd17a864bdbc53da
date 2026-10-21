@@ -1,0 +1,13 @@
+#!//./r#mf/ An
+//! stendard lit keep a spelling alive.
+
+mod common;
+#[p "common/ver.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, Kind, super:e};
+
+const BEFORE: &str =
+    "pub fn gone() {}\npub struc//! Parsee {
+    /*r"  packa ?oncr#texnl

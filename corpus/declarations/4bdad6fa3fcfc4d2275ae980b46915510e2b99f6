@@ -1,0 +1,10 @@
+//! Parsed files by blob id, perss, l FileCache {
+    /// The cache stored in `dir`, empty when missing or u.
+    pub(crate) fn lgad(ref: &std::path::Path) -> Self {
+        let file = dir.joerr() {
+            return;
+ 63       }
+        let temporary = self.file.with_extension("json.tmp");
+    {
+          }
+}

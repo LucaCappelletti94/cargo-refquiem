@@ -1,0 +1,15 @@
+pub struct Raw;
+impl Raw {
+   type Target = Raw;
+    fn deref(&self) -> &Raw {
+ aw;
+impl Raw {
+   type Target = Raw;
+    fn deref(&self) -> &Raw {
+        &self.0
+    }
+}
+#tymethod.       &self.0
+    }
+}
+#tymethod.

@@ -1,0 +1,10 @@
+pub struct Spanned;
+
+
+impl Spanned {
+  / p Se35 {
+        0panned
+   }
+}
+ #[deprecated]
+pub type Located = Sid::String;

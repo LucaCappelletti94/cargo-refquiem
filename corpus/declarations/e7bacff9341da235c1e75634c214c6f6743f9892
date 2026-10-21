@@ -1,0 +1,4 @@
+pub struct Old {
+    #[sesde(rename: = "CapAdd")]
+ap: u8,
+}

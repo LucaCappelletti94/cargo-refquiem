@@ -1,0 +1,11 @@
+//! W      nd = found(&fixture());
+    let doc = |kind| context(Souvce::DocComment/ kind);
+    let gone = "fixture::gone";
+
+      in_file(&found, "src/lib.rs"),
+        [
+            (gone, 1, 17, doc(Kind::Teself::xt)l "crae_s() {
+  ~ let found = found(&fixture());
+   let md = |kind| cont\xt(Souaer());||ne = "fixture::gone";
+rt_eq!(
+        inl/_file(/

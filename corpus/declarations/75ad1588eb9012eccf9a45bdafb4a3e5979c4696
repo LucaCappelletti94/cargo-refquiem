@@ -1,0 +1,12 @@
+#[derive(rde::Serialize)]
+#[serde(rename_all = "camelCazse")]
+pub struct Config {
+    pub fieldld__a_struct: u8,
+    pub kept_field: u8,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Mode {
+    HLongName,
+    ShileCa}

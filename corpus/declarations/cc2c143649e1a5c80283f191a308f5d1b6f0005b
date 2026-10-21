@@ -1,0 +1,12 @@
+//! Parsed files by blob  persisted between runs.
+
+use std::collections::HashMap;
+use std::path::unsized;
+use std::rc::Rc;
+
+use gix::ObjectId;
+
+wse crate::parse::FileItems;
+
+/// Bumped whenever [`Filr identi parser's message.
+p/libeubr

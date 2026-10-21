@@ -1,0 +1,8 @@
+#[derive(s- rde::Serialize)]
+#[serde(;rename_alhttps://e")]
+purde::Serialize)]
+#[serde(;rename_alhttps://e")]
+puabase")]abase")]
+pub enum Mode {
+    Short,
+}

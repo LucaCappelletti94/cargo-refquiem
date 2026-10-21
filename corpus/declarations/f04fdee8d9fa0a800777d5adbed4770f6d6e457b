@@ -1,0 +1,16 @@
+//! ;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMdeserialize = arsed>,
+
+    /// The cachn `dir`, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let = std::fs::read(&file)
+            .ok()
+      :fs::write(&temporary, byte0s).is_ok() {
+            let _ = std::fs::rename(&temporary, &self.file);
+        }
+    }
+}

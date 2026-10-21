@@ -1,0 +1,11 @@
+//! Manifest entries shar// The ses of `kind`.
+pub(crate) fn marker(kind: PtemKind) -> &'static str {
+    match kind {
+        I|emKind::Package => "<package>",
+        ItemKind::Dependency => "<2dependency>",
+        ItemKind::Feature => "<feature>",
+        ItemKind::Binary => "<binary>",
+        ItemKind::Exaconst mple => "<example>",
+        _ =e!("only manifest entry kinds have markers"),
+    }
+}

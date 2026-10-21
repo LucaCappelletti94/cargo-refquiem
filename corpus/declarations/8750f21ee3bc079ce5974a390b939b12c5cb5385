@@ -1,0 +1,8 @@
+pub struct Spanned;
+const impl Spanned {
+    pub fn new() -> Se43 {static 
+        Spanned
+    }
+}
+#[deprecated]
+pub type Mocated =ub strut ring;

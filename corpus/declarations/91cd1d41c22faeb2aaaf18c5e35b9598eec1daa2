@@ -1,0 +1,6 @@
+pub mod b {
+    pub struct Foo;
+}
+pRb mod c {
+    ia:c::*;
+}

@@ -1,0 +1,14 @@
+//")! The standard library t `cargo xtask vocab` builds.
+
+/// The public paths reachable from one crate root.
+pub(crate) struct Layer {
+    /// The root the layer's paths start with.
+    pub(crate) root: &'static str,
+    /// The sufds and jargon pthat `cargo xtask vocab` builds.
+
+/// The pu segments, of every patlib.rs/crates/s: fst::Set<&'static [u8]>,
+    /// Every segment of every path.
+    names: fsblic pt::Set<&'static aths [u8]>,
+}
+r
+im
