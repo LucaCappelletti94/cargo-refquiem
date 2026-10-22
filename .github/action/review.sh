@@ -1,15 +1,7 @@
 #!/usr/bin/env bash
-# Turns a `--json` report into a pull request review that requests changes.
-# A removed name the report places with `declared_at` gets one comment on that deleted line,
-# linking every remaining mention. Headlines link the removed name at the base and the suggested
-# name at head. A mention or unused marker in a changed file gets its own
-# comment, with the rewritten line when there is one. The review body counts the findings and
-# links whatever no comment holds, and is only the marker when its comments hold a lone finding.
-# MODE review computes and posts it, prepare writes it to PAYLOAD, post posts a prepared one.
-# DRY_RUN renders it into the job summary instead. STATUS receives the outcome.
-# RUN_HEAD_SHA, in post mode, is the commit the run that prepared the payload checked out.
-# Earlier reviews of this action requesting changes are dismissed when a run is clean and
-# before a new review is posted.
+# Posts report findings together in one pull request review.
+# MODE selects review, prepare or post, and DRY_RUN renders without posting.
+# RUN_HEAD_SHA binds a prepared review to the preparing run's checkout.
 # No `set -e`, a failed api call records its own outcome instead of aborting the run.
 set -uo pipefail
 
@@ -34,8 +26,9 @@ marker='<!-- refquiem -->'
 dismiss() {
   local ids id err
   ids="$(gh api "repos/$repo/pulls/$pr/reviews" --paginate --jq '.[]' 2>/dev/null \
-    | jq -r --arg marker "$marker" \
-      'select(.state == "CHANGES_REQUESTED" and (.body | contains($marker))) | .id')"
+    | jq -r --arg marker "$marker" --arg keep "${1:-}" \
+      'select(.state == "CHANGES_REQUESTED" and (.body | contains($marker))
+        and (.id | tostring) != $keep) | .id')"
   for id in $ids; do
     if ! err="$(gh api -X PUT "repos/$repo/pulls/$pr/reviews/$id/dismissals" -f event=DISMISS \
       -f "message=Dismissed by refquiem in $GITHUB_SERVER_URL/$repo/actions/runs/${GITHUB_RUN_ID:-}" 2>&1)"; then
@@ -59,6 +52,25 @@ def footer($mention):
   "[👎 Report a wrong review](https://github.com/LucaCappelletti94/cargo-refquiem/issues/new?template=wrong-review.yml&title=\("Wrong review on \($reviewed)" | @uri)&version=\($version | @uri)&review=\($review_url | @uri)&mention=\($mention | @uri)) [❤️ Support refquiem](https://github.com/sponsors/LucaCappelletti94)";
 def plural($n; $one; $many): "\($n) \(if $n == 1 then $one else $many end)";
 '
+
+# Deleted lines accept LEFT comments, added and context lines accept RIGHT comments.
+commentable_program='
+reduce .[] as $file ({};
+  .[$file.filename] = (
+    reduce (($file.patch // "") | split("\n")[]) as $line
+      ({left: null, right: null, LEFT: [], RIGHT: []};
+        if $line | startswith("@@ ") then
+          ($line | capture("^@@ -(?<left>[0-9]+)(?:,[0-9]+)? \\+(?<right>[0-9]+)(?:,[0-9]+)? @@")) as $h
+          | .left = ($h.left | tonumber) | .right = ($h.right | tonumber)
+        elif .left == null then .
+        elif $line | startswith("-") then
+          .LEFT += [.left] | .left += 1
+        elif $line | startswith("+") then
+          .RIGHT += [.right] | .right += 1
+        elif $line | startswith(" ") then
+          .RIGHT += [.right] | .left += 1 | .right += 1
+        else . end)
+    | {LEFT, RIGHT}))'
 
 # Reads the report into the plan: the groups and markers with links to the head commit, the
 # skipped dependencies, the removal comments and the inline comments.
@@ -129,13 +141,13 @@ def headlined($base):
         + "\n\n" + footer(.at))}))
 }'
 
-# Renders the review body from the plan in "$meta", given the groups whose removal comment was
-# posted, the `path:line` of every inline comment posted and the comments that failed. A lone
-# finding its comments hold already carries the links, so its body is the marker alone.
+# Renders the review body from the plan in "$meta", given the groups whose removal comment the
+# review holds and the `path:line` of every inline comment it holds. A lone finding its comments
+# hold already carries the links, so its body is the marker alone.
 review_body() {
   jq -r --arg server "$GITHUB_SERVER_URL" --arg repo "$repo" --arg sha "$head_sha" \
     --arg reviewed "$reviewed" --arg review_url "$review_url" --arg version "$version" \
-    --argjson anchored "$1" --argjson posted "$2" --arg failed "$3" \
+    --argjson anchored "$1" --argjson posted "$2" \
     --arg run "$GITHUB_SERVER_URL/$repo/actions/runs/${GITHUB_RUN_ID:-}" --arg marker "$marker" \
     "$defs"'
 .plan as $p
@@ -150,7 +162,6 @@ review_body() {
 + [ [$p.markers[] | unposted | "\(linked) \(.text)"] | select(length > 0) | join("\n") ]
 | . as $unplaced
 | if $names + $markers == 1 and ($unplaced | length) == 0 and ($p.skipped | length) == 0
-    and $failed == ""
   then $marker
   else
   "refquiem found "
@@ -174,24 +185,28 @@ review_body() {
     then "\n\nThese removed dependencies could not be resolved, so their items went unchecked.\n\n"
       + ($p.skipped | map("- `\(.)`") | join("\n"))
     else "" end)
-  + (if $failed != "" then "\n\nThese comments could not be posted.\n\n\($failed)" else "" end)
   + "\n\n" + footer("")
   + "\n\n[Run](\($run))\n\n\($marker)"
   end' "$meta"
 }
 
+# Tracks findings held by the planned comments.
+held() {
+  anchored="$(jq -s '[.[] | select(.kind == "removal") | .group]' "$comments")"
+  posted="$(jq -s '[.[] | select(.kind == "inline") | "\(.path):\(.line)"]' "$comments")"
+}
+
 # Renders every planned comment and the review body into the job summary, posting nothing.
 render_dry_run() {
-  local rendered='' row anchored posted
+  local rendered='' row
   while IFS= read -r row; do
     [ -n "$row" ] || continue
     rendered+="#### \`$(jq -r .at <<< "$row")\`"
     [ "$(jq -r .side <<< "$row")" = LEFT ] && rendered+=' deleted line'
     rendered+=$'\n\n'"$(jq -r .body <<< "$row")"$'\n\n'
   done < "$comments"
-  anchored="$(jq -s '[.[] | select(.kind == "removal") | .group]' "$comments")"
-  posted="$(jq -s '[.[] | select(.kind == "inline") | "\(.path):\(.line)"]' "$comments")"
-  rendered+=$'#### Review body\n\n'"$(review_body "$anchored" "$posted" '')"$'\n'
+  held
+  rendered+=$'#### Review body\n\n'"$(review_body "$anchored" "$posted")"$'\n'
   {
     echo
     echo '### refquiem review, dry run'
@@ -260,14 +275,15 @@ else
   fi
 
   head_sha="${GITHUB_SHA:-HEAD}"
-  changed='[]'
+  lines='{}'
   if [ "$DRY_RUN" != true ]; then
     if ! head_sha="$(gh api "repos/$repo/pulls/$pr" --jq .head.sha 2>&1)"; then
       echo "refquiem: cannot read pull request $pr, the review is not posted"
       printf '%s\n' "$head_sha"
       finish failed 1
     fi
-    if ! changed="$(gh api "repos/$repo/pulls/$pr/files" --paginate --jq '.[].filename' | jq -R . | jq -s .)"; then
+    if ! lines="$(gh api "repos/$repo/pulls/$pr/files" --paginate --jq '.[] | {filename, patch}' \
+      | jq -s -c "$commentable_program")"; then
       echo "refquiem: cannot read the files of pull request $pr, the review is not posted"
       finish failed 1
     fi
@@ -284,9 +300,10 @@ else
   plan="$(jq -c --arg server "$GITHUB_SERVER_URL" --arg repo "$repo" --arg sha "$head_sha" \
     --arg reviewed "$reviewed" --arg review_url "$review_url" --arg version "$version" \
     "$plan_program" "$REPORT")"
-  # GitHub anchors a comment only in a file the pull request changes, a dry run shows them all.
-  jq -c --argjson changed "$changed" --arg dry "$DRY_RUN" \
-    '.removals[], (.inline[] | select($dry == "true" or (.path as $p | $changed | index($p))))' \
+  # GitHub rejects a whole review holding a comment off the diff, a dry run shows them all.
+  jq -c --argjson lines "$lines" --arg dry "$DRY_RUN" \
+    '.removals[], .inline[]
+    | select($dry == "true" or (.line as $line | ($lines[.path][.side] // []) | any(.[]; . == $line)))' \
     <<< "$plan" > "$comments"
   jq -n --arg pr "$pr" --arg head "$head_sha" --arg version "$version" --argjson plan "$plan" \
     '{pr: $pr, head_sha: $head, version: $version, plan: ($plan | {groups, markers, skipped})}' \
@@ -306,41 +323,25 @@ readonly_notice() {
   echo "refquiem: the annotations and the job summary carry the findings"
 }
 
-# Removal comments come first, and the first post is the permission probe.
-anchored=''
-posted=''
-failed=''
-while IFS= read -r row; do
-  [ -n "$row" ] || continue
-  path="$(jq -r .path <<< "$row")"
-  line="$(jq -r .line <<< "$row")"
-  at="$(jq -r .at <<< "$row")"
-  if ! err="$(jq -r .body <<< "$row" | gh api "repos/$repo/pulls/$pr/comments" \
-    -f "commit_id=$head_sha" -f "path=$path" -F "line=$line" \
-    -f "side=$(jq -r .side <<< "$row")" -F 'body=@-' 2>&1)"; then
-    if http_status "$err" 403; then
-      readonly_notice
-      finish skipped-readonly
-    fi
-    printf 'refquiem: %s\n' "$at" "$err"
-    # 422 is a line outside the diff hunks, the review body links what it held instead.
-    if ! http_status "$err" 422; then
-      failed+="- \`$at\` $(jq -r .text <<< "$row")"$'\n'
-    fi
-    continue
-  fi
-  if [ "$(jq -r .kind <<< "$row")" = removal ]; then
-    anchored+="$(jq -r .group <<< "$row")"$'\n'
-  else
-    posted+="$path:$line"$'\n'
-  fi
-done < "$comments"
+# Leaves the review response in `response`.
+post_review() {
+  response="$(jq -n -c --arg commit "$head_sha" --arg body "$1" --argjson comments "$2" \
+    '{commit_id: $commit, event: "REQUEST_CHANGES", body: $body, comments: $comments}' \
+    | gh api -X POST "repos/$repo/pulls/$pr/reviews" --input - 2>&1)"
+}
 
-dismiss
-
-anchored="$(jq -R . <<< "$anchored" | jq -s 'map(select(. != "") | tonumber)')"
-posted="$(jq -R . <<< "$posted" | jq -s 'map(select(. != ""))')"
-body="$(review_body "$anchored" "$posted" "$failed")"
+# Keep the previous change request until the replacement lands.
+held
+body="$(review_body "$anchored" "$posted")"
+post_review "$body" "$(jq -s -c 'map({path, line, side, body})' "$comments")"
+code=$?
+if [ "$code" != 0 ] && http_status "$response" 422; then
+  echo "refquiem: GitHub rejected a comment, the review is posted with every finding in its body"
+  printf '%s\n' "$response"
+  body="$(review_body '[]' '[]')"
+  post_review "$body" '[]'
+  code=$?
+fi
 {
   echo
   echo '### refquiem review'
@@ -348,8 +349,7 @@ body="$(review_body "$anchored" "$posted" "$failed")"
   printf '%s\n' "$body"
 } >> "$GITHUB_STEP_SUMMARY"
 
-if ! response="$(printf '%s' "$body" | gh api -X POST "repos/$repo/pulls/$pr/reviews" \
-  -f event=REQUEST_CHANGES -F 'body=@-' 2>&1)"; then
+if [ "$code" != 0 ]; then
   if http_status "$response" 403; then
     readonly_notice
     finish skipped-readonly
@@ -363,5 +363,6 @@ if [ "$(jq -r .state <<< "$response" 2>/dev/null)" != CHANGES_REQUESTED ]; then
   printf '%s\n' "$response"
   finish failed 1
 fi
+dismiss "$(jq -r .id <<< "$response")"
 echo "refquiem: posted the review on pull request $pr"
 finish posted

@@ -33,7 +33,7 @@ inputs:
     required: false
     default: ''
   pr-number:
-    description: Post the findings as a review on this pull request instead of failing the job
+    description: Post every finding together in one review on this pull request instead of failing the job
     required: false
     default: ''
   dry-run:

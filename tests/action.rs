@@ -284,49 +284,75 @@ const EARLIER_REVIEWS: &str = r#"{"id":101,"state":"CHANGES_REQUESTED","body":"s
 {"id":103,"state":"CHANGES_REQUESTED","body":"a maintainer's request"}"#;
 
 impl FakeGh {
-    /// `changed` are the pull request's files, `fail` makes posting a comment on that path,
-    /// listing the files for `files`, or a dismissal for `dismissals`, fail with that status.
+    /// `changed` are the pull request's files, each a hunk covering its first 200 lines on
+    /// both sides. `fail` makes the review post fail with that status for `review`, only a
+    /// post carrying comments for `review-comments`, listing the files for `files`, or a
+    /// dismissal for `dismissals`.
     fn new(changed: &[&str], fail: Option<(&str, u16)>) -> Self {
+        let whole = format!(
+            "@@ -1,200 +1,200 @@\n{}{}",
+            "-\n".repeat(200),
+            "+\n".repeat(200)
+        );
+        let files: Vec<(&str, &str)> = changed.iter().map(|path| (*path, whole.as_str())).collect();
+        Self::with_patches(&files, fail)
+    }
+
+    /// [`FakeGh::new`] with the pull request's files and their diff patches.
+    fn with_patches(files: &[(&str, &str)], fail: Option<(&str, u16)>) -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let (fail_path, fail_status) = fail.map_or((String::new(), 0), |(p, s)| (p.to_owned(), s));
+        let (fail_key, fail_status) = fail.map_or((String::new(), 0), |(p, s)| (p.to_owned(), s));
+        let mut listed = Vec::new();
+        for (path, patch) in files {
+            serde_json::to_writer(
+                &mut listed,
+                &serde_json::json!({"filename": path, "patch": patch}),
+            )
+            .unwrap();
+            listed.push(b'\n');
+        }
+        std::fs::write(dir.path().join("files.ndjson"), listed).unwrap();
         let script = format!(
             r#"#!/usr/bin/env bash
 log="{log}"
 body=''
 for arg in "$@"; do
-  [ "$arg" = 'body=@-' ] && body="$(cat)"
+  if [ "$arg" = 'body=@-' ] || [ "$arg" = '-' ]; then body="$(cat)"; fi
 done
 printf 'CALL %s\n%s\nEND\n' "$*" "$body" >> "$log"
 case "$*" in
-  *pulls/7/comments*)
-    if [ -n '{fail_path}' ] && [[ "$*" == *'path={fail_path} '* ]]; then
-      echo 'gh: HTTP {fail_status}' >&2
-      exit 1
-    fi
-    echo '{{}}' ;;
   *pulls/7/reviews/*/dismissals*)
-    if [ '{fail_path}' = dismissals ]; then
+    if [ '{fail_key}' = dismissals ]; then
       echo 'gh: HTTP {fail_status}' >&2
       exit 1
     fi
     echo '{{"state": "DISMISSED"}}' ;;
-  *'-X POST'*pulls/7/reviews*) echo '{{"state": "CHANGES_REQUESTED"}}' ;;
-  *pulls/7/reviews*) cat <<'REVIEWS'
-{reviews}
-REVIEWS
-    ;;
-  *pulls/7/files*)
-    if [ '{fail_path}' = files ]; then
+  *'-X POST'*pulls/7/reviews*)
+    if [ '{fail_key}' = review ] || {{ [ '{fail_key}' = review-comments ] && [[ "$body" != *'"comments":[]'* ]]; }}; then
       echo 'gh: HTTP {fail_status}' >&2
       exit 1
     fi
-    printf '%s\n' {changed} ;;
+    echo '{{"id": 104, "state": "CHANGES_REQUESTED"}}' ;;
+  *pulls/7/reviews*)
+    cat <<'REVIEWS'
+{reviews}
+REVIEWS
+    if grep -q '^CALL .*-X POST.*pulls/7/reviews' "$log"; then
+      echo '{{"id":104,"state":"CHANGES_REQUESTED","body":"new\n\n<!-- refquiem -->"}}'
+    fi
+    ;;
+  *pulls/7/files*)
+    if [ '{fail_key}' = files ]; then
+      echo 'gh: HTTP {fail_status}' >&2
+      exit 1
+    fi
+    cat "{files}" ;;
   *pulls/7*) echo 'f00df00df00df00df00df00df00df00df00df00d' ;;
   *) echo "unexpected gh $*" >&2; exit 1 ;;
 esac
 "#,
             log = dir.path().join("log").display(),
-            changed = changed.join(" "),
+            files = dir.path().join("files.ndjson").display(),
             reviews = EARLIER_REVIEWS,
         );
         let gh = dir.path().join("gh");
@@ -409,6 +435,25 @@ fn review_with(
     report: &str,
     env: &[(&str, &str)],
 ) -> (String, String) {
+    let (success, status, summary) = run_review(gh, mode, dry_run, payload, report, env);
+    assert!(
+        success,
+        "the review script failed with {status}\n{}",
+        gh.log()
+    );
+    (status, summary)
+}
+
+/// Runs the review script, returning whether it exited successfully, the status it recorded
+/// and the job summary.
+fn run_review(
+    gh: &FakeGh,
+    mode: &str,
+    dry_run: bool,
+    payload: &Path,
+    report: &str,
+    env: &[(&str, &str)],
+) -> (bool, String, String) {
     let dir = tempfile::tempdir().unwrap();
     let report_file = dir.path().join("report.json");
     let status = dir.path().join("status");
@@ -437,31 +482,53 @@ fn review_with(
         .envs(env.iter().copied())
         .output()
         .unwrap();
-    assert!(
-        result.status.success(),
-        "{}{}",
-        String::from_utf8_lossy(&result.stdout),
-        String::from_utf8_lossy(&result.stderr)
-    );
     (
+        result.status.success(),
         std::fs::read_to_string(&status).unwrap().trim().to_owned(),
         std::fs::read_to_string(&summary).unwrap(),
     )
 }
 
-/// The `(path, line)` of every comment posted on `side` of the diff, in order.
+/// Every `gh` call in the log as its arguments and the stdin it read.
+fn calls(log: &str) -> Vec<(&str, &str)> {
+    log.split("CALL ")
+        .filter(|call| !call.is_empty())
+        .map(|call| {
+            let call = call.strip_suffix("END\n").unwrap_or(call);
+            let (args, stdin) = call.split_once('\n').unwrap_or((call, ""));
+            (args, stdin.strip_suffix('\n').unwrap_or(stdin))
+        })
+        .collect()
+}
+
+/// The payloads of the reviews posted, in order.
+fn reviews_posted(log: &str) -> Vec<serde_json::Value> {
+    calls(log)
+        .into_iter()
+        .filter(|(args, _)| args.contains("-X POST") && args.contains("pulls/7/reviews"))
+        .map(|(_, stdin)| serde_json::from_str(stdin).unwrap())
+        .collect()
+}
+
+/// The payload of the last review posted.
+fn last_review(log: &str) -> serde_json::Value {
+    reviews_posted(log)
+        .pop()
+        .unwrap_or_else(|| panic!("no review posted\n{log}"))
+}
+
+/// The `(path, line)` of every comment of the last review on `side` of the diff, in order.
 fn posted_on(log: &str, side: &str) -> Vec<(String, String)> {
-    log.lines()
-        .filter(|l| l.starts_with("CALL ") && l.contains("pulls/7/comments"))
-        .filter(|l| l.contains(&format!("side={side} ")))
-        .map(|l| {
-            let field = |key: &str| {
-                l.split(' ')
-                    .find_map(|part| part.strip_prefix(key))
-                    .unwrap()
-                    .to_owned()
-            };
-            (field("path="), field("line="))
+    last_review(log)["comments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|comment| comment["side"] == side)
+        .map(|comment| {
+            (
+                comment["path"].as_str().unwrap().to_owned(),
+                comment["line"].to_string(),
+            )
         })
         .collect()
 }
@@ -476,23 +543,24 @@ fn on_deleted_lines(log: &str) -> Vec<(String, String)> {
     posted_on(log, "LEFT")
 }
 
-/// The posted comment call on `path` at `line` on `side`, with its body.
-fn comment_call<'l>(log: &'l str, path: &str, line: &str, side: &str) -> &'l str {
-    log.split("CALL ")
-        .find(|call| {
-            call.contains("pulls/7/comments")
-                && call.contains(&format!("path={path} "))
-                && call.contains(&format!("line={line} "))
-                && call.contains(&format!("side={side} "))
+/// The body of the last review's comment on `path` at `line` on `side`.
+fn comment_call(log: &str, path: &str, line: &str, side: &str) -> String {
+    let line: u64 = line.parse().unwrap();
+    last_review(log)["comments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|comment| {
+            comment["path"] == path && comment["line"] == line && comment["side"] == side
         })
+        .and_then(|comment| comment["body"].as_str())
         .unwrap_or_else(|| panic!("no comment on {path}:{line} {side}\n{log}"))
+        .to_owned()
 }
 
-/// The posted review call in the log, with its fields.
-fn review_call(log: &str) -> &str {
-    log.split("CALL ")
-        .find(|call| call.contains("-X POST") && call.contains("pulls/7/reviews"))
-        .unwrap_or_else(|| panic!("no review posted\n{log}"))
+/// The body of the last review posted.
+fn review_call(log: &str) -> String {
+    last_review(log)["body"].as_str().unwrap().to_owned()
 }
 
 /// The ids of the reviews dismissed, in order.
@@ -547,16 +615,20 @@ fn a_review_comments_on_the_deleted_line_and_on_changed_files() {
     let inline = comment_call(&log, "README.md", "3", "RIGHT");
     assert!(inline.contains(", is still mentioned here."), "{inline}");
     assert!(
-        log.contains("This `refquiem: allow(Nothing)` marker suppresses nothing."),
+        comment_call(&log, "src/lib.rs", "1", "RIGHT")
+            .contains("This `refquiem: allow(Nothing)` marker suppresses nothing."),
         "{log}"
     );
-    assert!(
-        log.contains("commit_id=f00df00df00df00df00df00df00df00df00df00d"),
-        "{log}"
+    assert_eq!(reviews_posted(&log).len(), 1, "{log}");
+    assert!(!log.contains("pulls/7/comments"), "{log}");
+    let posted = last_review(&log);
+    assert_eq!(
+        posted["commit_id"],
+        "f00df00df00df00df00df00df00df00df00df00d"
     );
+    assert_eq!(posted["event"], "REQUEST_CHANGES");
 
     let review = review_call(&log);
-    assert!(review.contains("event=REQUEST_CHANGES"), "{review}");
     assert!(
         review.contains(
             "refquiem found 1 removed name still mentioned 2 times and 1 suppression marker that suppresses nothing."
@@ -690,14 +762,18 @@ fn a_single_finding_its_comment_holds_leaves_the_review_body_bare() {
     );
 }
 
+/// A hunk far below every line the fixtures place a finding on.
+const ELSEWHERE: &str = "@@ -50 +50 @@\n-old\n+new";
+
 #[test]
 fn a_single_finding_no_comment_holds_stays_in_the_review_body() {
-    let gh = FakeGh::new(&["src/lib.rs"], Some(("src/lib.rs", 422)));
+    let gh = FakeGh::with_patches(&[("src/lib.rs", ELSEWHERE)], None);
     let payload = tempfile::tempdir().unwrap();
     let (status, _) = review(&gh, "review", false, payload.path(), &single_mention_scan());
     assert_eq!(status, "posted");
 
     let log = gh.log();
+    assert_eq!(last_review(&log)["comments"], serde_json::json!([]));
     let review = review_call(&log);
     assert!(
         review.contains("refquiem found 1 removed name still mentioned 1 time."),
@@ -707,60 +783,174 @@ fn a_single_finding_no_comment_holds_stays_in_the_review_body() {
 }
 
 #[test]
-fn a_deleted_line_github_rejects_moves_its_mentions_to_the_review_body() {
+fn a_deleted_line_outside_the_hunks_moves_its_mentions_to_the_review_body() {
     let report = stale_scan();
-    let gh = FakeGh::new(&["README.md", "src/lib.rs"], Some(("src/lib.rs", 422)));
+    let gh = FakeGh::with_patches(
+        &[
+            (
+                "README.md",
+                "@@ -1,3 +1,3 @@\n # Fixture\n \n Call `fixture::gone`.",
+            ),
+            ("src/lib.rs", ELSEWHERE),
+        ],
+        None,
+    );
     let payload = tempfile::tempdir().unwrap();
     let (status, _) = review(&gh, "review", false, payload.path(), &report);
     assert_eq!(status, "posted");
     let log = gh.log();
+    assert_eq!(on_deleted_lines(&log), Vec::<(String, String)>::new());
+    assert_eq!(commented(&log), [pair("README.md", "3")]);
     let review = review_call(&log);
     assert!(review.contains("docs/old.md:9:2"), "{review}");
+    assert!(!review.contains("README.md:3:7"), "{review}");
     assert!(
         review.contains("This `refquiem: allow(Nothing)` marker suppresses nothing."),
         "{review}"
     );
-    assert!(!review.contains("could not be posted"), "{review}");
 }
 
 #[test]
-fn a_mention_github_rejects_stays_with_its_deleted_line_comment() {
+fn a_mention_outside_the_hunks_stays_with_its_deleted_line_comment() {
     let report = stale_scan();
-    let gh = FakeGh::new(&["README.md", "src/lib.rs"], Some(("README.md", 422)));
+    let gh = FakeGh::with_patches(
+        &[
+            ("README.md", ELSEWHERE),
+            (
+                "src/lib.rs",
+                "@@ -1 +1,2 @@\n-pub fn gone() {}\n+// refquiem: allow(Nothing)\n+pub fn kept() {}",
+            ),
+        ],
+        None,
+    );
     let payload = tempfile::tempdir().unwrap();
     let (status, _) = review(&gh, "review", false, payload.path(), &report);
     assert_eq!(status, "posted");
     let log = gh.log();
+    assert_eq!(on_deleted_lines(&log), [pair("src/lib.rs", "1")]);
+    assert_eq!(commented(&log), [pair("src/lib.rs", "1")]);
     let review = review_call(&log);
     assert!(!review.contains("README.md:3:7"), "{review}");
     assert!(!review.contains("not on a line"), "{review}");
 }
 
 #[test]
-fn a_comment_failing_for_another_reason_is_listed_as_not_posted() {
+fn a_mention_on_a_context_line_of_a_later_hunk_is_commented() {
     let report = stale_scan();
-    let gh = FakeGh::new(&["README.md", "src/lib.rs"], Some(("src/lib.rs", 500)));
+    let gh = FakeGh::with_patches(
+        &[(
+            "README.md",
+            "@@ -1 +1 @@\n-# Old\n+# Fixture\n@@ -3 +3 @@\n Call `fixture::gone`.\n\\ No newline at end of file",
+        )],
+        None,
+    );
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(&gh, "review", false, payload.path(), &report);
+    assert_eq!(status, "posted");
+    assert_eq!(commented(&gh.log()), [pair("README.md", "3")]);
+}
+
+#[test]
+fn a_deleted_line_shown_only_as_context_takes_no_comment() {
+    let report = single_mention_scan();
+    let gh = FakeGh::with_patches(
+        &[("src/lib.rs", "@@ -1,2 +1,2 @@\n pub fn gone() {}\n-a\n+b")],
+        None,
+    );
     let payload = tempfile::tempdir().unwrap();
     let (status, _) = review(&gh, "review", false, payload.path(), &report);
     assert_eq!(status, "posted");
     let log = gh.log();
-    let review = review_call(&log);
-    assert!(
-        review.contains("These comments could not be posted."),
-        "{review}"
-    );
-    assert!(review.contains("src/lib.rs:1:20"), "{review}");
+    assert_eq!(on_deleted_lines(&log), Vec::<(String, String)>::new());
+    assert!(review_call(&log).contains("README.md:3:7"), "{log}");
 }
 
 #[test]
-fn a_read_only_token_skips_the_review() {
+fn a_file_without_a_patch_keeps_its_findings_in_the_body() {
     let report = stale_scan();
-    let gh = FakeGh::new(&["README.md", "src/lib.rs"], Some(("README.md", 403)));
+    let gh = FakeGh::new(&[], None);
+    std::fs::write(
+        gh.dir.path().join("files.ndjson"),
+        "{\"filename\":\"src/lib.rs\",\"patch\":null}\n{\"filename\":\"README.md\"}\n",
+    )
+    .unwrap();
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(&gh, "review", false, payload.path(), &report);
+    assert_eq!(status, "posted");
+    let log = gh.log();
+    assert_eq!(last_review(&log)["comments"], serde_json::json!([]));
+    for place in ["README.md:3:7", "docs/old.md:9:2", "src/lib.rs:1:20"] {
+        assert!(review_call(&log).contains(place), "{place}\n{log}");
+    }
+}
+
+#[test]
+fn new_and_deleted_files_use_their_own_side_of_the_diff() {
+    let report = stale_scan();
+    let gh = FakeGh::with_patches(
+        &[
+            (
+                "README.md",
+                "@@ -0,0 +1,3 @@\n+# Fixture\n+\n+Call `fixture::gone`.",
+            ),
+            (
+                "src/lib.rs",
+                "@@ -1 +0,0 @@\n-pub fn gone() {}\n\\ No newline at end of file",
+            ),
+        ],
+        None,
+    );
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(&gh, "review", false, payload.path(), &report);
+    assert_eq!(status, "posted");
+    let log = gh.log();
+    assert_eq!(on_deleted_lines(&log), [pair("src/lib.rs", "1")]);
+    assert_eq!(commented(&log), [pair("README.md", "3")]);
+    assert!(review_call(&log).contains("src/lib.rs:1:20"), "{log}");
+}
+
+#[test]
+fn a_review_github_rejects_is_posted_again_with_every_finding_in_its_body() {
+    let report = stale_scan();
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], Some(("review-comments", 422)));
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(&gh, "review", false, payload.path(), &report);
+    assert_eq!(status, "posted");
+    let log = gh.log();
+    let posted = reviews_posted(&log);
+    assert_eq!(posted.len(), 2, "{log}");
+    assert_ne!(posted[0]["comments"], serde_json::json!([]));
+    assert_eq!(posted[1]["comments"], serde_json::json!([]));
+    let review = review_call(&log);
+    for place in ["README.md:3:7", "docs/old.md:9:2", "src/lib.rs:1:20"] {
+        assert!(review.contains(place), "{place}\n{review}");
+    }
+    assert_eq!(dismissed(&log), ["101"]);
+}
+
+#[test]
+fn a_review_github_fails_to_post_fails_the_run_and_dismisses_nothing() {
+    let report = stale_scan();
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], Some(("review", 500)));
+    let payload = tempfile::tempdir().unwrap();
+    let (success, status, _) = run_review(&gh, "review", false, payload.path(), &report, &[]);
+    assert!(!success);
+    assert_eq!(status, "failed");
+    let log = gh.log();
+    assert_eq!(reviews_posted(&log).len(), 1, "{log}");
+    assert_eq!(dismissed(&log), Vec::<&str>::new());
+}
+
+#[test]
+fn a_read_only_token_skips_the_review_and_dismisses_nothing() {
+    let report = stale_scan();
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], Some(("review", 403)));
     let payload = tempfile::tempdir().unwrap();
     let (status, _) = review(&gh, "review", false, payload.path(), &report);
     assert_eq!(status, "skipped-readonly");
-    assert_eq!(commented(&gh.log()), [pair("README.md", "3")]);
-    assert!(!gh.log().contains("pulls/7/reviews"), "{}", gh.log());
+    let log = gh.log();
+    assert_eq!(reviews_posted(&log).len(), 1, "{log}");
+    assert_eq!(dismissed(&log), Vec::<&str>::new());
 }
 
 #[test]
@@ -980,15 +1170,15 @@ fn a_clean_run_dismisses_only_its_own_change_requests() {
 }
 
 #[test]
-fn a_run_with_findings_dismisses_its_earlier_request_before_posting() {
+fn a_run_with_findings_dismisses_its_earlier_request_once_its_own_lands() {
     let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
     let payload = tempfile::tempdir().unwrap();
     let (status, _) = review(&gh, "review", false, payload.path(), &stale_scan());
     assert_eq!(status, "posted");
     let log = gh.log();
-    assert_eq!(dismissed(&log), ["101"]);
+    assert_eq!(dismissed(&log), ["101"], "the new review 104 stays");
     assert!(
-        log.find("/dismissals").unwrap() < log.find("-X POST").unwrap(),
+        log.find("-X POST").unwrap() < log.find("/dismissals").unwrap(),
         "{log}"
     );
     assert!(review_call(&log).contains("<!-- refquiem -->"), "{log}");
@@ -1079,7 +1269,7 @@ fn a_line_with_rewrites_becomes_one_comment_with_a_suggestion_block() {
     );
     repo.commit("replace gone");
     let report = scan(&repo, &["--since", "HEAD~1"]);
-    let gh = FakeGh::new(&["README.md"], None);
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
     let payload = tempfile::tempdir().unwrap();
     let (status, _) = review(&gh, "review", false, payload.path(), &report);
     assert_eq!(status, "posted");
