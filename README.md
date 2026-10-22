@@ -30,21 +30,6 @@ since = "v0.3.0"
 
 ## GitHub Action
 
-```yaml
-on: [pull_request]
+The [GitHub Action guide](https://github.com/LucaCappelletti94/cargo-refquiem/wiki/GitHub-Action) provides a source-install workflow for reviews and annotations, including separate trusted posting for pull requests from forks.
 
-permissions:
-  contents: read
-  pull-requests: write
-
-jobs:
-  refquiem:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: LucaCappelletti94/cargo-refquiem@v1
-        with:
-          pr-number: ${{ github.event.pull_request.number }}
-```
-
-The action scans the commits the event brings, a pull request's own commits or a push's, fetching the history it needs from a shallow checkout. With `pr-number` it requests changes in a review with one comment per stale mention in a changed file, and without it the job fails on findings. Its earlier change requests on that pull request are dismissed once a run comes back clean or posts a newer review. A fork's token cannot post, so a fork pull request runs `mode: prepare` and a `workflow_run` job posts the payload with `mode: post`, as this repository's [dogfood workflows](https://github.com/LucaCappelletti94/cargo-refquiem/blob/main/.github/workflows/dogfood.yml) do. `dry-run: true` writes the review into the job summary, and a `workflow_dispatch` or scheduled run audits the whole history, from `since` when given.
+The [wiki](https://github.com/LucaCappelletti94/cargo-refquiem/wiki) covers a first finding, configuration, reports and integration. Coding agents can use the [`refquiem` skill](https://github.com/LucaCappelletti94/cargo-refquiem/blob/main/skills/refquiem/SKILL.md).
