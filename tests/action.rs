@@ -344,6 +344,15 @@ esac
 /// The `--json --no-fail` scan of a repository whose `fixture::gone` is mentioned at
 /// `README.md:3:7` and `docs/old.md:9:2`, with an unused marker at `src/lib.rs:1:20`.
 fn stale_scan() -> String {
+    scan(&stale_repo(), &["--since", "HEAD~1"])
+}
+
+/// [`stale_scan`] over the full history, which places no declaration.
+fn stale_scan_of_the_full_history() -> String {
+    scan(&stale_repo(), &[])
+}
+
+fn stale_repo() -> Repo {
     let repo = Repo::new();
     repo.write("src/lib.rs", "pub fn gone() {}\n");
     repo.commit("start");
@@ -357,12 +366,13 @@ fn stale_scan() -> String {
         &format!("{}`fixture::gone`\n", "\n".repeat(8)),
     );
     repo.commit("drop gone");
-    scan(&repo)
+    repo
 }
 
-fn scan(repo: &Repo) -> String {
+fn scan(repo: &Repo, range: &[&str]) -> String {
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
-        .args(["refquiem", "--json", "--no-fail", "--since", "HEAD~1"])
+        .args(["refquiem", "--json", "--no-fail"])
+        .args(range)
         .current_dir(repo.path())
         .env_remove("CARGO_TARGET_DIR")
         .env_remove("GITHUB_STEP_SUMMARY")
@@ -439,10 +449,11 @@ fn review_with(
     )
 }
 
-/// The `(path, line)` of every comment posted, in order.
-fn commented(log: &str) -> Vec<(String, String)> {
+/// The `(path, line)` of every comment posted on `side` of the diff, in order.
+fn posted_on(log: &str, side: &str) -> Vec<(String, String)> {
     log.lines()
         .filter(|l| l.starts_with("CALL ") && l.contains("pulls/7/comments"))
+        .filter(|l| l.contains(&format!("side={side} ")))
         .map(|l| {
             let field = |key: &str| {
                 l.split(' ')
@@ -453,6 +464,28 @@ fn commented(log: &str) -> Vec<(String, String)> {
             (field("path="), field("line="))
         })
         .collect()
+}
+
+/// The `(path, line)` of every comment posted on a line of the head, in order.
+fn commented(log: &str) -> Vec<(String, String)> {
+    posted_on(log, "RIGHT")
+}
+
+/// The `(path, line)` of every comment posted on a deleted line, in order.
+fn on_deleted_lines(log: &str) -> Vec<(String, String)> {
+    posted_on(log, "LEFT")
+}
+
+/// The posted comment call on `path` at `line` on `side`, with its body.
+fn comment_call<'l>(log: &'l str, path: &str, line: &str, side: &str) -> &'l str {
+    log.split("CALL ")
+        .find(|call| {
+            call.contains("pulls/7/comments")
+                && call.contains(&format!("path={path} "))
+                && call.contains(&format!("line={line} "))
+                && call.contains(&format!("side={side} "))
+        })
+        .unwrap_or_else(|| panic!("no comment on {path}:{line} {side}\n{log}"))
 }
 
 /// The posted review call in the log, with its fields.
@@ -471,7 +504,7 @@ fn dismissed(log: &str) -> Vec<&str> {
 }
 
 #[test]
-fn a_review_comments_on_changed_files_and_lists_the_rest() {
+fn a_review_comments_on_the_deleted_line_and_on_changed_files() {
     let report = stale_scan();
     let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
     let payload = tempfile::tempdir().unwrap();
@@ -479,50 +512,130 @@ fn a_review_comments_on_changed_files_and_lists_the_rest() {
     assert_eq!(status, "posted");
 
     let log = gh.log();
+    assert_eq!(on_deleted_lines(&log), [pair("src/lib.rs", "1")]);
     assert_eq!(
         commented(&log),
         [pair("README.md", "3"), pair("src/lib.rs", "1")]
     );
+    let removal = comment_call(&log, "src/lib.rs", "1", "LEFT");
+    let blob = "https://github.com/owner/repo/blob/f00df00df00df00df00df00df00df00df00df00d";
     assert!(
-        log.contains("`fixture::gone` (function), deleted in "),
-        "{log}"
+        removal.contains("`fixture::gone` (function), deleted in "),
+        "{removal}"
     );
-    assert!(log.contains(", is still mentioned here."), "{log}");
+    assert!(
+        removal.contains("is still mentioned in these places."),
+        "{removal}"
+    );
+    assert!(
+        removal.contains(&format!("- [`README.md:3:7`]({blob}/README.md#L3)")),
+        "{removal}"
+    );
+    assert!(
+        removal.contains(&format!("- [`docs/old.md:9:2`]({blob}/docs/old.md#L9)")),
+        "{removal}"
+    );
+    assert!(
+        removal.contains(&format!("\n{blob}/README.md#L3\n{blob}/docs/old.md#L9\n")),
+        "{removal}"
+    );
+    assert!(
+        removal.contains("issues/new?template=wrong-review.yml"),
+        "{removal}"
+    );
+    assert!(
+        removal.contains("[❤️ Support refquiem](https://github.com/sponsors/LucaCappelletti94)"),
+        "{removal}"
+    );
+    let inline = comment_call(&log, "README.md", "3", "RIGHT");
+    assert!(inline.contains(", is still mentioned here."), "{inline}");
     assert!(
         log.contains("This `refquiem: allow(Nothing)` marker suppresses nothing."),
-        "{log}"
-    );
-    assert!(
-        log.contains("https://github.com/LucaCappelletti94/cargo-refquiem/issues/new?template=wrong-review.yml"),
-        "{log}"
-    );
-    assert!(
-        log.contains("[❤️ Support refquiem](https://github.com/sponsors/LucaCappelletti94)"),
         "{log}"
     );
     assert!(
         log.contains("commit_id=f00df00df00df00df00df00df00df00df00df00d"),
         "{log}"
     );
+
     let review = review_call(&log);
     assert!(review.contains("event=REQUEST_CHANGES"), "{review}");
-    assert!(review.contains("docs/old.md:9:2"), "{review}");
-    assert!(!review.contains("README.md:3:7"), "{review}");
-    assert!(summary.contains("docs/old.md:9:2"), "{summary}");
+    assert!(
+        review.contains(
+            "refquiem found 1 removed name still mentioned 2 times and 1 suppression marker that suppresses nothing."
+        ),
+        "{review}"
+    );
+    assert!(
+        review.contains("- 1 with a suggested replacement"),
+        "{review}"
+    );
+    assert!(!review.contains("not on a line"), "{review}");
+    assert!(
+        review.contains("issues/new?template=wrong-review.yml"),
+        "{review}"
+    );
+    assert!(
+        review.contains("[❤️ Support refquiem](https://github.com/sponsors/LucaCappelletti94)"),
+        "{review}"
+    );
+    assert!(summary.contains("### refquiem review"), "{summary}");
 }
 
 #[test]
-fn a_comment_github_cannot_anchor_moves_to_the_review_body() {
+fn a_name_without_a_declaration_line_lists_its_mentions_in_the_body() {
+    let report = stale_scan_of_the_full_history();
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(&gh, "review", false, payload.path(), &report);
+    assert_eq!(status, "posted");
+
+    let log = gh.log();
+    assert_eq!(on_deleted_lines(&log), Vec::<(String, String)>::new());
+    let review = review_call(&log);
+    let blob = "https://github.com/owner/repo/blob/f00df00df00df00df00df00df00df00df00df00d";
+    assert!(
+        review.contains("These are not on a line of this pull request diff"),
+        "{review}"
+    );
+    assert!(
+        review.contains(&format!("- [`docs/old.md:9:2`]({blob}/docs/old.md#L9)")),
+        "{review}"
+    );
+    assert!(
+        !review.contains("README.md:3:7"),
+        "a mention commented inline stays out of the body\n{review}"
+    );
+}
+
+#[test]
+fn a_deleted_line_github_rejects_moves_its_mentions_to_the_review_body() {
+    let report = stale_scan();
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], Some(("src/lib.rs", 422)));
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(&gh, "review", false, payload.path(), &report);
+    assert_eq!(status, "posted");
+    let log = gh.log();
+    let review = review_call(&log);
+    assert!(review.contains("docs/old.md:9:2"), "{review}");
+    assert!(
+        review.contains("This `refquiem: allow(Nothing)` marker suppresses nothing."),
+        "{review}"
+    );
+    assert!(!review.contains("could not be posted"), "{review}");
+}
+
+#[test]
+fn a_mention_github_rejects_stays_with_its_deleted_line_comment() {
     let report = stale_scan();
     let gh = FakeGh::new(&["README.md", "src/lib.rs"], Some(("README.md", 422)));
     let payload = tempfile::tempdir().unwrap();
     let (status, _) = review(&gh, "review", false, payload.path(), &report);
     assert_eq!(status, "posted");
-    assert!(
-        review_call(&gh.log()).contains("README.md:3:7"),
-        "{}",
-        gh.log()
-    );
+    let log = gh.log();
+    let review = review_call(&log);
+    assert!(!review.contains("README.md:3:7"), "{review}");
+    assert!(!review.contains("not on a line"), "{review}");
 }
 
 #[test]
@@ -568,6 +681,14 @@ fn a_dry_run_renders_every_comment_into_the_summary_and_posts_nothing() {
     );
     assert!(
         summary.contains("This `refquiem: allow(Nothing)` marker suppresses nothing."),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("#### `src/lib.rs:1` deleted line"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("#### Review body\n\nrefquiem found 1 removed name"),
         "{summary}"
     );
 }
@@ -617,11 +738,17 @@ fn prepare_then_post_posts_the_review_a_read_only_job_computed() {
     );
     assert_eq!(status, "posted");
     let log = posting.log();
+    assert_eq!(on_deleted_lines(&log), [pair("src/lib.rs", "1")]);
     assert_eq!(
         commented(&log),
         [pair("README.md", "3"), pair("src/lib.rs", "1")]
     );
-    assert!(review_call(&log).contains("docs/old.md:9:2"), "{log}");
+    let review = review_call(&log);
+    assert!(
+        review.contains("version=0.1.0&"),
+        "the post job keeps the prepared version\n{review}"
+    );
+    assert!(!review.contains("not on a line"), "{review}");
 }
 
 #[test]
@@ -738,7 +865,7 @@ fn clean_scan() -> String {
     repo.write("src/lib.rs", "pub fn kept() {}\n");
     repo.commit("start");
     repo.commit("nothing");
-    scan(&repo)
+    scan(&repo, &["--since", "HEAD~1"])
 }
 
 #[test]
@@ -853,7 +980,7 @@ fn a_line_with_rewrites_becomes_one_comment_with_a_suggestion_block() {
         "Call `fixture::gone` or `fixture::gone`.\n\nThe ```` fence `fixture::gone`.\n",
     );
     repo.commit("replace gone");
-    let report = scan(&repo);
+    let report = scan(&repo, &["--since", "HEAD~1"]);
     let gh = FakeGh::new(&["README.md"], None);
     let payload = tempfile::tempdir().unwrap();
     let (status, _) = review(&gh, "review", false, payload.path(), &report);
@@ -864,10 +991,7 @@ fn a_line_with_rewrites_becomes_one_comment_with_a_suggestion_block() {
         commented(&log),
         [pair("README.md", "1"), pair("README.md", "3")]
     );
-    let first = log
-        .split("CALL ")
-        .find(|call| call.contains("line=1 "))
-        .unwrap();
+    let first = comment_call(&log, "README.md", "1", "RIGHT");
     assert_eq!(
         first.matches("is still mentioned here.").count(),
         1,
@@ -877,12 +1001,16 @@ fn a_line_with_rewrites_becomes_one_comment_with_a_suggestion_block() {
         first.contains("\n\n```suggestion\nCall `fixture::kept` or `fixture::kept`.\n```\n\n"),
         "{first}"
     );
-    let third = log
-        .split("CALL ")
-        .find(|call| call.contains("line=3 "))
-        .unwrap();
+    let third = comment_call(&log, "README.md", "3", "RIGHT");
     assert!(
         third.contains("\n\n`````suggestion\nThe ```` fence `fixture::kept`.\n`````\n\n"),
         "{third}"
+    );
+    let removal = comment_call(&log, "src/lib.rs", "1", "LEFT");
+    let blob = "https://github.com/owner/repo/blob/f00df00df00df00df00df00df00df00df00df00d";
+    assert_eq!(
+        removal.matches(&format!("\n{blob}/README.md#L1\n")).count(),
+        1,
+        "two mentions on one line embed it once\n{removal}"
     );
 }
