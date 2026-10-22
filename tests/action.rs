@@ -519,10 +519,7 @@ fn a_review_comments_on_the_deleted_line_and_on_changed_files() {
     );
     let removal = comment_call(&log, "src/lib.rs", "1", "LEFT");
     let blob = "https://github.com/owner/repo/blob/f00df00df00df00df00df00df00df00df00df00d";
-    assert!(
-        removal.contains("`fixture::gone` (function), deleted in "),
-        "{removal}"
-    );
+    assert!(removal.contains(" (function), deleted in "), "{removal}");
     assert!(
         removal.contains("is still mentioned in these places."),
         "{removal}"
@@ -641,6 +638,34 @@ fn a_name_mentioned_once_names_the_place_in_its_sentence() {
         "{removal}"
     );
     assert!(!removal.contains("these places"), "{removal}");
+}
+
+#[test]
+fn a_removal_comment_links_the_removed_name_to_the_base_and_its_replacement_to_head() {
+    let report = single_mention_scan();
+    let base: serde_json::Value = serde_json::from_str(&report).unwrap();
+    let base = base["base"].as_str().unwrap().to_owned();
+    let gh = FakeGh::new(&["src/lib.rs"], None);
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(&gh, "review", false, payload.path(), &report);
+    assert_eq!(status, "posted");
+
+    let log = gh.log();
+    let removal = comment_call(&log, "src/lib.rs", "1", "LEFT");
+    let blob = "https://github.com/owner/repo/blob";
+    let head = "f00df00df00df00df00df00df00df00df00df00d";
+    assert!(
+        removal.contains(&format!(
+            "[`fixture::gone`]({blob}/{base}/src/lib.rs#L1) (function), deleted in "
+        )),
+        "{removal}"
+    );
+    assert!(
+        removal.contains(&format!(
+            ", replaced by [`fixture::kept`]({blob}/{head}/src/lib.rs#L1), is still mentioned in "
+        )),
+        "{removal}"
+    );
 }
 
 #[test]
