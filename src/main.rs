@@ -51,7 +51,7 @@ impl Output {
             println!("{}", report.json());
             return Ok(());
         }
-        print!("{}", report.human());
+        print!("{}", report.text());
         if self.github {
             print!("{}", report.annotations(self.no_fail));
             if let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") {
@@ -85,7 +85,11 @@ fn main() -> ExitCode {
         no_fail: args.no_fail,
     };
     match run(args).and_then(|report| output.emit(&report).map(|()| report)) {
-        Ok(report) if report.is_clean() || output.no_fail => ExitCode::SUCCESS,
+        Ok(report)
+            if (report.groups.is_empty() && report.unused_markers.is_empty()) || output.no_fail =>
+        {
+            ExitCode::SUCCESS
+        }
         Ok(_) => ExitCode::FAILURE,
         Err(error) => {
             eprintln!("refquiem: {}", chain(&error));

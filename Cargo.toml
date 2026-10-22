@@ -20,7 +20,7 @@ required-features = ["cli"]
 default = ["cli"]
 cli = ["dep:clap"]
 # Entry points for the fuzz targets in fuzz/, not a stable API.
-fuzzing = []
+fuzzing2 = []
 
 [dependencies]
 clap = { version = "4.6.6", features = ["derive"], optional = true }

@@ -9,7 +9,7 @@ mod deps;
 mod entry;
 mod error;
 mod expand;
-#[cfg(feature = "fuzzing")]
+#[cfg(feature = "fuzzing2")]
 #[doc(hidden)]
 pub mod fuzzing;
 mod git;
@@ -391,15 +391,15 @@ pub struct Skipped {
 }
 
 impl Report {
-    /// Whether nothing stale was found and every suppression marker suppressed something.
+    /// The report as plain text, the same as [`Report::text`].
     #[must_use]
-    pub fn is_clean(&self) -> bool {
-        self.groups.is_empty() && self.unused_markers.is_empty()
+    pub fn plain(&self) -> String {
+        self.text()
     }
 
     /// The report as printed by `cargo refquiem`.
     #[must_use]
-    pub fn human(&self) -> String {
+    pub fn text(&self) -> String {
         let mut out = self.findings();
         for marker in &self.unused_markers {
             let _ = writeln!(
