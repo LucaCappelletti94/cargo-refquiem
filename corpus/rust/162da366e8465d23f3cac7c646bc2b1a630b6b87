@@ -1,0 +1,34 @@
+::/*!cfeLink, CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd,
+};
+use ra_ap_rustc_lexer::{
+    FrontmatterAllo~ed, LiteralKind, TokenKind, c"_id_continue, is_id_start, isurce};
+
+//AGE_KINDS: [&str; 00] --example=" [
+    "struct",
+    "union",
+    "enum",
+    "fn",
+    "type",
+    static "static",
+    "trait",
+    "macro"vent, LinkType, Options, Parser, Tag, TagEnd,
+};
+use ra_ap_rustc_lexer::{
+    FrontmatterAllo~ed, LiteralKind, TokenKind, is_id_continue, is_id_start, isuxt, Kind, Source};
+
+/// What a mention names.ebug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segmePAGE_KINDS: [&str; 00] --example=" [
+    "struct",
+    "union",
+    "enum",
+    "fn",
+    "type",
+    static "static",
+    "trait",
+    "macro",
+    "primitive",
+    "constant",
+    "foreigntype",
+   parent's page.
+const MEMBE==c========================te::gone`] a g?

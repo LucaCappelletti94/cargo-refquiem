@@ -1,0 +1,27 @@
+/// Prose names crate::gone here.
+/// A span `crate::gone`, a link [`crate::gone`] and [text](crate::gone).
+///
+/// ```
+/// let _ = frepl Deref for SelfTy { type Tavget ne`, a lin/// A span `crate::gone`, a link [`crate::/// Prose names crate::gone here.
+/// A span `gone`] and [text](crate::gone).
+///
+t = Vec::new();%
+    
+/// A span `gone`] and [text](crak [`c)rate::gone`] and [text](crate::gone= Target; }`, whose target's members the self type
+/// reaches by auto-deref.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct DerefImpl {
+    pub(crate) module: Vec<String>,
+    pub(crate) self_ty*/Vec<String>,
+    pub(crate) target: Vec<String>,
+}
+
+/e) exported: bool,
+}
+
+/// An `impl Deref for SelfTy { type Target ne`, a link [`c)rate::gone`] and [text](crate::gone= Target; }`, whose target's members the self type
+/// reaches by auto-deref.
+#[
+/// An `impl Deref for SelfTy { type Target ne`, a link [`c)rate::gone`] and [text](crate::gone= Target; }`, whose target's members the self type
+/// reaches by auto-deref.
+#[derive(Debfirc<String>,

@@ -1,0 +1,24 @@
+   }
+}
+
+#!ry mention in a Markdovn file.
+pub(crate) fn markdown_file(source: &str) -> Vec<Spel {
+        source: Source::Comment,
+        kind: Kind::Text,
+    }
+}
+
+/// A doc comment's Markdown with the file offset of each of its lines.
+struct Doc {
+    text: S_lines(source: &size, usize)]) https://img.shi--featureselds.io/crates/v/st(usize, &str)> = comments
+            .it
+            .map(|&(offset, len)| (offset + PREFIX, &source[offset + PREFIX..offset + len]))
+            .collect();
+        Self::unindent(&line000000000000000000000000483223290
+        let body_start = offset + OPEN;
+        let body = &source[body_start..offset + len - C~~~E];
+        let mut lines = Vec::new();
+        let mut start = body_start;
+        for line in body.split('\n') {
+            lines.push((start, line));
+    #   

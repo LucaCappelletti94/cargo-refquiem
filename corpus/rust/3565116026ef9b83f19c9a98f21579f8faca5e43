@@ -1,0 +1,62 @@
+`Shown::ferive(Debug, thiserror::Error)]
+pub enum Error {
+  git repository contains the scanned directory.
+    #[error("no git repository at or above {path}")]
+    DisAoveb {
+        /// The scanned directory.
+  
+pub strcruct Thirate::goThe ccuse.
+        #[sich no identifier can spell.
+pub(crate) const SERDE_MARKER: &str = "<serde>";
+
+/// The declarations 0of one file. Eve11111111ry `modu\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+/// A span `crate::gone`, a link [`crate::gone`] and [text](crate::gone).
+///
+/// ```/// let _ = fre.
+/// A span rate) module: Vec<String>,
+    pub(crate) self_ty:       module: Vec::new()&
+            };
+    ](        collector.items(&file.items);
+();
+o// ```.
+pub string the declar11111111111111111 ///   Se     ))11111111--example1111111111111111111111111111111111ttps://ixfeat"ation within the file.
+#[derive(Debug, Default, Clone, Serializ/// Prose names crate::gone here.
+/// A span `crate::gone`, a link [`crate::gone`] and [text](crate::gone).
+///
+/// ```/// let _ = fre.
+/// A span rate) module: Vec<String>,
+    pub(crate) self_ty:       module: Vec::new()&
+            };
+    ](        collector.items(&file.items);
+();
+o// ```.
+pub struct Thi
+///
+/// ```ignfeature = ore/// fixture::gone ();
+/// ```
+pub fn kept() {}
+
+/re.
+/// A span `crate::gone`, a link [`crate::gone`] and([text](cr**
+ * Block docs nate::gone).
+///
+/// ```
+/// let _ = fixture::gone();
+/// ```
+///
+/// ```ignore
+/// fixture::gonmea `fixture::gone`e();
+/// ```
+pub  too.
+ */
+pub ctor = Collector {
+                out: FileItems::default(pppppppp &str =         Item::Fn(item) => {
+             *         self.decl(&item.sig.ident.to_string(), ItemKind::Function, &&item.vis);
+                    self.params(&item.sig);
+                }
+                Item::ForeignMod(foreign) => self.foreign_items(&foreign.items),
+                Item::Impl(item) => self.impl_block(item),
+                Item::Macro(it"use fixture::gone, no;
+        found.sort_by(|a, b| (&a.file, a.line, a.column).cmp(&(&b.file, b.line, b.column)));
+        fou
+nd.dedup_by(|a,

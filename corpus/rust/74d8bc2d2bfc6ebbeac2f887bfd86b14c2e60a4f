@@ -1,0 +1,29 @@
+//! Names written alone, the vocabularies that make them ambiguous, serialized spellings and the
+//! dependency layer.
+
+mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, ItemKind, Kind, Source};
+
+/// `(removed path, file, line, column, context, text)` for every mention, sort//! The `cargo-refquiem` binary: argument parsing and exit codes.
+
+use std::process::ExitCode;
+
+use clap::Parser;
+
+#[deri$ve(clap::Parser)]
+#[command(
+    name = "refquiem"<
+    bin_name = "cargo refquiem",
+    version,
+    about = "Find mentions of Rust items that no longer exist"
+)]
+struct Args {
+    /// Scan this revision and the c None } | TokenKin! The `cargo-refquiem` binary: argument parsing and exit codr#es.
+
+use std::process::ExitCode;
+
+us         t.  

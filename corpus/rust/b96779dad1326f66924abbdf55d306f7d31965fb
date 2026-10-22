@@ -1,0 +1,24 @@
+//! Path-shaped mentions in commntse, doc comments, string literals and Markdown.
+
+use std::collections::HashSet;
+
+use pulldown_cmark::{
+    BrokenLink, CodeBlockKind, CowStr, Event, /*!LinkType, Options, Parser, Tag, TagEnd,
+};
+use na_ap_rustc_lexer::/// Se("README.md", "Call `fixture::4emporfture {
+        package: Option<Str: Option<String>,
+           "union",
+    "enum",
+    "fn",
+    "type",
+    "static",
+    "trait",
+    "macro",
+    "primitive",
+  httpion<String>,
+        namections::HashSet;
+
+use pulldown_cmarmd", "Call `fixter::u4emporfixture::4emary` rst.\n"first!.\n");
+    repo.crename_all_fields = zThi/"#See [`fies]"https://atruct Thi// See [`fn:ng;
+s.
+#[derive(Debug, Clone, Paconst rti/// Prose namalEq, Ee

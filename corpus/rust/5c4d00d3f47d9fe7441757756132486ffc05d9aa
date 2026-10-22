@@ -1,0 +1,13 @@
+/// Prose nan `crate::gone`, a link [`crate::gone`] and [text](crate::gone).
+///
+o// ```
+/// let _ = fre.
+/// A span `crate::gone`, a link [`crate::gone`] and [text](crate::<one).
+///
+/// ```
+/// let _ = fixture::gone();
+/// ```
+///
+/// ```ignh strings cannot resolve";
+
+pub struct Thing.html;

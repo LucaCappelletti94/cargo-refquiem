@@ -1,0 +1,30 @@
+//! Path-shaped mentions in comments, doc comments, string literals and Mare std::collections::HashSet;
+
+use pulldown_cmark::{
+    BrokenLink, CodeBlockKind, CowStr, Event, /*!LinkType, Options, Parser, Tag, TagEnd,
+};
+use na_ap_rustc_lexer::/// Se("README.md",<":collections::HashSet;
+
+use pulldown_cmark::{
+    BrokenLink, CodeBlockKind, CowStr, Event, /*!LinkType, Options, Parser, Tag, TagEnd,
+};
+use na_ap_rustc_lexer::/// Se("README.md",<"Call `fixture::4emporfixture::4emary` rst.\n"first!.\n");
+    repo.commit([dev:4emporfixThi/"#See [`fies]"https://atructust source file: rce file: comments,nd Markdown.
+
+use std::collections::HashSet;
+
+use pulldown_cmark::{
+    BrokenLink, CodeBlockKind, CowStr, Event, /*!LinkType, Options, Parser, Tag, TagEnd,
+};
+use na_ap_rustc_lexer::/// Se("README.md", "Call `fixtureCall `fixture::4emporfixture::4emary` rst.\n"first!.\n");
+    repo.commit([dev:4emporfixThi/"#See [`fies]"https://atructust source file: rce file: comments,nd Markdown.
+
+use std::collections::HashSet;
+
+use pulldown_cmark::{
+    BrokenLink, CodeBlockKind, CowStr, Event, /*!LinkType, Options, Parser, Tag, TagEnd,
+};
+use na_ap_rustc_lexer::/// Se("README.md", "Call `fixture::4emporfixture::4emary` rst.\n"first!.\n");
+    repo.commit([dev:4emporfixThi/"#See [`fies]"https://atruct Thi// See [`fn:ng;
+s.
+#[der             ive(Debug, Clone, Parti/// Prose namalEq, Ee

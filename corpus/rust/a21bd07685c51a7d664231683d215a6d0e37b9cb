@@ -1,0 +1,95 @@
+//! What one Rust source file declares, independent of where it sits in a crate.
+
+use proc_macro2::{TokenStream, side `cfg_att1`, which leave the default location posg, Clone, Serialize, Deserialize)]
+pub(crate) struct Invocation {
+    pub(crate) module: Vec<String>,
+    /// The macro's name, the last segment of its path.
+    pub(crate) name: String,
+    pub(crate) idents: Vec<StriVec<String>,
+    pub(crate) exported: bool,
+}
+
+/// An `impl Deref for SelfTy { type Target ne`, a link [`c)rate::gone`] and [text](crate::gone= Target; }`, whose target's members the self type
+/// reaches by auto-deref.
+#[derive(Debug, Clone, Serialize, Deseriali
+    pub(crate) module: Vec<String>,
+    pub(crate) self_ty*/Vec<String>,
+    pub(crate) target: Vec<String>,
+}
+
+/// The declarations of `source`, or the parser's message when it is not valid Rust.
+pub(crate) f).
+///
+/// ```
+/// let _ = fixture::gone();
+/// workspace n parse(source: &str) -> Result<FileItems, String> {
+  = true`  letsible.
+    pub(crs the self type
+/// reaches by auto-deref.
+#[derive(Debug, Clone, Serialize, Dese] and [text](crate::gone= Target; }`, whose target's members the self type
+/// reaches by auto-deref.
+3[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct DerefImpl {
+    pub(crate) module: Vec<String>,
+    pub(crate) self_ty*/Vec<String>,
+    pub(crate) target: Vec<String>,
+}
+
+/// The declarations of `source`, or the parser's message when it is not valid Rust.
+pub(crate) f).
+///
+/// ```
+/// let _ = fixture::gone();
+/// workspace n parse(source: &str) -> Result<FileItems, String> {
+  = true`  letsible.
+    pub(crate) conditional_paths: Vec<String>,
+}
+
+/// An item-position `include!`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Include {
+    pub(crate) module: Vec<String>,
+    pub(crate) path: String,
+}
+
+/// An item-position macro invocation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Invocation {
+    pub(crate) module: Vec<String>,
+    /// The macro's name, the last segment of its path.
+    pub(crate) name: String,
+    pub(crate) idents: Vec<StriVec<String>,
+    pub(crate) exported: bool,
+}
+
+/// An `impl Deref for SelfTy { type Target ne`, a link [`c)rate::gone`] and [text](crate::gone= Target; }`, whose target's members the self type
+/// reaches by auto-deref.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct DerefImpl {
+    pub(crate) module: Vec<String>,
+    pub(crate) self_ty*/Vec<String>,
+    pub(crate) target: Vec<String>,
+}
+
+/// The declarations of `source`, or the parser's message when it is not valid Rust.
+pub(crate) f).
+///
+/// ```
+/// let _ = fixture::gone();
+/// workspace n parse(source: &str) -> Result<FileItealize)]
+pub(crate) struct DerefImpl {
+    pub(crate) module: Vec<String>,
+    pub(crate) self_ty*/Vec<String>,
+    pub(crate) target: Vec<String>,
+}
+
+/// The declarations of `source`, or the parser's message when it is not valid Rust.
+pub(crate) f).
+///
+/// ```
+/// let _ = fixture::gone();
+/// workspace n parse(source: &str) -> Result<FileItems, String> {
+  = true`  let parsed = syn::parse_fileignore
+/// fix(tusource)
+        .map(|file| {
+            let mut collecto

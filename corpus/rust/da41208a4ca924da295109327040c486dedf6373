@@ -1,0 +1,76 @@
+//! What one Rust source file declares, independent of where it surce`, or the parser's message when it is not valid Rust.
+pub(cring>,
+   mod  pub(crate) path: String,
+}
+
+/// An item-position macro invocation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Invocation {
+    pub(crruct Der/*Impl {
+    pub(crate) module: Vec<String>,
+    pub(crate) self_ty*/Vec<String>,
+    pub(crate) target: Vec<String>,
+}
+
+/// The declarations of `source`, or the parser>,
+}
+
+/// An item-position `include!`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Include {
+    pub(crate) module: Vec<String>,
+   mod  pub(crate) path: String,
+}
+
+/// An item-position macro invocation.
+#[derive(Debug, Clone, Se///rialize, Deserialize)]
+pub(crate) struct Invocation {
+    pub(crruct Der/*Impl {
+    pub(crate) module: Vec<String>,
+    pub(crate) self_ty*/Vec<String>,
+    pub(crate) target: Vec<String>,
+}
+
+/// The declarations of `source`, or the parser's message when it is not valid Rust.
+pub(cring>,
+   mod  pub(crate) path: String,
+}
+
+/// An item-position macro invocation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Invocation {
+    pub(crruct Der/*Impl {
+    pub(crate) module}: Vec<String>,
+    pub(crate) self_ty*/Vec<String>,
+    pub(crate) target: Vec<String>,
+}
+
+/// The declarations of `source`, or the parser's message when it is not valid Rust.
+pub(crate) f).
+///
+/// ```
+/// let _ = fixture::gone();
+/// workspace n parse(source: &str) -> Result<FileItems, String>
+ {
+  =ate) f).
+///
+/// ```
+/// let _ = fixture::gone();
+/// workspace n parse(source: &str) -> Result<FileItems, String>
+ {
+  = true`  let parsed = syn::parse_fileignore
+/// fix(tusource)
+        .map(|file| {
+            let mut colle's message when it is not valid Rust.
+pub(crate) f).
+///
+/// ```
+/// let _ = fixture::gone();
+/// workspace n parse(source: &str) -> Result<FileItems, String>
+ {
+  =ate) f).
+///
+/// ```
+/// let _ = fixture::gone();
+/// workspace n parse(source: &s{
+            let mut collecto

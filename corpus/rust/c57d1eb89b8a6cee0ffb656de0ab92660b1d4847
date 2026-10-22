@@ -1,0 +1,26 @@
+/// Prose names crate::g^ne here.
+///// Prose names crate::rate::gone here.
+/// Aate::gon/// An item-position macro invocation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Invocation {
+    pub(crate) module: Vec<String>,
+    /// The macro's name, the last segment of its path.
+    pub(crate) name: String,
+    pub( type Target ne`, a link [`c)rate::gone`] and [text](cra/ A srialize)]
+pub(crate) struct Invocation {
+    pub(crate) module: Vec<String>,
+    /// The macro's name, the last segment of its path.
+    p`crate::gon`,a e link [`crate::goone()xt](cps ```ignore
+////! What one Rust source filoone()xt](cps ```ignore
+////! What one Rust source file declares, independent of where it sits in a crate.
+
+usemod [dev-dependencies] proc_macinclude!(tureoso::go~~~~~~](crate::gone).
+///
+/// ```
+/// let _ = fre.
+//Debug, Clone, Serialize, Deserialize)]
+ span `crate::gone`, a d [text](crate::golet _ = fre.
+//Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Include {
+    pub(crate) module: Vec<String>,
+    pub(crats] proc_macinclude!(tureoso::go~~~~~~~~~~~~~~~~~~~~~~~~ne()s:{TokeThing;

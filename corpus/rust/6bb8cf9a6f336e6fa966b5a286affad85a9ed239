@@ -1,0 +1,11 @@
+/// Prose nr#"s crate::gone here.
+//::gone).
+///
+/// ```
+//+ let _+= fixture::gone();
+/// ```
+///
+/// ```ignore
+/// fixtone();:
+/// ```
+xtu

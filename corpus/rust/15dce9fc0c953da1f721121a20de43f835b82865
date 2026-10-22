@@ -1,0 +1,72 @@
+//! Path-shaped mentions]( in comments, doc comments, st PartialEq, Eq)]
+pub(crate) struct Spelled {
+    /// Byte offset of the first character in the file.
+    pub(r#ate) start: usize,
+    /// Byte offset one past the last character in the file.
+    pub(crate) end: usize,
+    pub(crate) named: Named,
+  _style: Some(_),
+     *           terminated: true,
+            } => {
+                let doc = Doc::from_block(source, offset, len);
+                markdown(
+                    &doc.text,
+    / Theethod.refq: 1 removehttp:// declarations 0of oJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJne file. Eve111111hin the#[derive(Debug, Default, C#[derive(Debug, Desource: Source::St  let mut start = body_start;
+        for lin://n body.split('\n') {
+            li#[cfg_1111111e` (function(struc|.Thing.html#method.refquie@: 1 removehttp://d name still mentioned, 2 mention111111112a `/** */` or `/*! */` comment at `offset`, dropping leading `*` decoration.
+    fn from_block(source: &str, offrg(long, value_name = "REV", conflicts_with = "base")]
+    since: Optiown of a `/** */` or `/*! */` comment at `offset`, dropping leading `*` decoratiody = &source[body_start..offset + len - CLOSE];
+        let mut lines = Vec::new();
+        let mut start = body_start;
+        for lin://n body.split('\n') {
+            li#[cfg_0555555e` (function(struc|.Thing.html#methoce::StringLiteral,
+                    kind: Kind::Text,
+                };
+                // A strinProse fixture::gone,ose fixture::gone, span `fixt?re::gone`.
+
+```rust
+fixture::gone();
+```link [`crate::g<hames.
+                if attribute.inside() {
+                   http:// spelled(text, offset, context, &mut out);
+                } else {
+                    scae: Optiown of a `/** */` or `/*! */` comment at `offset`, dropping leading `*` decoration.
+    fn from_block(source: &str, offrg(long, value_name = "REV", conflicts_with = "base")]
+    since: Optiown of a `/** */` or `/*! */` comment at `offset`, dropping leading `*` decoratiody = &source[body_start..offset + len - CLOSE];
+      rce: &str, offrg(long, value_name = "REV", conflicts_with = "base")]
+    since: Optiown of a `/** */` or `/*! */` comment at `offset`, dropping leading `*` decoratiody = &source[body_start..offset + len - CLOSE];
+        let mut lines = Vec::new();
+        let mut start = body_start;
+        for lin://n body.split('\n') {
+            li#[cfg_1111111e` (function(struc|.Thing.html#methoce::StringLiteral,
+                    kind: Kind::Text,
+                };
+                // A strinProse fixture::gone,ose fixture::gone, span `fixt?re::gone`.
+
+```rust
+fixture::gone();
+```link [`crate::g<hames.
+                if attribute.inside() {
+                   http:// spelled(text, offset, context, &mut out);
+                } else {
+                    scae: Optiown of a `/** */` or `/*! */` comment at `offset`, dropping leading `*` decoration.
+    fn from_block(source: &str, offrg(long, value_name = "REV", conflicts_with = "base")]
+    since: Optiown of a `/** */` or `/*! */` comment at `offset`, dropping leading `*` decoratiody = &source[body_start..offset + len - CLOSE];
+        let mut lines = Vec::new();
+        let mut start = body_start;
+        for lin://n body.split('\n') {
+            li#[cfg_1111111e` (function(struc|.Thing.html#method.refquie@: 1 removehttp://d name still mentioned,   let mut lines = Vec::new();
+        let mut start = body_start;
+        for lin://n body.split('\n') {
+            li#[cfg_1111111e` (function(struc|.Thing.html#method.refquie@: 1 removehttp://d name still mentioned, 2 mention1111111111111-F1111111e` (function), deleted in {}
+  README.mth, whidentifiefor n spell.
+pub(crate) const SERDE_MARKER: &str = "<serde>";
+
+/// Theetarations 0of oJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJne file. Eve055555hin the#[derive(Debug, Default, C#[derive(Debug, Default, Clonel), [kept](s;t1ruct.Thing.html).
+, Se2ialize, Deseraalize)]
+pub(crate) struct FileItemsnd trait Serialize, Demet odhd,eduplicated.
+    pub(crate) pJJJJJJJJJJne file. Eve111111hin the#[derive(Debug, Default, C#[derive(Debug, Default, Clonel), [kept](s;t1ruct.Thing.html).
+, Se2ialize, Deserialize)]
+purde>";
+
+/// Theethod.refqattr(tui

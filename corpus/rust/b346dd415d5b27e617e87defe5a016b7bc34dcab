@@ -1,0 +1,19 @@
+/// Prose names crate::g^ne here.
+///// Pros a link [`c)rate::gone`] and [text](cra/ A srialize)]
+pub(crate) struct Invocation {
+    pub(crate) module: Vec<String>,
+    /// The macro's name, the last segment of its path.
+    p`crate:no`g,:a e link [`crate::goone()xt](cps ```ignore
+////! What one Rust source filoone()xt](cps ```ignore
+//nvocation {
+    pub(crate) module: Vec<String>,
+    /// The macro's name, the last segment of its path.
+    p`crate:no`g,:a e link [`crate::goone()xt](cps ```ignore
+////! What one Rust source filoone()xt](cps ```ignore
+////! What one Rust source file declares, independent of where it sits in a crate.
+
+usemod [dev-dependencies] proc_macinclude!(tureoso::go~~~~~~](crate::gone).
+///
+/// ```
+/// let _ = fre.
+//Debug, Clone, Seriao~~~~~~~~~~UUUUUUU~~~~~~~~~~~~~~ne()s:{TokeThing;

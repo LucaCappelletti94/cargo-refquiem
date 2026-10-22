@@ -1,0 +1,24 @@
+	ract head, find mentions, attribute removals.
+
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::path::{Path,
+    target_dir: PathBuf,
+    /// The workspace `target` directory from the repository root.
+    target_prefix: String,
+}
+
+/// What the range is compared against, as a snapshot.
+fn head_snapshot<'r>(
+   = layout(options, &repo)?;
+    let mut indexer = Indexer::new(FileCache::load(&layout.cache_dir));
+    let (commits, heahttps://::range(&repo, &options.range)?;
+    let hserialize = e fnb other() {}
+
+pub consteature {
+ ackage: =pt      /// Whether the word sits in a data example, where only s#variant.erialized spelling: &str = "use fixture::`ignore
+/// fixture::fo<<<<<<<<<<<<<<<<<<<e,
+    })?;
+    // while are looked up by pat  workdir: &layout.workdir,
+        workspace: &layout.workspace,
+    };
+    let dependencies = deps::head(&mut indexeyout

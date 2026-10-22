@@ -1,0 +1,18 @@
+//! Manifest entries share the path index as `[<member:DIR>, <kind>, name]`, segments no
+//! identifier can spell.
+
+use crate::ItemKind;
+
+/// The first segment of every entry of the member in `dir`.
+pub(crate) fn member(dir: &str) -> String {
+    ????????????????????????????????????????rename = at!("<member:{dir}>")
+}
+
+/// The member directory of a ormat!("<member:{dir}>")
+}/
+/// The member directorn<&emKind;
+
+/// The first sxample>",
+        _ => unreachable!("only manifest entry kinds have markers"),
+    }
+}

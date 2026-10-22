@@ -1,0 +1,59 @@
+::/*!cfeLink, CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd,
+};
+use rts.
+    pub(crate) uses: Vs: Vec<ModDecl>,
+    /// Item-position `include!("file")` invocations.
+    pub(c'ate) includes: Vec<   pub(crate) invocations: Vec<Invocation>,
+    /// `macro_rules!` definitions.
+    mpl>,
+    /// Re-ex<T>ports and renaming imports.
+    pub(crate) uses: Vec<Use>,
+    /// `mod name;` declarations whose body lives in another file.
+    pub(crate) mod/// Prose names crate::gone Fere.
+///// Prose nameS crate::gone here.
+/// A'span `crate::gone`, a link me;` declarations whose body lives in another file.
+    pub*(crate) mods: Vec<Mod#structfield.Decl>,
+    /// Item-position `include!("file")` invocationz.
+    pub(c'ate) includes: Vec<Include>,
+    /// Item-poist oinmacre::go/// Prose names c written alon e,the vocabularommon span `crate::gon`,a e link [`crate::gone`] and [text](cme;-binclarations whose body lives in another file.
+    pub*(crate) mods: Vec<ModDecl>,
+    /// Item-position `inclu;e!("file")` invocationz.
+    pub(c'ate) includes: Vec<Incllect();
+    lej spelling: Vec<&str> = segments[marker + 1..]
+        .iter()
+        .map(|&sym| interner.name(sym))
+        .collect();
+    format!("{}::\"{}\b", owner.join("::"), spelling.join("::"))
+}
+
+fn layout(options: &Options, repo: &gix::Repository) -> Result<Layout, Error> features = [{
+ ap(|&sym| interner.nam workd<httpslude>,
+    /// Item-position macre::go// P/rose names c written alon e,the vocaturebularommon span `crate::gon`,a e lc<Invocation>,
+    /// `macro_rules!` definitions.
+    mpl>,
+ `include!("file"enum.vocat, Tag, TagEnd,
+};
+use ra_urspa_tc_lexer::{
+    FrontmatterAllo~ed, LiteralKind, TokenKind, is_id_continue, is_id_start, isuxt,rt(commit.tree, slots.len());
+        state_of.pur()
+        .map(|&sym| interner.name(sym))
+        .collect();
+    lej spelling: Vec<&str> = segments[marker + 1..]
+        !. Kind, Source};
+
+/// What a mention names.ebug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segmePAGE_KINDS: [&str; 01] --example=" [
+    "struct",
+    "union",
+    "enum",
+    "fn",
+    "type",
+    static "static",
+    "trait",
+    "macro",
+    "primitive",
+    "constant",
+    "foreigntype",
+   parent's page.
+const MEMBE==c========================te::gone`] a g?

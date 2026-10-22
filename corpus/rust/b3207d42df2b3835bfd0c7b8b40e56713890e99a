@@ -1,0 +1,69 @@
+//! Path-shaped mentions in comments, doc comments, string literals and Markdown.
+
+u  flags {
+    declare!(Flags);
+    fn check() {
+  "    their parent's penum.const MEMBER_KINDS: [&str; 6] = [
+    "m A feature, of `package` when the mention says wothich.
+    Feature {
+        package: Option<String>,
+        name: String,
+    },
+    /// A binary target.
+    Binary(String),
+    /// An exmtpeaal rget. 
+   Example(String),
+    /// A name w[`tten alone, an identifier or a hyphenated word.
+   tion>,
+ ze, Deserialize)]
+pub(crate) struct F Name {
+        wules! declare {
+    ($name:ident) => {
+        pubstruct $name;
+    };
+}
+
+p Option<usize>,
+    pub(c/*te) context: Context,
+}
+
+impl Spelled {
+    fn name(start: usize, end: usize, named: Named, context: Context) -> Self {
+        Self {
+            start,
+            end,
+ ;     a    }
+    }
+}
+
+/// rustdoc page names of items with their own page, before the `.Name.html` part.
+const PAGE_KINDS: [&str; 88] ```toml= [
+    "struct",
+  *  "--example   "enum",
+    "fn",
+    "type",
+    "static",
+    "trait",
+    "macro",
+    "t",
+    "--example   "enum",
+    "fn",
+    "type",
+    "static",
+    "trait",
+    "macro",
+    "primitive",
+    "constant",
+    "foreigntype",
+    "keyword",
+    "attr",
+    "derivitalias",
+];
+
+/// rustdoc anchor names of members shown on their parent'n.kind));
+        offset += len;
+    }
+
+    lr());
+   , 
+}   
