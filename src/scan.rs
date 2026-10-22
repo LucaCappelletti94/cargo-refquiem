@@ -206,6 +206,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         repo: &repo,
         workspace: &layout.workspace,
         head: &head_index,
+        head_snapshot: &*head_snapshot,
     };
     declarations(&mut indexer, &scan, (&commits, start), &ids, &mut groups)?;
     suggestions(
@@ -217,11 +218,9 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     )?;
     indexer.save();
     let unused_markers = suppress(&mut groups, markers, &config.allow);
-    suggest::replacements(&mut groups, |file| {
-        let id = head_snapshot.blob(file).ok()??;
-        String::from_utf8(head_snapshot.read(file, id).ok()?).ok()
-    });
+    suggest::replacements(&mut groups, |file| scan.head_text(file));
     Ok(Report {
+        base: start.map(|id| id.to_string()),
         groups,
         skipped: dependency_removals.skipped,
         unused_markers,
@@ -290,6 +289,15 @@ struct Historical<'a> {
     /// The workspace directory from the repository root.
     workspace: &'a str,
     head: &'a Index,
+    head_snapshot: &'a dyn Snapshot,
+}
+
+impl Historical<'_> {
+    /// The text of `file` at head, absent when head lacks it or it is not UTF-8.
+    fn head_text(&self, file: &str) -> Option<String> {
+        let id = self.head_snapshot.blob(file).ok()??;
+        String::from_utf8(self.head_snapshot.read(file, id).ok()?).ok()
+    }
 }
 
 /// Sets where the range's starting commit, given by id among `commits`, declares the name of
@@ -306,20 +314,41 @@ fn declarations(
         return Ok(());
     };
     let snapshot = TreeSnapshot::new(scan.repo, start.tree);
-    let found = indexer.locate(&snapshot, scan.workspace, ids, |source| {
+    let found = positions(indexer, &snapshot, scan.workspace, ids, |source| {
         !scan.head.paths.contains(&source)
     })?;
-    for (group, &id) in groups.iter_mut().zip(ids) {
-        group.declared_at = if indexer.interner.kind(id).is_manifest_entry() {
-            manifest_entry_line(&indexer.interner, &snapshot, id)?
-        } else {
-            found.get(&id).map(|(file, line)| Position {
-                file: file.clone(),
-                line: usize::try_from(*line).expect("lines fit in usize"),
-            })
-        };
+    for (group, declared_at) in groups.iter_mut().zip(found) {
+        group.declared_at = declared_at;
     }
     Ok(())
+}
+
+/// Where `snapshot` declares each of `ids`, a manifest entry at its key and an item as
+/// [`Indexer::locate`] places it given `gone`.
+fn positions(
+    indexer: &mut Indexer,
+    snapshot: &dyn Snapshot,
+    workspace: &str,
+    ids: &[PathId],
+    gone: impl Fn(PathId) -> bool,
+) -> Result<Vec<Option<Position>>, Error> {
+    let found = if ids.is_empty() {
+        HashMap::new()
+    } else {
+        indexer.locate(snapshot, workspace, ids, gone)?
+    };
+    ids.iter()
+        .map(|&id| {
+            if indexer.interner.kind(id).is_manifest_entry() {
+                manifest_entry_line(&indexer.interner, snapshot, id)
+            } else {
+                Ok(found.get(&id).map(|(file, line)| Position {
+                    file: file.clone(),
+                    line: usize::try_from(*line).expect("lines fit in usize"),
+                }))
+            }
+        })
+        .collect()
 }
 
 /// Where `snapshot` declares the manifest entry `id` in its member's `Cargo.toml`.
@@ -342,7 +371,8 @@ fn manifest_entry_line(
 }
 
 /// Fills the suggestion or candidates of each group in `suggestable`, given by index with its
-/// removed path and the tree where that path first appeared.
+/// removed path and the tree where that path first appeared, and where head declares each
+/// suggestion.
 fn suggestions(
     indexer: &mut Indexer,
     scan: &Historical<'_>,
@@ -358,6 +388,7 @@ fn suggestions(
         }
     }
     let interner = &indexer.interner;
+    let mut suggested: Vec<(usize, PathId)> = Vec::new();
     for input in suggestable {
         let outcome = suggest::suggest(
             interner,
@@ -368,9 +399,13 @@ fn suggestions(
             input.first,
         );
         let group = &mut groups[input.group];
-        group.suggestion = outcome.suggestion.map(|(path, change)| Suggestion {
-            path: reported(interner, path),
-            change,
+        group.suggestion = outcome.suggestion.map(|(path, change)| {
+            suggested.push((input.group, path));
+            Suggestion {
+                path: reported(interner, path),
+                change,
+                declared_at: None,
+            }
         });
         group.candidates = outcome
             .candidates
@@ -378,6 +413,14 @@ fn suggestions(
             .map(|path| reported(interner, path))
             .collect();
         group.candidates.sort();
+    }
+    let ids: Vec<PathId> = suggested.iter().map(|&(_, id)| id).collect();
+    // Head has every suggestion, so a re-exported one points at the item it names.
+    let found = positions(indexer, scan.head_snapshot, scan.workspace, &ids, |_| true)?;
+    for ((group, _), declared_at) in suggested.into_iter().zip(found) {
+        if let Some(suggestion) = &mut groups[group].suggestion {
+            suggestion.declared_at = declared_at;
+        }
     }
     Ok(())
 }

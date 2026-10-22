@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Turns a `--json` report into a pull request review that requests changes.
 # A removed name the report places with `declared_at` gets one comment on that deleted line,
-# linking every remaining mention. A mention or unused marker in a changed file gets its own
+# linking every remaining mention. Headlines link the removed name at the base and the suggested
+# name at head. A mention or unused marker in a changed file gets its own
 # comment, with the rewritten line when there is one. The review body counts the findings and
 # links whatever no comment holds, and is only the marker when its comments hold a lone finding.
 # MODE review computes and posts it, prepare writes it to PAYLOAD, post posts a prepared one.
@@ -46,8 +47,9 @@ dismiss() {
 # The jq definitions every rendering shares, reading $server, $repo, $sha, $reviewed,
 # $review_url and $version.
 defs='
-def link($path; $line):
-  "\($server)/\($repo)/blob/\($sha)/\($path | split("/") | map(@uri) | join("/"))#L\($line)";
+def blob($commit; $path; $line):
+  "\($server)/\($repo)/blob/\($commit)/\($path | split("/") | map(@uri) | join("/"))#L\($line)";
+def link($path; $line): blob($sha; $path; $line);
 def at: "\(.path):\(.line):\(.column)";
 def linked: "- [`\(at)`](\(.link))";
 def places: if length == 1
@@ -63,10 +65,23 @@ def plural($n; $one; $many): "\($n) \(if $n == 1 then $one else $many end)";
 plan_program="$defs"'
 def fence($line): ([$line | scan("`+") | length] | max // 0) as $run
   | "`" * (if $run < 3 then 3 else $run + 1 end);
+# The headline of a group with the removed name linked to its line in $base and the suggested
+# name to its line at head, each where the report places it.
+def headlined($base):
+  "`\(.path)`" as $name
+  | .headline as $h
+  | (if .declared_at != null and $base != null and ($h | startswith($name))
+      then "[\($name)](\(blob($base; .declared_at.file; .declared_at.line)))\($h | ltrimstr($name))"
+      else $h end) as $h
+  | if .suggestion != null and .suggested_at != null
+    then "`\(.suggestion)`" as $s
+      | "[\($s)](\(link(.suggested_at.file; .suggested_at.line)))" as $l
+      | $h | split($s) | join($l)
+    else $h end;
 . as $report
 | [$report.groups | to_entries[] | .key as $id | .value | {
     id: $id,
-    headline,
+    headline: headlined($report.base),
     declared_at,
     category: (if .suggestion != null then "suggested"
       elif (.candidates | length) > 0 then "candidates" else "none" end),
@@ -90,7 +105,7 @@ def fence($line): ([$line | scan("`+") | length] | max // 0) as $run
           if index($link) then . else . + [$link] end) | .[:3] | join("\n"))
       + "\n\n" + footer("\(.declared_at.file):\(.declared_at.line)"))
   }],
-  inline: ([($report.groups | to_entries[] | .key as $id | .value.headline as $h
+  inline: ([($report.groups | to_entries[] | .key as $id | (.value | headlined($report.base)) as $h
         | .value.mentions[]
         | {groups: [$id], path: .file, line, column,
            text: "\($h), is still mentioned here.", replacement}),

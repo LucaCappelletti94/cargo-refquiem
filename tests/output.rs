@@ -53,7 +53,10 @@ fn json_prints_the_report_with_snake_case_keys() {
     let keys = |value: &serde_json::Value| -> Vec<String> {
         value.as_object().unwrap().keys().cloned().collect()
     };
-    assert_eq!(keys(&report), ["groups", "skipped", "unused_markers"]);
+    assert_eq!(
+        keys(&report),
+        ["base", "groups", "skipped", "unused_markers"]
+    );
     let group = &report["groups"][0];
     assert_eq!(
         keys(group),
@@ -66,6 +69,7 @@ fn json_prints_the_report_with_snake_case_keys() {
             "mentions",
             "path",
             "removed_in",
+            "suggested_at",
             "suggestion"
         ]
     );
