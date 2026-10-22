@@ -390,15 +390,20 @@ pub(crate) fn range(
     }
     let mut commits = Vec::with_capacity(ids.len());
     for (id, parents) in topological(ids) {
-        let tree = repo
-            .find_commit(id)
-            .map_err(|source| Error::Object { id, source })?
-            .tree_id()
-            .map_err(|source| Error::Object { id, source })?
-            .detach();
+        let tree = tree(repo, id)?;
         commits.push(Commit { id, tree, parents });
     }
     Ok((commits, head, hidden))
+}
+
+/// The tree of commit `id`.
+pub(crate) fn tree(repo: &gix::Repository, id: ObjectId) -> Result<ObjectId, Error> {
+    Ok(repo
+        .find_commit(id)
+        .map_err(|source| Error::Object { id, source })?
+        .tree_id()
+        .map_err(|source| Error::Object { id, source })?
+        .detach())
 }
 
 fn resolve(repo: &gix::Repository, spec: &str) -> Result<ObjectId, Error> {

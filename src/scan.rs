@@ -75,6 +75,9 @@ impl States {
 struct IndexedRange {
     states: States,
     first_seen: HashMap<PathId, usize>,
+    /// For each parent of a range commit that lies outside the range, the paths its tree has
+    /// and head lacks, `None` when the commit is absent or its tree could not be read entirely.
+    boundary: HashMap<ObjectId, Option<HashSet<PathId>>>,
 }
 
 struct Suggestable {
@@ -157,7 +160,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let rooted = rooted(interner, &dependency_items, &dependencies, &indexer.crates);
     removed.extend(dependency_items.keys().copied());
     removed.sort_by_cached_key(|&id| display(interner, id));
-    let history = History::new(&commits, states, &head);
+    let history = History::new(&commits, states, &walk.boundary, &head);
     let ranked = ranked(
         interner,
         &history,
@@ -465,7 +468,35 @@ fn index_range(
         *slot = Some(next);
         states.slot_of.push(next);
     }
-    Ok(IndexedRange { states, first_seen })
+    // A parent the walk hid tells blame what the range commit above it took away. The
+    // starting commit carries no parents, so removals before the range stay unblamed.
+    let walked: HashSet<ObjectId> = commits.iter().map(|commit| commit.id).collect();
+    let mut boundary = HashMap::new();
+    for &parent in commits.iter().flat_map(|commit| &commit.parents) {
+        if walked.contains(&parent) || boundary.contains_key(&parent) {
+            continue;
+        }
+        // A shallow clone names the parents of its oldest commits without holding them.
+        if !repo.has_object(parent) {
+            boundary.insert(parent, None);
+            continue;
+        }
+        let snapshot = TreeSnapshot::new(repo, git::tree(repo, parent)?);
+        let index = indexer.index(&snapshot, &layout.workspace, false)?;
+        let missing = index.complete.then(|| {
+            index
+                .paths
+                .into_iter()
+                .filter(|path| !head_index.paths.contains(path))
+                .collect()
+        });
+        boundary.insert(parent, missing);
+    }
+    Ok(IndexedRange {
+        states,
+        first_seen,
+        boundary,
+    })
 }
 
 /// A name in a suppression marker of head.
@@ -751,16 +782,24 @@ struct History<'a> {
     commits: &'a [git::Commit],
     states: &'a States,
     position: HashMap<ObjectId, usize>,
+    /// The paths of each parent outside the range, `None` when unreadable.
+    boundary: &'a HashMap<ObjectId, Option<HashSet<PathId>>>,
     head: &'a Head,
 }
 
 impl<'a> History<'a> {
-    fn new(commits: &'a [git::Commit], states: &'a States, head: &'a Head) -> Self {
+    fn new(
+        commits: &'a [git::Commit],
+        states: &'a States,
+        boundary: &'a HashMap<ObjectId, Option<HashSet<PathId>>>,
+        head: &'a Head,
+    ) -> Self {
         let position = commits.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
         Self {
             commits,
             states,
             position,
+            boundary,
             head,
         }
     }
@@ -782,7 +821,8 @@ impl History<'_> {
     }
 
     /// The change that removed `id`: the uncommitted changes when `HEAD` has it, else the
-    /// commit closest to head that lacks it while every parent has it.
+    /// commit closest to head that lacks it while every parent, in the range or just below it,
+    /// has it.
     fn removal(&self, id: PathId) -> Option<RemovedAt> {
         let has = |i: usize| self.states.has(i, id);
         if let Head::WorkTree(Some(head_commit)) = self.head
@@ -790,17 +830,20 @@ impl History<'_> {
         {
             return Some(RemovedAt::WorkingTree);
         }
+        let parent_has = |parent: &ObjectId| match self.position.get(parent) {
+            Some(&p) => has(p),
+            None => self
+                .boundary
+                .get(parent)
+                .and_then(Option::as_ref)
+                .is_some_and(|paths| paths.contains(&id)),
+        };
         self.commits
             .iter()
             .enumerate()
             .position(|(i, commit)| {
                 let lacks = self.states.complete(i) && !self.states.missing(i, id);
-                lacks
-                    && !commit.parents.is_empty()
-                    && commit
-                        .parents
-                        .iter()
-                        .all(|parent| self.position.get(parent).is_some_and(|&p| has(p)))
+                lacks && !commit.parents.is_empty() && commit.parents.iter().all(parent_has)
             })
             .map(RemovedAt::Commit)
     }
