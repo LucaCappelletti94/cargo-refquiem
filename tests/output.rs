@@ -1,4 +1,4 @@
-//! `--json`, `--github` annotations, the job summary and `--no-fail`.
+//! `--json`, `--markdown`, `--github` annotations, the job summary and `--no-fail`.
 
 mod common;
 #[path = "common/vendor.rs"]
@@ -41,6 +41,66 @@ fn fixture() -> (Repo, String) {
     repo.write("README.md", "Call `fixture::gone`.\n");
     repo.write("a,b.md", "`fixture::gone`\n");
     (repo, deleting[..7].to_owned())
+}
+
+/// The job summary the fixture produces.
+fn fixture_summary(deleting: &str) -> String {
+    format!(
+        "## refquiem\n\n1 removed name still mentioned, 2 mentions\n\nFindings and replacement suggestions require verification before editing.\n\n| Removed name | Kind | Removed in | Status | Suggested action | Mentions |\n|---|---|---|---|---|---|\n| `fixture::gone` | function | {deleting} | Possible replacement | Verify and update the reference to `fixture::kept` | `README.md:1:7`<br>`a,b.md:1:2` |\n\n### Unused suppression markers\n\n- `src/lib.rs:1:20` `refquiem: allow(Nothing)`\n"
+    )
+}
+
+#[test]
+fn markdown_prints_the_summary_and_keeps_findings_fatal() {
+    let (repo, deleting) = fixture();
+
+    let output = cargo_refquiem(repo.path(), &["--markdown"], None);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        fixture_summary(&deleting)
+    );
+
+    let output = cargo_refquiem(repo.path(), &["--markdown", "--no-fail"], None);
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn markdown_conflicts_with_json_and_github() {
+    let (repo, _) = fixture();
+    for other in ["--json", "--github"] {
+        let output = cargo_refquiem(repo.path(), &["--markdown", other], None);
+        assert_eq!(output.status.code(), Some(2), "{other}");
+    }
+}
+
+#[test]
+fn markdown_names_a_move_a_rename_and_an_ambiguous_replacement() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod a {\n    pub fn shifted() {}\n}\npub fn colour() {}\npub fn gone(x: u32) {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "pub mod b {\n    pub fn shifted() {}\n}\npub fn color() {}\npub fn first(x: u32) {}\npub fn second(x: u32) {}\n",
+    );
+    repo.write(
+        "README.md",
+        "`fixture::a::shifted` `fixture::colour` `fixture::gone`\n",
+    );
+    repo.commit("rework");
+
+    let output = cargo_refquiem(repo.path(), &["--markdown"], None);
+    let summary = String::from_utf8(output.stdout).unwrap();
+    for row in [
+        "| Possible move | Verify and update the reference to `fixture::b::shifted` |",
+        "| Possible rename | Verify and update the reference to `fixture::color` |",
+        "| Ambiguous replacement | Review candidates before changing this reference (perhaps `fixture::first` or `fixture::second`) |",
+    ] {
+        assert!(summary.contains(row), "{row}\n{summary}");
+    }
 }
 
 #[test]
@@ -178,9 +238,7 @@ fn github_appends_the_job_summary_when_github_provides_the_file() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         std::fs::read_to_string(&summary).unwrap(),
-        format!(
-            "earlier step\n## refquiem\n\n1 removed name still mentioned, 2 mentions\n\n| Removed name | Kind | Removed in | Became | Mentions |\n|---|---|---|---|---|\n| `fixture::gone` | function | {deleting} | replaced by `fixture::kept` | `README.md:1:7`<br>`a,b.md:1:2` |\n\n### Unused suppression markers\n\n- `src/lib.rs:1:20` `refquiem: allow(Nothing)`\n"
-        )
+        format!("earlier step\n{}", fixture_summary(&deleting))
     );
 
     std::fs::write(&summary, "").unwrap();
@@ -264,9 +322,7 @@ fn the_output_names_the_member_and_a_removal_in_the_working_tree() {
     );
     let summary = std::fs::read_to_string(&summary).unwrap();
     assert!(
-        summary.contains(
-            "| `x` of `alpha` | feature | working tree |  | `crates/alpha/README.md:1:13` |\n"
-        ),
+        summary.contains("| `x` of `alpha` | feature | working tree | Removed (no replacement found) | Review the mention and remove or rewrite it if stale | `crates/alpha/README.md:1:13` |\n"),
         "{summary}"
     );
 }

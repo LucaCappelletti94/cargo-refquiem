@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use crate::{RemovedIn, Report};
+use crate::{Change, RemovedIn, Report};
 
 impl Report {
     /// The report as JSON, with `snake_case` keys and kinds.
@@ -67,7 +67,10 @@ impl Report {
         } else {
             let _ = writeln!(out, "{}\n", self.tally());
             out.push_str(
-                "| Removed name | Kind | Removed in | Became | Mentions |\n|---|---|---|---|---|\n",
+                "Findings and replacement suggestions require verification before editing.\n\n",
+            );
+            out.push_str(
+                "| Removed name | Kind | Removed in | Status | Suggested action | Mentions |\n|---|---|---|---|---|---|\n",
             );
             for group in &self.groups {
                 let mut name = String::new();
@@ -81,6 +84,17 @@ impl Report {
                     Some(RemovedIn::WorkingTree) => "working tree",
                     None => "",
                 };
+                let status = match group
+                    .suggestion
+                    .as_ref()
+                    .map(|suggestion| suggestion.change)
+                {
+                    Some(Change::Moved) => "Possible move",
+                    Some(Change::Renamed) => "Possible rename",
+                    Some(Change::Replaced) => "Possible replacement",
+                    None if group.candidates.is_empty() => "Removed (no replacement found)",
+                    None => "Ambiguous replacement",
+                };
                 let mut mentions = String::new();
                 for (i, mention) in group.mentions.iter().enumerate() {
                     if i > 0 {
@@ -88,14 +102,26 @@ impl Report {
                     }
                     span_position(&mut mentions, &mention.file, mention.line, mention.column);
                 }
-                let _ = writeln!(
+                let _ = write!(
                     out,
-                    "| {} | {} | {removed_in} | {} | {} |",
+                    "| {} | {} | {removed_in} | {status} | ",
                     cell(&name),
                     group.kind.describe(),
-                    cell(&group.became().unwrap_or_default()),
-                    cell(&mentions)
                 );
+                if let Some(suggestion) = &group.suggestion {
+                    let mut path = String::new();
+                    span(&mut path, &suggestion.path);
+                    let _ = write!(out, "Verify and update the reference to {}", cell(&path));
+                } else if let Some(candidates) = group.became() {
+                    let _ = write!(
+                        out,
+                        "Review candidates before changing this reference ({})",
+                        cell(&candidates)
+                    );
+                } else {
+                    out.push_str("Review the mention and remove or rewrite it if stale");
+                }
+                let _ = writeln!(out, " | {} |", cell(&mentions));
             }
         }
         if !self.unused_markers.is_empty() {
