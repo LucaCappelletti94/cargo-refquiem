@@ -1,6 +1,6 @@
 # Fuzz targets
 
-ClusterFuzzLite runs these on every pull request, daily in batch, and on every push to `main`. They reach refquiem's readers through the `fuzzing` feature.
+ClusterFuzzLite fuzzes these weekly in batch, an hour after pruning the stored corpus, and either workflow can be run by hand. They reach refquiem's readers through the `fuzzing` feature.
 
 - `rust` reads the comments, doc comments and string literals of a Rust file and locates every mention the way a scan does.
 - `markdown` does the same for a Markdown file.
