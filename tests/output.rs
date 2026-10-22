@@ -75,6 +75,35 @@ fn markdown_conflicts_with_json_and_github() {
 }
 
 #[test]
+fn markdown_names_a_move_a_rename_and_an_ambiguous_replacement() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod a {\n    pub fn shifted() {}\n}\npub fn colour() {}\npub fn gone(x: u32) {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "pub mod b {\n    pub fn shifted() {}\n}\npub fn color() {}\npub fn first(x: u32) {}\npub fn second(x: u32) {}\n",
+    );
+    repo.write(
+        "README.md",
+        "`fixture::a::shifted` `fixture::colour` `fixture::gone`\n",
+    );
+    repo.commit("rework");
+
+    let output = cargo_refquiem(repo.path(), &["--markdown"], None);
+    let summary = String::from_utf8(output.stdout).unwrap();
+    for row in [
+        "| Possible move | Verify and update the reference to `fixture::b::shifted` |",
+        "| Possible rename | Verify and update the reference to `fixture::color` |",
+        "| Ambiguous replacement | Review candidates before changing this reference (perhaps `fixture::first` or `fixture::second`) |",
+    ] {
+        assert!(summary.contains(row), "{row}\n{summary}");
+    }
+}
+
+#[test]
 fn json_prints_the_report_with_snake_case_keys() {
     let (repo, deleting) = fixture();
     let output = cargo_refquiem(repo.path(), &["--json"], None);
