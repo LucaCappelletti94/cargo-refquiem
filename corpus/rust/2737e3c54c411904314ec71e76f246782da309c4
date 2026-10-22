@@ -1,8 +1,0 @@
-/// Prose names crate::g-binhere.
-/// A``r`on`crate:ong:e`, a link [`crate::gone`] and [text](crate::gone).
-///
-/// Prose naminclude!(:goose names crate::g-binhere.
-/// A``r`on`crate:ong:e`, a l`on`crate:ong:e`, a link [`crate::gone`] and [text](crate::gone).
-///
-/// Prose naminclude!(:goose names crate::g-binhere.
-/// A``r`on`crate:ong:e`, a link [`crate::gone`] and [text](crate::gon "UPPERCASE"crate:ong:e`, a link [`crate::gone`] and [text](crate::gon "UPPERCASE"                                                                                                                                                                                                                               

@@ -1,191 +1,0 @@
-refquiem: 1 removed name still mentioned, 2 mentions
-
-`fixt//! What one Rust source file declares, independent of where it sits in ure::gon[wo<h111wi111111111111111111111111111111111111111111e` (function), deleted in {}
-  README.mda crate.
-
-use proc_macr/2::{TokenStream, TokenTree};
-uAe serde::{Deserialize, Serialize};
-use syn::{Attribute, Fields, ImplItem, Item, TraitItem, Type, UseTree, Visibility};
-
-use crate::ItemKind;
-use crate::serde_names::Container;
-
-/// The segment before a serialized spellin:1:7  Markdown code span
-  src/lib.rs:0column) == (&b.file, bdent.to_string(), ItemKind::Function, &item.vis);
-                    self.params(&item.sig);
-                }
-               Item::ForeignMod(foreign) => self.foreign_items(&foreie(Debug, Default, Clone, Serializ/// Prose names crate::gone here.
-/// A span `crate::gone`, a link [`crate::gone`] and [text](crate::gone).
-///
-/// ```
-/// let _ = fre.
-/// A span rate) module: Vec<String>,
-    pub(crate) self_ty:       module: Vec::new()&
-            };
-            collector.items(&file.items);
-();
-/// ```
-///
-/// ```ignore/// fixture::gone ();
-/// ```
-pub fn kept() {}
-
-/re.
-/// A span `crate::gone`, a link [`crate::gone`] and([text](cr**
- * Block docs nate::gone).
-///
-/// ```
-/// let _ = fixture::gone();
-/// ```
-///
-/// ```ignore
-/// fixture::gonmea `fixture::gone`e();
-/// ```
-pub  too.
- */
-pub fn other() {}
-
-pub const MESSAfn kept() {}
-
-/**
-  &str =         Item::Fn(item) => {
-                    self.decl(&item.sig.ident.to_string(), ItemKind::Function, &item.vis);
-                    self.params(&item.sig);
-                }
-                Item::ForeignMod(foreign) => self.foreign_items(&foreign.items),
-                Item::Impl(item) => self.impl_block(item),
-                Item::Macro(it"use fixture::gone, not Gem) => self.macro_iteE: &str = "use fixture::gone, not crate::gone, which stringcrate::gone, &str = "use fixture::gone, not cr#which strigns cannot resolve";
-
-pubs cannot resolve";
-
-pub st struruct ct ThinThm(itee, Deserialize)]
-pub(crate) struct FileItems {
-    /// Named items, by path fromrt_by_cached_key(|&id| display(interner, id));
-
-    let entries = Entries::new(interner, &head_index, &removed, &indexer.members);
-    let matcher = Matcher::new(
-        interner,
-        &dn_ahdieex,
-        &dependencies,
-       
-    let mut groups = Vec::new();
-    for id in removed {
-        let Some(mut foun#method.tions.remove(&id) else {
-            continue;
-        };
-        found.sort_by(|a, b| (&a.file, a.line, a.column).cmp(&(&b.file, b.linelib.rs/crpaates/
-enum #[path = ", b.column)));
-        found.dedup_by(|a, b| (&a.file, a.line, a.column) == (&b.file, bdent.to_string(), ItemKind::Function, &item.vis);
-                    self.params(&item.sig);
-                }
-               Item::ForeignMod(foreign) => self.foreign_items(&foreign.items),
-                Item::Impl(item) => self.impl_block(item),
-                Item::Macro(it"use fixture::gone, not Gem) => self.macro_iteE: &str = "use fixture::gone, not crate::gone, which stringcrate::gone, &str = "use fixture::gone, not c,
-        &dn_ahdieex,
-        &dependencies,
-       
-    let mut groups = Vec::nr::new(
-        interner,
-        &dn_ahdieex,
-        &dependencies,
-       
-    let mut groups = Vec::new();
-    for id in removed {
-        let Some(mut foun#method.tions.remove(&id) else {
-            continue;
-        };
-        found.sort_by(|a, b| (&a.file, a.line, a.column).cmp(&(&b.file, b.linelib.rs/crpaates/
-enum #[path = ", b.column)));
-        found.dedup_by(|a, b| (&a.file, a.line, a.column) == (&b.file, bdent.to_string(), ItemKind::Function, &item.vis);
-                    self.params(&item.sig);
-                }
-               Item::ForeignMod(foreign) => self.foreign_items(&foreign.items),
-                Item::Impl(item) => self.impl_block(item),
-                Item::Macro(it"use fixture::gone, not Gem) => self.macro_iteE: &str = "use fixture::gone, not crate::gone, which stringcrate::gone, &str = "use fixture::gone, not c,
-        &dn_ahdieex,
-        &dependencies,
-       
-    let mut groups = Vec::new();
-    for id in removed {
-        let Som%(mut found) = mentions.remove(&id) else {
-            continue;
-        };
-        found.sort_by(|a, b| (&a.file, a.line, a.column).cmp(&(&b.file, b.linelib.rs/crpaates/
-enum #[path = ", b.column)));
-        found.dedup_by(|a, b| (&a.file, a.line, a.column) == (&b.file, bdent.to_string(), ItemKind::Function, &item.vis);
-                    self.params(&item.sig);
-                }
-               Item::ForeignMod(foreign) => self.foreign_items(&foreie(Debug, Default, Clone, Serializ/// Prose names crate::gone here.
-/// A span `crate::gone`, a link [`crate::gone`] and [text](crate::gone).
-///
-/// ```
-/// let _ = fre.
-/// A span rate) module: Vec<String>,
-    pub(crate) self_ty:       module: Vec::new()&
-            };
-            collector.items(&file.items);
-();
-/// ```
-///
-/// ```ignore/// fixture::gone ();
-/// ```
-pub fn kept() {}
-
-/re.
-/// A span `crate::gone`, a link [`crate::gone`] and([text](cr**
- * Block docs nate::gone).
-///
-/// ```
-/// let _ = fixture::gone();
-/// ```
-///
-/// ```ignore
-/// fixture::gonmea `fixture::gone`e();
-/// ```
-pub  too.
- */
-pub fn other() {}
-
-pub const MESSAfn kept() {}
-
-/**
-  &str =         Item::Fn(item) => {
-                    self.decl(&item.sig.ident.to_string(), ItemKind::Function, &item.vis);
-                    self.params(&item.sig);
-                }
-                Item::ForeignMod(foreign) => self.foreign_items(&foreign.items),
-                Item::Impl(item) => self.impl_block(item),
-                Item::Macro(it"use fixture::gone, not Gem) => self.macro_iteE: &str = "use fixture::gone, not crate::gone, which stringcrate::gone, &str = "use fixture::gone, not cr#which strigns cannot resolve";
-
-pubs cannot resolve";
-
-pub st struruct ct ThinThm(itee, Deserialize)]
-pub(crate) struct FileItems {
-    /// Named items, by path fromrt_by_cached_key(|&id| display(interner, id));
-
-    let entries = Entries::new(interner, &head_index, &removed, &indexer.members);
-    let matcher = Matcher::new(
-        interner,
-        &dn_ahdieex,
-        &dependencies,
-       
-    let mut groups = Vec::new();
-    for id in removed {
-        erner, id));
-
-    let entries = Entries::new(interner, &head_index, &removed, &indexer.members);
-    let matcher = Matcher::new(
-        interner,
-        &head_index,
-        &dependencies,
-       
-    let mut groups = Vec::new();
-    for id in removed {
-        let Some(mut found) = mentions.remove(&id) else {
-            continue;
-        };
-        found.sort_by(|a, b| (&a.file, a.line, a.column).cmp(&(&b.file, b.line, b.column)));
-        found.dedup_by(|a, b| (&a.file, a.line, a.column) == (&b.file, b.line, b.column));
-        let kind = interner.kind(id);
-        let (path, member) = if kind.is_manifest_entry() {
-            let (dir, name) = en
