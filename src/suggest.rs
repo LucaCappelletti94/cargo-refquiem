@@ -111,10 +111,13 @@ fn within_distance(name: &str, other: &str) -> bool {
     previous[b.len()] <= limit
 }
 
-/// Rewrites a path suffix, escaping Rust keywords for item mentions.
+/// Rewrites a mention written as a suffix of `path` into `suggested`, escaping Rust keywords
+/// for item mentions. The leading segments of `path` the mention leaves unwritten stay
+/// unwritten when `suggested` starts with them. Otherwise a bare name becomes the suggested
+/// name and a longer path the full suggested path.
 fn rewrite(path: &str, suggested: &str, written: &str, kind: ItemKind) -> Option<String> {
     let rust = !kind.is_manifest_entry();
-    let mut path = path.rsplit("::");
+    let mut words = path.rsplit("::");
     let mut count = 0;
     for word in written.rsplit("::") {
         let word = if rust {
@@ -122,16 +125,24 @@ fn rewrite(path: &str, suggested: &str, written: &str, kind: ItemKind) -> Option
         } else {
             word
         };
-        if path.next() != Some(word) {
+        if words.next() != Some(word) {
             return None;
         }
         count += 1;
     }
-    let start = suggested
-        .rmatch_indices("::")
-        .nth(count - 1)
-        .map_or(0, |(at, _)| at + 2);
-    let suffix = &suggested[start..];
+    let implied = path.split("::").count() - count;
+    let unwritten = match implied {
+        0 => Some(suggested),
+        _ => path
+            .match_indices("::")
+            .nth(implied - 1)
+            .and_then(|(at, _)| suggested.strip_prefix(&path[..at + 2])),
+    };
+    let suffix = match unwritten {
+        Some(kept) => kept,
+        None if count == 1 => suggested.rsplit("::").next().unwrap_or(suggested),
+        None => suggested,
+    };
     if suffix.split("::").eq(written.split("::").map(|word| {
         if rust {
             word.strip_prefix("r#").unwrap_or(word)

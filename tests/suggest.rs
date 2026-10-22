@@ -100,6 +100,73 @@ fn a_mention_whose_written_segments_a_move_keeps_is_not_rewritten() {
 }
 
 #[test]
+fn a_move_into_a_child_module_keeps_what_the_mention_wrote_before_it() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub mod a {\n    pub fn f() {}\n}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "pub mod a {\n    pub mod b {\n        pub fn f() {}\n    }\n}\n",
+    );
+    repo.write("README.md", "Call `fixture::a::f` or `a::f`.\n");
+    repo.commit("move");
+
+    let report = report(&repo);
+    let group = group(&report, "fixture::a::f");
+    assert_eq!(suggested(group), Some(("fixture::a::b::f", Change::Moved)));
+    let rewritten = "Call `fixture::a::b::f` or `a::b::f`.";
+    for mention in &group.mentions {
+        assert_eq!(
+            mention.replacement.as_deref(),
+            Some(rewritten),
+            "{mention:?}"
+        );
+    }
+}
+
+#[test]
+fn a_root_item_moved_into_a_module_keeps_its_crate() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn f() {}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub mod b {\n    pub fn f() {}\n}\n");
+    repo.write("README.md", "Call `fixture::f`.\n");
+    repo.commit("move");
+
+    let report = report(&repo);
+    let group = group(&report, "fixture::f");
+    assert_eq!(suggested(group), Some(("fixture::b::f", Change::Moved)));
+    assert_eq!(
+        group.mentions[0].replacement.as_deref(),
+        Some("Call `fixture::b::f`.")
+    );
+}
+
+#[test]
+fn a_partial_path_whose_unwritten_parent_the_move_leaves_becomes_the_full_path() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod x {\n    pub mod old {\n        pub fn helper() {}\n    }\n}\n",
+    );
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub mod y {\n    pub fn helper() {}\n}\n");
+    repo.write("README.md", "Call `old::helper`.\n");
+    repo.commit("move");
+
+    let report = report(&repo);
+    let group = group(&report, "fixture::x::old::helper");
+    assert_eq!(
+        suggested(group),
+        Some(("fixture::y::helper", Change::Moved))
+    );
+    assert_eq!(
+        group.mentions[0].replacement.as_deref(),
+        Some("Call `fixture::y::helper`.")
+    );
+}
+
+#[test]
 fn a_near_name_of_the_same_kind_and_parent_is_a_rename() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "pub fn colour() {}\npub mod paint {}\n");
