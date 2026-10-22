@@ -503,12 +503,20 @@ fn strings(value: Option<&toml::Value>) -> Vec<String> {
 }
 
 /// The line of the manifest `text` declaring the `kind` entry `name`, at its key or at the
-/// `name` value of a package or target.
+/// `name` value of a package or target. An implicit feature is declared by its optional
+/// dependency.
 pub(crate) fn entry_line(text: &str, kind: ItemKind, name: &str) -> Option<usize> {
     let root = DeTable::parse(text).ok()?;
     let root = root.get_ref();
     let start = match kind {
-        ItemKind::Feature => get(table(root, "features")?, name).map(|(key, _)| key)?,
+        ItemKind::Feature => table(root, "features")
+            .and_then(|features| get(features, name))
+            .map(|(key, _)| key)
+            .or_else(|| {
+                dependency_tables(root)
+                    .into_iter()
+                    .find_map(|deps| optional_key(deps, name))
+            })?,
         ItemKind::Dependency => dependency_tables(root)
             .into_iter()
             .find_map(|deps| dependency_key(deps, name))?,
@@ -529,6 +537,16 @@ fn get<'t, 'i>(table: &'t DeTable<'i>, name: &str) -> Option<(usize, &'t Spanned
         .iter()
         .find(|(key, _)| key.get_ref().as_ref() == name)
         .map(|(key, value)| (key.span().start, value))
+}
+
+/// The start of the key in `deps` declaring `name` as an optional dependency.
+fn optional_key(deps: &DeTable<'_>, name: &str) -> Option<usize> {
+    let (key, spec) = get(deps, name)?;
+    let optional = get(spec.get_ref().as_table()?, "optional")?
+        .1
+        .get_ref()
+        .as_bool();
+    (optional == Some(true)).then_some(key)
 }
 
 type Spanned<'i> = toml::Spanned<DeValue<'i>>;
@@ -584,4 +602,52 @@ pub(crate) fn join(dir: &str, rest: &str) -> String {
         }
     }
     parts.join("/")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::entry_line;
+    use crate::ItemKind;
+
+    const MANIFEST: &str = r#"[package]
+name = "demo"
+
+[dependencies]
+serde = "1"
+json = { package = "serde_json", version = "1" }
+ipnetwork = { version = "0.20", optional = true }
+
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"
+
+[features]
+fast = []
+
+[[bin]]
+name = "tool"
+
+[[example]]
+name = "demo-run"
+"#;
+
+    #[test]
+    fn each_entry_kind_points_at_its_declaring_line() {
+        let line = |kind, name| entry_line(MANIFEST, kind, name);
+        assert_eq!(line(ItemKind::Package, "demo"), Some(2));
+        assert_eq!(line(ItemKind::Dependency, "serde"), Some(5));
+        assert_eq!(line(ItemKind::Dependency, "serde_json"), Some(6));
+        assert_eq!(line(ItemKind::Dependency, "libc"), Some(10));
+        assert_eq!(line(ItemKind::Feature, "fast"), Some(13));
+        assert_eq!(line(ItemKind::Binary, "tool"), Some(16));
+        assert_eq!(line(ItemKind::Example, "demo-run"), Some(19));
+    }
+
+    #[test]
+    fn an_implicit_feature_points_at_its_optional_dependency() {
+        assert_eq!(
+            entry_line(MANIFEST, ItemKind::Feature, "ipnetwork"),
+            Some(7)
+        );
+        assert_eq!(entry_line(MANIFEST, ItemKind::Feature, "serde"), None);
+    }
 }
