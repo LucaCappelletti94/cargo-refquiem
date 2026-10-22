@@ -611,15 +611,21 @@ fn a_name_without_a_declaration_line_lists_its_mentions_in_the_body() {
     );
 }
 
-#[test]
-fn a_name_mentioned_once_names_the_place_in_its_sentence() {
+/// The `--json --no-fail` scan of `fixture::gone`, deleted at `src/lib.rs:1` and mentioned
+/// once, at `README.md:3:7`.
+fn single_mention_scan() -> String {
     let repo = Repo::new();
     repo.write("src/lib.rs", "pub fn gone() {}\n");
     repo.commit("start");
     repo.write("src/lib.rs", "pub fn kept() {}\n");
     repo.write("README.md", "# Fixture\n\nCall `fixture::gone`.\n");
     repo.commit("drop gone");
-    let report = scan(&repo, &["--since", "HEAD~1"]);
+    scan(&repo, &["--since", "HEAD~1"])
+}
+
+#[test]
+fn a_name_mentioned_once_names_the_place_in_its_sentence() {
+    let report = single_mention_scan();
     let gh = FakeGh::new(&["src/lib.rs"], None);
     let payload = tempfile::tempdir().unwrap();
     let (status, _) = review(&gh, "review", false, payload.path(), &report);
@@ -635,6 +641,44 @@ fn a_name_mentioned_once_names_the_place_in_its_sentence() {
         "{removal}"
     );
     assert!(!removal.contains("these places"), "{removal}");
+}
+
+#[test]
+fn a_single_finding_its_comment_holds_leaves_the_review_body_bare() {
+    let gh = FakeGh::new(&["src/lib.rs"], None);
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(&gh, "review", false, payload.path(), &single_mention_scan());
+    assert_eq!(status, "posted");
+
+    let log = gh.log();
+    assert_eq!(
+        on_deleted_lines(&log),
+        [("src/lib.rs".to_owned(), "1".to_owned())]
+    );
+    let review = review_call(&log);
+    for repeated in ["refquiem found", "Report a wrong review", "[Run]"] {
+        assert!(!review.contains(repeated), "{repeated}\n{review}");
+    }
+    assert!(
+        review.contains("<!-- refquiem -->"),
+        "later runs find the review by its marker\n{review}"
+    );
+}
+
+#[test]
+fn a_single_finding_no_comment_holds_stays_in_the_review_body() {
+    let gh = FakeGh::new(&["src/lib.rs"], Some(("src/lib.rs", 422)));
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(&gh, "review", false, payload.path(), &single_mention_scan());
+    assert_eq!(status, "posted");
+
+    let log = gh.log();
+    let review = review_call(&log);
+    assert!(
+        review.contains("refquiem found 1 removed name still mentioned 1 time."),
+        "{review}"
+    );
+    assert!(review.contains("README.md:3:7"), "{review}");
 }
 
 #[test]

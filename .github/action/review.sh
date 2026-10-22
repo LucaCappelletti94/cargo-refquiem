@@ -3,7 +3,7 @@
 # A removed name the report places with `declared_at` gets one comment on that deleted line,
 # linking every remaining mention. A mention or unused marker in a changed file gets its own
 # comment, with the rewritten line when there is one. The review body counts the findings and
-# links whatever no comment holds.
+# links whatever no comment holds, and is only the marker when its comments hold a lone finding.
 # MODE review computes and posts it, prepare writes it to PAYLOAD, post posts a prepared one.
 # DRY_RUN renders it into the job summary instead. STATUS receives the outcome.
 # RUN_HEAD_SHA, in post mode, is the commit the run that prepared the payload checked out.
@@ -115,7 +115,8 @@ def fence($line): ([$line | scan("`+") | length] | max // 0) as $run
 }'
 
 # Renders the review body from the plan in "$meta", given the groups whose removal comment was
-# posted, the `path:line` of every inline comment posted and the comments that failed.
+# posted, the `path:line` of every inline comment posted and the comments that failed. A lone
+# finding its comments hold already carries the links, so its body is the marker alone.
 review_body() {
   jq -r --arg server "$GITHUB_SERVER_URL" --arg repo "$repo" --arg sha "$head_sha" \
     --arg reviewed "$reviewed" --arg review_url "$review_url" --arg version "$version" \
@@ -133,7 +134,11 @@ review_body() {
   | "\($h), \(places)" ]
 + [ [$p.markers[] | unposted | "\(linked) \(.text)"] | select(length > 0) | join("\n") ]
 | . as $unplaced
-| "refquiem found "
+| if $names + $markers == 1 and ($unplaced | length) == 0 and ($p.skipped | length) == 0
+    and $failed == ""
+  then $marker
+  else
+  "refquiem found "
   + (if $names > 0 then plural($names; "removed name"; "removed names") + " still mentioned "
       + plural($mentions; "time"; "times") else "" end)
   + (if $names > 0 and $markers > 0 then " and " else "" end)
@@ -156,7 +161,8 @@ review_body() {
     else "" end)
   + (if $failed != "" then "\n\nThese comments could not be posted.\n\n\($failed)" else "" end)
   + "\n\n" + footer("")
-  + "\n\n[Run](\($run))\n\n\($marker)"' "$meta"
+  + "\n\n[Run](\($run))\n\n\($marker)"
+  end' "$meta"
 }
 
 # Renders every planned comment and the review body into the job summary, posting nothing.
