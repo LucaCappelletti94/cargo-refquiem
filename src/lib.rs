@@ -498,7 +498,7 @@ const SCAN_STACK: usize = 256 << 20;
 /// # Errors
 ///
 /// Fails when repository data cannot be read, a Markdown reader fails, or the scan thread cannot start.
-pub fn run(options: &Options) -> Result<Report, Error> {
+pub fn analyze(options: &Options) -> Result<Report, Error> {
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .name("refquiem".to_owned())

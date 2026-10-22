@@ -114,7 +114,7 @@ fn run(args: Args) -> Result<refquiem::Report, refquiem::Error> {
     }
     options.config = config;
     options.package = args.package;
-    refquiem::run(&options)
+    refquiem::analyze(&options)
 }
 
 /// `error` followed by each of its causes.
