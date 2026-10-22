@@ -15,8 +15,8 @@ use crate::parse::SERDE_MARKER;
 use crate::stdlib::Vocabulary;
 use crate::text::{self, Named, Spelled};
 use crate::{
-    Context, Error, Group, ItemKind, Kind, Mention, Options, Range, RemovedIn, Report, Source,
-    Suggestion, UnusedMarker, entry, stdlib, suggest,
+    Context, Error, Group, ItemKind, Kind, Mention, Options, Position, Range, RemovedIn, Report,
+    Source, Suggestion, UnusedMarker, entry, manifest, stdlib, suggest,
 };
 
 /// What the commits of the range declare beyond head, each distinct tree stored once.
@@ -129,7 +129,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let workspace_dir = layout.workdir.join(&layout.workspace);
     let (config, range) = settings(options, &workspace_dir)?;
     let mut indexer = Indexer::new(FileCache::load(&layout.cache_dir));
-    let (commits, head) = git::range(&repo, &range)?;
+    let (commits, head, start) = git::range(&repo, &range)?;
     let head_snapshot = head_snapshot(&repo, &layout, &commits, &head);
     let scratch = Scratch {
         dir: &layout.cache_dir,
@@ -191,7 +191,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         &layout.target_prefix,
         &filter,
     )?;
-    let (mut groups, suggestable) = groups(
+    let (mut groups, ids, suggestable) = groups(
         interner,
         &entries,
         &history,
@@ -199,11 +199,15 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         mentions,
         &dependency_items,
     );
+    let scan = Historical {
+        repo: &repo,
+        workspace: &layout.workspace,
+        head: &head_index,
+    };
+    declarations(&mut indexer, &scan, (&commits, start), &ids, &mut groups)?;
     suggestions(
         &mut indexer,
-        &repo,
-        &layout.workspace,
-        &head_index,
+        &scan,
         &suggestable,
         &walk.first_seen,
         &mut groups,
@@ -221,7 +225,8 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     })
 }
 
-/// Groups mentions and identifies the historical indexes needed by suggestion rules.
+/// Groups mentions and identifies the historical indexes needed by suggestion rules, returning
+/// the removed path of each group alongside.
 fn groups(
     interner: &Interner,
     entries: &Entries<'_>,
@@ -229,8 +234,9 @@ fn groups(
     removed: Vec<PathId>,
     mut mentions: HashMap<PathId, Vec<Mention>>,
     dependency_items: &HashMap<PathId, PathId>,
-) -> (Vec<Group>, Vec<Suggestable>) {
+) -> (Vec<Group>, Vec<PathId>, Vec<Suggestable>) {
     let mut groups = Vec::new();
+    let mut ids = Vec::new();
     let mut suggestable = Vec::new();
     for id in removed {
         let Some(mut found) = mentions.remove(&id) else {
@@ -260,26 +266,83 @@ fn groups(
             Some(entry) => history.blame(&[id, entry]),
             None => history.blame(&[id]),
         };
+        ids.push(id);
         groups.push(Group {
             path,
             kind,
             member,
             removed_in,
+            declared_at: None,
             suggestion: None,
             candidates: Vec::new(),
             mentions: found,
         });
     }
-    (groups, suggestable)
+    (groups, ids, suggestable)
+}
+
+/// What the steps reading other revisions of the repository take from the scan.
+struct Historical<'a> {
+    repo: &'a gix::Repository,
+    /// The workspace directory from the repository root.
+    workspace: &'a str,
+    head: &'a Index,
+}
+
+/// Sets where the range's starting commit, given by id among `commits`, declares the name of
+/// each group, `groups[i]` being the group of `ids[i]`.
+fn declarations(
+    indexer: &mut Indexer,
+    scan: &Historical<'_>,
+    (commits, start): (&[git::Commit], Option<ObjectId>),
+    ids: &[PathId],
+    groups: &mut [Group],
+) -> Result<(), Error> {
+    let Some(start) = start.and_then(|start| commits.iter().find(|commit| commit.id == start))
+    else {
+        return Ok(());
+    };
+    let snapshot = TreeSnapshot::new(scan.repo, start.tree);
+    let found = indexer.locate(&snapshot, scan.workspace, ids, |source| {
+        !scan.head.paths.contains(&source)
+    })?;
+    for (group, &id) in groups.iter_mut().zip(ids) {
+        group.declared_at = if indexer.interner.kind(id).is_manifest_entry() {
+            manifest_entry_line(&indexer.interner, &snapshot, id)?
+        } else {
+            found.get(&id).map(|(file, line)| Position {
+                file: file.clone(),
+                line: usize::try_from(*line).expect("lines fit in usize"),
+            })
+        };
+    }
+    Ok(())
+}
+
+/// Where `snapshot` declares the manifest entry `id` in its member's `Cargo.toml`.
+fn manifest_entry_line(
+    interner: &Interner,
+    snapshot: &dyn Snapshot,
+    id: PathId,
+) -> Result<Option<Position>, Error> {
+    let segments = interner.segments(id);
+    let Some(dir) = entry::member_dir(interner.name(segments[0])) else {
+        return Ok(None);
+    };
+    let file = manifest::join(dir, "Cargo.toml");
+    let Some(blob) = snapshot.blob(&file)? else {
+        return Ok(None);
+    };
+    let text = String::from_utf8_lossy(&snapshot.read(&file, blob)?).into_owned();
+    let line = manifest::entry_line(&text, interner.kind(id), interner.name(segments[2]));
+    Ok(line.map(|line| Position { file, line }))
 }
 
 /// Fills the suggestion or candidates of each group in `suggestable`, given by index with its
 /// removed path and the tree where that path first appeared.
 fn suggestions(
     indexer: &mut Indexer,
-    repo: &gix::Repository,
-    workspace: &str,
-    head: &Index,
+    scan: &Historical<'_>,
     suggestable: &[Suggestable],
     first_seen: &HashMap<PathId, usize>,
     groups: &mut [Group],
@@ -287,7 +350,8 @@ fn suggestions(
     let mut befores: HashMap<ObjectId, Index> = HashMap::new();
     for input in suggestable {
         if let std::collections::hash_map::Entry::Vacant(slot) = befores.entry(input.tree) {
-            slot.insert(indexer.index(&TreeSnapshot::new(repo, input.tree), workspace, false)?);
+            let before = TreeSnapshot::new(scan.repo, input.tree);
+            slot.insert(indexer.index(&before, scan.workspace, false)?);
         }
     }
     let interner = &indexer.interner;
@@ -295,7 +359,7 @@ fn suggestions(
         let outcome = suggest::suggest(
             interner,
             input.path,
-            head,
+            scan.head,
             &befores[&input.tree],
             first_seen,
             input.first,

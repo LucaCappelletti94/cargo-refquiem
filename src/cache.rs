@@ -12,7 +12,7 @@ use serde_json::value::RawValue;
 use crate::parse::FileItems;
 
 /// Bumped whenever [`FileItems`] or what the parser records changes.
-const SCHEMA: u32 = 14;
+const SCHEMA: u32 = 15;
 
 /// A parse outcome: the declarations, or the parser's message.
 pub(crate) type Parsed = Rc<Result<FileItems, String>>;
