@@ -1,0 +1,2 @@
+//ee [`fn@crate::g`] and [call](crate::gon()).
+pub struct Thing;
