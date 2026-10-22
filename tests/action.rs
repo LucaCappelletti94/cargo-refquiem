@@ -599,13 +599,42 @@ fn a_name_without_a_declaration_line_lists_its_mentions_in_the_body() {
         "{review}"
     );
     assert!(
-        review.contains(&format!("- [`docs/old.md:9:2`]({blob}/docs/old.md#L9)")),
-        "{review}"
+        review.contains(&format!(
+            ", is still mentioned in [`docs/old.md:9:2`]({blob}/docs/old.md#L9)."
+        )),
+        "the one place left names itself in the sentence\n{review}"
     );
+    assert!(!review.contains("these places"), "{review}");
     assert!(
         !review.contains("README.md:3:7"),
         "a mention commented inline stays out of the body\n{review}"
     );
+}
+
+#[test]
+fn a_name_mentioned_once_names_the_place_in_its_sentence() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    repo.write("README.md", "# Fixture\n\nCall `fixture::gone`.\n");
+    repo.commit("drop gone");
+    let report = scan(&repo, &["--since", "HEAD~1"]);
+    let gh = FakeGh::new(&["src/lib.rs"], None);
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(&gh, "review", false, payload.path(), &report);
+    assert_eq!(status, "posted");
+
+    let log = gh.log();
+    let removal = comment_call(&log, "src/lib.rs", "1", "LEFT");
+    let blob = "https://github.com/owner/repo/blob/f00df00df00df00df00df00df00df00df00df00d";
+    assert!(
+        removal.contains(&format!(
+            ", is still mentioned in [`README.md:3:7`]({blob}/README.md#L3).\n\n{blob}/README.md#L3\n"
+        )),
+        "{removal}"
+    );
+    assert!(!removal.contains("these places"), "{removal}");
 }
 
 #[test]
