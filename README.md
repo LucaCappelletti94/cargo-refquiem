@@ -8,6 +8,11 @@ A cargo requiem for the refs your Rust code left behind.
 
 `cargo refquiem` finds the Rust items, dependencies, features, binaries and examples your git history removed, and reports the comments, doc comments, string literals and Markdown that still name them, with what each most likely became. The [wiki](https://github.com/LucaCappelletti94/cargo-refquiem/wiki) explains matching, configuration, reports and the Action in depth.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/LucaCappelletti94/cargo-refquiem/main/docs/review-dark.svg">
+  <img alt="A refquiem pull request review flags a stale Rust function name and suggests its replacement" src="https://raw.githubusercontent.com/LucaCappelletti94/cargo-refquiem/main/docs/review-light.svg">
+</picture>
+
 ## Usage
 
 ```sh
