@@ -1,4 +1,5 @@
-//! Where the starting revision of a range declared each removed name.
+//! Where the starting revision of a range declared each removed name, and where head declares
+//! the name suggested in its place.
 
 mod common;
 
@@ -8,8 +9,8 @@ use std::process::Command;
 use common::Repo;
 use serde_json::{Value, json};
 
-/// The `declared_at` of every reported group, by path, for `args` run in `repo`.
-fn declared(repo: &Repo, args: &[&str]) -> BTreeMap<String, Value> {
+/// The `--json` report of `args` run in `repo`.
+fn report(repo: &Repo, args: &[&str]) -> Value {
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
         .arg("refquiem")
         .arg("--json")
@@ -26,18 +27,32 @@ fn declared(repo: &Repo, args: &[&str]) -> BTreeMap<String, Value> {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
-    report["groups"]
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+/// The `field` of every reported group, by path, for `args` run in `repo`.
+fn by_path(repo: &Repo, args: &[&str], field: &str) -> BTreeMap<String, Value> {
+    report(repo, args)["groups"]
         .as_array()
         .unwrap()
         .iter()
         .map(|group| {
             (
                 group["path"].as_str().unwrap().to_owned(),
-                group["declared_at"].clone(),
+                group[field].clone(),
             )
         })
         .collect()
+}
+
+/// The `declared_at` of every reported group, by path, for `args` run in `repo`.
+fn declared(repo: &Repo, args: &[&str]) -> BTreeMap<String, Value> {
+    by_path(repo, args, "declared_at")
+}
+
+/// The `suggested_at` of every reported group, by path, for `args` run in `repo`.
+fn suggested(repo: &Repo, args: &[&str]) -> BTreeMap<String, Value> {
+    by_path(repo, args, "suggested_at")
 }
 
 fn at(file: &str, line: u64) -> Value {
@@ -199,5 +214,96 @@ fn a_name_the_base_never_had_has_no_position() {
     assert_eq!(
         declared(&repo, &["--base", "HEAD~2", "--head", "HEAD"]),
         BTreeMap::from([("fixture::brief".to_owned(), Value::Null)])
+    );
+}
+
+#[test]
+fn the_report_names_the_base_its_positions_are_in() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "\npub fn gone() {}\n");
+    let base = repo.commit("start");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "`fixture::gone`\n");
+    repo.commit("drop");
+
+    assert_eq!(
+        report(&repo, &["--base", &base, "--head", "HEAD"])["base"],
+        base
+    );
+    assert_eq!(report(&repo, &["--since", "HEAD^"])["base"], base);
+    assert_eq!(report(&repo, &[])["base"], Value::Null);
+}
+
+#[test]
+fn a_suggested_item_points_at_its_line_in_the_head() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub mod old {\n    pub fn helper() {}\n}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "//! Docs.\n\npub mod new {\n    pub fn helper() {}\n}\n",
+    );
+    repo.write("README.md", "`fixture::old::helper`\n");
+    repo.commit("move");
+
+    assert_eq!(
+        suggested(&repo, &["--base", "HEAD^", "--head", "HEAD"]),
+        BTreeMap::from([("fixture::old::helper".to_owned(), at("src/lib.rs", 4))])
+    );
+}
+
+#[test]
+fn a_suggested_reexport_points_at_the_item_it_names() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn helper() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "mod inner {\n    pub fn helper() {}\n}\npub mod new {\n    pub use crate::inner::helper;\n}\n",
+    );
+    repo.write("README.md", "`fixture::helper`\n");
+    repo.commit("move");
+
+    assert_eq!(
+        suggested(&repo, &["--base", "HEAD^", "--head", "HEAD"]),
+        BTreeMap::from([("fixture::helper".to_owned(), at("src/lib.rs", 2))])
+    );
+}
+
+#[test]
+fn a_suggested_feature_points_at_its_key_in_the_head_manifest() {
+    let repo = Repo::new();
+    let package = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "Cargo.toml",
+        &format!("{package}\n[features]\nserde-support = []\n"),
+    );
+    repo.commit("start");
+    repo.write(
+        "Cargo.toml",
+        &format!("{package}\n[features]\ndefault = []\nserde_support = []\n"),
+    );
+    repo.write("README.md", "`--features serde-support`\n");
+    repo.commit("rename the feature");
+
+    assert_eq!(
+        suggested(&repo, &["--base", "HEAD^", "--head", "HEAD"]),
+        BTreeMap::from([("serde-support".to_owned(), at("Cargo.toml", 8))])
+    );
+}
+
+#[test]
+fn a_name_without_a_suggestion_has_no_suggested_position() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "`fixture::gone`\n");
+    repo.commit("drop");
+
+    assert_eq!(
+        suggested(&repo, &["--base", "HEAD^", "--head", "HEAD"]),
+        BTreeMap::from([("fixture::gone".to_owned(), Value::Null)])
     );
 }
