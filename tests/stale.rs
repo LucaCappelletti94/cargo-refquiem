@@ -552,6 +552,36 @@ fn a_removal_below_the_base_of_a_merged_branch_is_not_blamed_on_the_branch() {
     assert_eq!(report.groups[0].removed_in, None);
 }
 
+/// A shallow clone lists the parents of its oldest commits without holding them, here both
+/// parents of the merge it stops at.
+#[test]
+fn a_shallow_clone_is_scanned_without_its_missing_parents() {
+    let origin = Repo::new();
+    origin.write("src/lib.rs", "pub fn doomed() {}\npub fn kept() {}\n");
+    origin.commit("start");
+    origin.git(&["checkout", "-q", "-b", "topic"]);
+    origin.write("README.md", "Call `fixture::doomed`.\n");
+    origin.commit("docs");
+    origin.git(&["checkout", "-q", "main"]);
+    origin.write("CHANGELOG.md", "Nothing yet.\n");
+    origin.commit("changelog");
+    origin.git(&["merge", "-q", "--no-ff", "-m", "Merge topic", "topic"]);
+    origin.write("src/lib.rs", "pub fn kept() {}\n");
+    let deleting = origin.commit("drop doomed");
+    let repo = Repo::new();
+    let url = format!("file://{}", origin.path().display());
+    repo.git(&["fetch", "-q", "--depth", "2", &url, "main"]);
+    repo.git(&["checkout", "-q", "-f", "-B", "main", "FETCH_HEAD"]);
+
+    let report = repo.run();
+
+    assert_eq!(removed(&report), ["fixture::doomed"]);
+    assert_eq!(
+        report.groups[0].removed_in,
+        Some(RemovedIn::Commit(deleting))
+    );
+}
+
 #[test]
 fn a_removal_by_uncommitted_changes_is_attributed_to_the_working_tree() {
     let repo = Repo::new();

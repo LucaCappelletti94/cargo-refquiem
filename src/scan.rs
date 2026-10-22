@@ -76,7 +76,7 @@ struct IndexedRange {
     states: States,
     first_seen: HashMap<PathId, usize>,
     /// For each parent of a range commit that lies outside the range, the paths its tree has
-    /// and head lacks, `None` when the tree could not be read entirely.
+    /// and head lacks, `None` when the commit is absent or its tree could not be read entirely.
     boundary: HashMap<ObjectId, Option<HashSet<PathId>>>,
 }
 
@@ -474,6 +474,11 @@ fn index_range(
     let mut boundary = HashMap::new();
     for &parent in commits.iter().flat_map(|commit| &commit.parents) {
         if walked.contains(&parent) || boundary.contains_key(&parent) {
+            continue;
+        }
+        // A shallow clone names the parents of its oldest commits without holding them.
+        if !repo.has_object(parent) {
+            boundary.insert(parent, None);
             continue;
         }
         let snapshot = TreeSnapshot::new(repo, git::tree(repo, parent)?);
