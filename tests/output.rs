@@ -59,6 +59,7 @@ fn json_prints_the_report_with_snake_case_keys() {
         keys(group),
         [
             "candidates",
+            "declared_at",
             "headline",
             "kind",
             "member",

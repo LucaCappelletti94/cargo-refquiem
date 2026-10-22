@@ -2,9 +2,10 @@
 //! `Cargo.toml` files of a snapshot.
 
 use toml::Table;
+use toml::de::{DeTable, DeValue};
 
-use crate::Error;
 use crate::git::Snapshot;
+use crate::{Error, ItemKind};
 
 /// What a compilation target builds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -499,6 +500,75 @@ fn strings(value: Option<&toml::Value>) -> Vec<String> {
         .filter_map(toml::Value::as_str)
         .map(str::to_owned)
         .collect()
+}
+
+/// The line of the manifest `text` declaring the `kind` entry `name`, at its key or at the
+/// `name` value of a package or target.
+pub(crate) fn entry_line(text: &str, kind: ItemKind, name: &str) -> Option<usize> {
+    let root = DeTable::parse(text).ok()?;
+    let root = root.get_ref();
+    let start = match kind {
+        ItemKind::Feature => get(table(root, "features")?, name).map(|(key, _)| key)?,
+        ItemKind::Dependency => dependency_tables(root)
+            .into_iter()
+            .find_map(|deps| dependency_key(deps, name))?,
+        ItemKind::Binary => target_name(root, "bin", name)?,
+        ItemKind::Example => target_name(root, "example", name)?,
+        ItemKind::Package => {
+            let (_, value) = get(table(root, "package")?, "name")?;
+            (value.get_ref().as_str() == Some(name)).then(|| value.span().start)?
+        }
+        _ => return None,
+    };
+    Some(text[..start].matches('\n').count() + 1)
+}
+
+/// The start of the key `name` in `table` and its value.
+fn get<'t, 'i>(table: &'t DeTable<'i>, name: &str) -> Option<(usize, &'t Spanned<'i>)> {
+    table
+        .iter()
+        .find(|(key, _)| key.get_ref().as_ref() == name)
+        .map(|(key, value)| (key.span().start, value))
+}
+
+type Spanned<'i> = toml::Spanned<DeValue<'i>>;
+
+fn table<'t, 'i>(table: &'t DeTable<'i>, name: &str) -> Option<&'t DeTable<'i>> {
+    get(table, name)?.1.get_ref().as_table()
+}
+
+/// Every dependency table of a manifest, target-specific ones included.
+fn dependency_tables<'t, 'i>(root: &'t DeTable<'i>) -> Vec<&'t DeTable<'i>> {
+    const KINDS: [&str; 3] = ["dependencies", "dev-dependencies", "build-dependencies"];
+    let targets = table(root, "target")
+        .into_iter()
+        .flat_map(|targets| targets.values())
+        .filter_map(|target| target.get_ref().as_table());
+    std::iter::once(root)
+        .chain(targets)
+        .flat_map(|owner| KINDS.iter().filter_map(move |kind| table(owner, kind)))
+        .collect()
+}
+
+/// The start of the key in `deps` naming dependency `name`, by key or by `package`.
+fn dependency_key(deps: &DeTable<'_>, name: &str) -> Option<usize> {
+    deps.iter().find_map(|(key, value)| {
+        let renamed = value
+            .get_ref()
+            .as_table()
+            .and_then(|spec| get(spec, "package"))
+            .and_then(|(_, package)| package.get_ref().as_str());
+        (key.get_ref().as_ref() == name || renamed == Some(name)).then(|| key.span().start)
+    })
+}
+
+/// The start of the `name` value of the `[[kind]]` target named `name`.
+fn target_name(root: &DeTable<'_>, kind: &str, name: &str) -> Option<usize> {
+    let (_, targets) = get(root, kind)?;
+    targets.get_ref().as_array()?.iter().find_map(|target| {
+        let (_, value) = get(target.get_ref().as_table()?, "name")?;
+        (value.get_ref().as_str() == Some(name)).then(|| value.span().start)
+    })
 }
 
 /// `dir/rest` with `.` and `..` segments resolved, `rest` alone when `dir` is empty.

@@ -57,6 +57,8 @@ pub(crate) type Reexports = HashMap<Vec<Sym>, Vec<Vec<Sym>>>;
 #[derive(Default)]
 struct Contribution {
     paths: Vec<PathId>,
+    /// The line of each of `paths`, in the same order.
+    lines: Vec<u32>,
     /// Paths declared without `pub`, among them the private modules kept when only public
     /// items count.
     hidden: Vec<PathId>,
@@ -64,6 +66,8 @@ struct Contribution {
     exposed: Vec<PathId>,
     visits: Vec<Rc<Visit>>,
     uses: Vec<UseDecl>,
+    /// The line of each of `uses`, in the same order.
+    use_lines: Vec<u32>,
     calls: Vec<Call>,
     macro_rules: Vec<Rules>,
     lends: Vec<LendDecl>,
@@ -149,6 +153,14 @@ struct Entry {
     contribution: Rc<Contribution>,
     /// How many expansions deep it lies.
     depth: usize,
+}
+
+/// The crate roots `Indexer::roots` found.
+struct Roots {
+    stack: Vec<Rc<Visit>>,
+    crates: Vec<Sym>,
+    /// The crates of packages outside the workspace.
+    outside: HashSet<Sym>,
 }
 
 /// What `Indexer::reach` read.
@@ -363,52 +375,14 @@ impl Indexer {
             complete: true,
             ..Index::default()
         };
-        let members = match manifest::workspace(snapshot, workspace) {
-            Ok(members) => members,
-            Err(Error::Manifest { .. }) if !head => {
-                index.complete = false;
-                return Ok(index);
-            }
-            Err(error) => return Err(error),
+        let Some(Roots {
+            stack,
+            crates,
+            outside,
+        }) = self.roots(snapshot, workspace, head, &mut index)?
+        else {
+            return Ok(index);
         };
-        let dirs = snapshot.manifest_dirs(&mut self.manifest_dirs)?;
-        let outside_members = manifest::packages(snapshot, &dirs, &members);
-        let mut workspace_crates = HashSet::new();
-        let mut outside = HashSet::new();
-        let mut crates = Vec::new();
-        let mut stack = Vec::new();
-        let workspace_members = members.len();
-        for (n, member) in members.into_iter().chain(outside_members).enumerate() {
-            self.entries(&member, &mut index);
-            self.members
-                .entry(member.dir)
-                .or_default()
-                .insert(member.package);
-            for target in member.targets {
-                let crate_sym = self.interner.sym(&target.crate_name);
-                if n < workspace_members {
-                    workspace_crates.insert(crate_sym);
-                } else {
-                    outside.insert(crate_sym);
-                }
-                crates.push(crate_sym);
-                self.crates.insert(crate_sym);
-                if target.kind == TargetKind::Lib {
-                    index.libs.push(crate_sym);
-                }
-                let module = self.interner.path(&[crate_sym], ItemKind::Module);
-                index.paths.insert(module);
-                stack.push(Rc::new(Visit {
-                    file: target.root,
-                    mod_rs: true,
-                    module,
-                    public_only: false,
-                }));
-            }
-        }
-        // A crate name a workspace member also has stays strict at head.
-        outside.retain(|krate| !workspace_crates.contains(krate));
-
         let reached = self.reach(snapshot, stack, head, &outside, &mut index)?;
         let uses: Vec<&UseDecl> = reached.contributions().flat_map(|c| &c.uses).collect();
         let lends: Vec<&LendDecl> = reached.contributions().flat_map(|c| &c.lends).collect();
@@ -443,6 +417,166 @@ impl Indexer {
                 .collect();
         }
         Ok(index)
+    }
+
+    /// The crate roots of the workspace in `workspace` and every other package of `snapshot`,
+    /// interning their manifest entries into `index`. `None` when a snapshot other than head has
+    /// no readable workspace manifest, which leaves `index` incomplete.
+    fn roots(
+        &mut self,
+        snapshot: &dyn Snapshot,
+        workspace: &str,
+        head: bool,
+        index: &mut Index,
+    ) -> Result<Option<Roots>, Error> {
+        let members = match manifest::workspace(snapshot, workspace) {
+            Ok(members) => members,
+            Err(Error::Manifest { .. }) if !head => {
+                index.complete = false;
+                return Ok(None);
+            }
+            Err(error) => return Err(error),
+        };
+        let dirs = snapshot.manifest_dirs(&mut self.manifest_dirs)?;
+        let outside_members = manifest::packages(snapshot, &dirs, &members);
+        let mut workspace_crates = HashSet::new();
+        let mut outside = HashSet::new();
+        let mut crates = Vec::new();
+        let mut stack = Vec::new();
+        let workspace_members = members.len();
+        for (n, member) in members.into_iter().chain(outside_members).enumerate() {
+            self.entries(&member, index);
+            self.members
+                .entry(member.dir)
+                .or_default()
+                .insert(member.package);
+            for target in member.targets {
+                let crate_sym = self.interner.sym(&target.crate_name);
+                if n < workspace_members {
+                    workspace_crates.insert(crate_sym);
+                } else {
+                    outside.insert(crate_sym);
+                }
+                crates.push(crate_sym);
+                self.crates.insert(crate_sym);
+                if target.kind == TargetKind::Lib {
+                    index.libs.push(crate_sym);
+                }
+                let module = self.interner.path(&[crate_sym], ItemKind::Module);
+                index.paths.insert(module);
+                stack.push(Rc::new(Visit {
+                    file: target.root,
+                    mod_rs: true,
+                    module,
+                    public_only: false,
+                }));
+            }
+        }
+        // A crate name a workspace member also has stays strict at head.
+        outside.retain(|krate| !workspace_crates.contains(krate));
+        Ok(Some(Roots {
+            stack,
+            crates,
+            outside,
+        }))
+    }
+
+    /// The file and line where `snapshot` declares each of `wanted` that it declares in a file.
+    /// A path standing behind a re-export points at its source's declaration when `gone` says
+    /// head lacks the source, else at the `use` creating it.
+    pub(crate) fn locate(
+        &mut self,
+        snapshot: &dyn Snapshot,
+        workspace: &str,
+        wanted: &[PathId],
+        gone: impl Fn(PathId) -> bool,
+    ) -> Result<HashMap<PathId, (String, u32)>, Error> {
+        let mut index = Index {
+            complete: true,
+            ..Index::default()
+        };
+        let mut found = HashMap::new();
+        let Some(Roots {
+            stack,
+            crates,
+            outside,
+        }) = self.roots(snapshot, workspace, false, &mut index)?
+        else {
+            return Ok(found);
+        };
+        let reached = self.reach(snapshot, stack, false, &outside, &mut index)?;
+        // Lines of an expansion count from its own text, so only files place a declaration.
+        let mut declared: HashMap<PathId, (&str, u32)> = HashMap::new();
+        let mut placed_uses = Vec::new();
+        for entry in reached.entries.iter().filter(|entry| entry.depth == 0) {
+            let file = entry.visit.file.as_str();
+            let contribution = &entry.contribution;
+            for (&id, &line) in contribution.paths.iter().zip(&contribution.lines) {
+                declared.entry(id).or_insert((file, line));
+            }
+            for (decl, &line) in contribution.uses.iter().zip(&contribution.use_lines) {
+                placed_uses.push((decl, file, line));
+            }
+        }
+        let uses: Vec<&UseDecl> = reached.contributions().flat_map(|c| &c.uses).collect();
+        let lends: Vec<&LendDecl> = reached.contributions().flat_map(|c| &c.lends).collect();
+        let mut hidden = hidden_paths(
+            reached
+                .contributions()
+                .map(|c| (c.hidden.as_slice(), c.exposed.as_slice())),
+        );
+        let (_, origins) =
+            self.resolve_aliases(&mut index.paths, &mut hidden, &uses, &lends, &crates);
+        for &id in wanted {
+            let at = match declared.get(&id) {
+                Some(&at) => Some(at),
+                None => match origins.get(&id) {
+                    Some(&source) if gone(source) && declared.contains_key(&source) => {
+                        Some(declared[&source])
+                    }
+                    Some(&source) => {
+                        self.reexporting(id, source, &placed_uses, &origins, &crates, &index.paths)
+                    }
+                    None => None,
+                },
+            };
+            if let Some((file, line)) = at {
+                found.insert(id, (file.to_owned(), line));
+            }
+        }
+        Ok(found)
+    }
+
+    /// The file and line of the `use` among `uses` through which `id` stands for `source`.
+    fn reexporting<'f>(
+        &mut self,
+        id: PathId,
+        source: PathId,
+        uses: &[(&UseDecl, &'f str, u32)],
+        origins: &HashMap<PathId, PathId>,
+        crates: &[Sym],
+        paths: &HashSet<PathId>,
+    ) -> Option<(&'f str, u32)> {
+        let segments = self.interner.segments(id).to_vec();
+        for &((module, written, name, _), file, line) in uses {
+            let mut base = module.clone();
+            base.extend(*name);
+            let Some(rest) = segments.strip_prefix(base.as_slice()) else {
+                continue;
+            };
+            let Some(mut target) = self.resolve_use(module, written, crates, paths) else {
+                continue;
+            };
+            target.extend_from_slice(rest);
+            if self
+                .interner
+                .find_path(&target)
+                .is_some_and(|target| origin(origins, target) == source)
+            {
+                return Some((file, line));
+            }
+        }
+        None
     }
 
     /// Reads every file reachable from `stack` into `index`, with the items its item-position
@@ -823,6 +957,7 @@ impl Indexer {
             }
             if counts(decl.public) || decl.kind == ItemKind::Module {
                 out.paths.push(id);
+                out.lines.push(decl.line);
                 out.signatures
                     .extend(decl.signature.as_deref().map(|s| (id, Rc::from(s))));
             }
@@ -833,20 +968,17 @@ impl Indexer {
             let name = self.interner.sym(&rules.name);
             let id = self.interner.path(&[module[0], name], ItemKind::Macro);
             out.paths.push(id);
+            out.lines.push(rules.line);
             out.exposed.push(id);
         }
         out.visits = self.visits(visit, &module, items);
-        out.uses = items
-            .uses
-            .iter()
-            .filter(|u| counts(u.public))
-            .map(|u| {
-                let name = u.name.as_deref().map(|n| self.interner.sym(n));
-                let within = self.within(&module, &u.module);
-                let source = imported(&imports, &within, self.syms(&u.source));
-                (within, source, name, u.public)
-            })
-            .collect();
+        for u in items.uses.iter().filter(|u| counts(u.public)) {
+            let name = u.name.as_deref().map(|n| self.interner.sym(n));
+            let within = self.within(&module, &u.module);
+            let source = imported(&imports, &within, self.syms(&u.source));
+            out.uses.push((within, source, name, u.public));
+            out.use_lines.push(u.line);
+        }
         out.calls = self.calls(&module, items);
         out.macro_rules = self.rules(&module, items);
         out.lends = items
@@ -882,11 +1014,12 @@ impl Indexer {
                 .as_ref()
                 .map(|path| imported(imports, &within, self.syms(path)));
             let mut members = Vec::new();
-            for (name, kind, public, signature) in &block.items {
+            for (name, kind, public, signature, line) in &block.items {
                 if *public || !public_only {
                     base.push(self.interner.sym(name));
                     let id = self.interner.path(&base, *kind);
                     out.paths.push(id);
+                    out.lines.push(*line);
                     out.signatures
                         .extend(signature.as_deref().map(|s| (id, Rc::from(s))));
                     if *public && source.is_none() {
