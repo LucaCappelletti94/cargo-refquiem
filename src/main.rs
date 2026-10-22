@@ -27,33 +27,40 @@ struct Args {
     /// Scan only the files of this workspace member for mentions.
     #[arg(long, value_name = "NAME")]
     package: Option<String>,
-    /// Print the report as JSON.
-    #[arg(long)]
-    json: bool,
-    /// Add GitHub workflow annotations, and write the job summary when GitHub provides its file.
-    #[arg(long)]
-    github: bool,
+    #[command(flatten)]
+    output: Output,
     /// Exit 0 even with findings.
     #[arg(long)]
     no_fail: bool,
 }
 
 /// How the report is printed.
+#[derive(Clone, Copy, clap::Args)]
 struct Output {
+    /// Print the report as JSON.
+    #[arg(long)]
     json: bool,
+    /// Print the report as Markdown.
+    #[arg(long, conflicts_with_all = ["json", "github"])]
+    markdown: bool,
+    /// Add GitHub workflow annotations, and write the job summary when GitHub provides its file.
+    #[arg(long)]
     github: bool,
-    no_fail: bool,
 }
 
 impl Output {
-    fn emit(&self, report: &refquiem::Report) -> Result<(), refquiem::Error> {
+    fn emit(self, report: &refquiem::Report, no_fail: bool) -> Result<(), refquiem::Error> {
         if self.json {
             println!("{}", report.json());
             return Ok(());
         }
+        if self.markdown {
+            print!("{}", report.job_summary());
+            return Ok(());
+        }
         print!("{}", report.human());
         if self.github {
-            print!("{}", report.annotations(self.no_fail));
+            print!("{}", report.annotations(no_fail));
             if let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") {
                 let path = std::path::PathBuf::from(path);
                 let io = |source| refquiem::Error::Io {
@@ -79,13 +86,10 @@ fn main() -> ExitCode {
         args.remove(1);
     }
     let args = Args::parse_from(args);
-    let output = Output {
-        json: args.json,
-        github: args.github,
-        no_fail: args.no_fail,
-    };
-    match run(args).and_then(|report| output.emit(&report).map(|()| report)) {
-        Ok(report) if report.is_clean() || output.no_fail => ExitCode::SUCCESS,
+    let output = args.output;
+    let no_fail = args.no_fail;
+    match run(args).and_then(|report| output.emit(&report, no_fail).map(|()| report)) {
+        Ok(report) if report.is_clean() || no_fail => ExitCode::SUCCESS,
         Ok(_) => ExitCode::FAILURE,
         Err(error) => {
             eprintln!("refquiem: {}", chain(&error));
