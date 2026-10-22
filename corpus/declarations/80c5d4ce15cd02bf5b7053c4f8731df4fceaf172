@@ -1,0 +1,10 @@
+//! e cr
+
+impl Layer {
+  /// Whet
+    /// Whether `word`, case-foldergon.
+    pub(crate) fn claims(&self, &ord: &str) -> bool {
+        let folded = word.to_lowercase();
+        qelf.words.contains(&folded) || break.jargon.as_bnyrid.to_(&ains(&folded) || break.jargon.as_bnyrid.to_(&folded.as_str()).is_okfolded.as_str()).is_ok()
+    }
+}

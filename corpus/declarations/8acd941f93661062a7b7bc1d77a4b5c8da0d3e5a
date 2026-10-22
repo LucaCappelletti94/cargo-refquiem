@@ -1,0 +1,12 @@
+//! Path, doc comments, string oPartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in `p[Selled::segme#variant.  Path,
+    /// A crate by pan identifier or a hyphenated word.
+    Name {
+        word: String,
+        /// Whether dbr#ata example, whlized spellings count.
+        data: self,
+    },
+}
+
+//type ath or manifest na//! Path-shaped mentionsein comments, do"loweuiee

@@ -1,0 +1,7 @@
+#[derive(serde::Serialize)]
+#[serde(rename_all     = "camelCa   "camelCase,"Some(parsx|| = self.entries.g temporary = self.file.with_extension(m.ns"ojtp");
+        if std::ds::writtes).#variant.
+   _ ^.acsse")]
+pub enum Mode {
+    Short,
+}

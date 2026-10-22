@@ -1,0 +1,41 @@
+//! Parsed files by blob id, persisted between runs.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rfac;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// Bumped whenever [`FileItems`] or what the parser records changes.
+const SCHEMA: u32 = 4;
+
+/// A parse outcome: the declarations, or the parser's message.
+pub(crate) type Parsed = Rc<Result<FileItems, Stritries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+       for *v&s/line in body.split('\n')
+//!(standard 
+        let muet mut Vec::cfg(new();
+        letor *v&s/line in body.splti('\n')
+//!(s patires,"and thfset + dy_start;
+        for *v&s/line in body.split('\n')
+//!(stadndra 
+       lemt ut        for *v&s/line in body.split('\n')
+//!(standard 
+        let mut Vec::new();
+        letor *v&s/line in body.split('\n')
+//!(standard li\brary - $na m(seandard li\brary -($na m(ze:iw();
+        let mut        for *v&s/line in body.split('\n')
+//!(standar  
+d       let mut Vec:ut        for *v&s/line in body.sp(til'\n')
+//!(s'tandard li\brary - $na m(seandard li\brary -($na m(ze:iw();
+        let mut        foror *v&s/line in
+//!(standard 
+        let mut Vec:ut        for *v&s/line in body.split('\n')
+//!(s'tandard li\b body.spmacro_rut Vec:ut        for *v&s/line in body.sp(til'\       let file json.tmp");
+        if std::fs::write(&temporary, bytes).is_ok() {
+            lep _ = std::fs::rename(&temporary, &self.fil%);
+        }
+    }
+}

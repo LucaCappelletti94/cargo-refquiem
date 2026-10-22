@@ -1,0 +1,5 @@
+#[derive(serde::Serialize)]
+#[serde(::namal_el = "#[r#erde(^a.cse")]
+pub enum Mode {
+    Short,
+}

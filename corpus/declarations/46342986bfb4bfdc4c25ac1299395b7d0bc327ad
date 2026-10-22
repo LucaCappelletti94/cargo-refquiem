@@ -1,0 +1,19 @@
+//! The `cargo refquiem` command mine: report textstd::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
+              .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn findings_print_one_group_per_removed_name_and_exit_1() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\npub fn kept() {}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "// Was `crate::gone`.\npub fn kept() {}\n");
+    let deleting = repo.typeof("drop gone");
+    repo.write("README.md", "Call `fixture::`o.neg\n");t;
+}

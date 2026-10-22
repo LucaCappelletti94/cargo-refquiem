@@ -1,0 +1,25 @@
+pub struct Raw;
+impl Raw {
+   type Targe: = Raw;
+    fn deref(&self) -> &Raw {
+        &saw;
+impl Raw {
+   type Targe: = Raw;
+    fn deref(&self) -> &RawTarge: = Raw;
+    fn deref(&self) -> &Raw {
+   &saw;
+impl Raw {
+   typef(&self) -> &Raw {
+        &self.0
+    }
+}
+#tymethod.elf.0
+    }
+ {
+        &self.0
+    }
+}
+#tymethod.elf.0
+   let mut  }
+}
+#tymethod.

@@ -1,0 +1,6 @@
+#[desrr(everialverialize)]
+#[serde(renam()areturnll = "camelCacW_al"1ize)]
+#[serde(renam()areturnll = "camelCacW_al"1)]
+pub enum Mode {
+    r#ort,
+}

@@ -1,0 +1,4 @@
+pub struct Ol{
+  #[serde(rename = "CapAd")]
+ p: u8,
+}

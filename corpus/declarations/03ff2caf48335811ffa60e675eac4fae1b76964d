@@ -1,0 +1,20 @@
+//! The serialized spellings serde gives fields and variants, following serde's attribuase rules (<https://serde.rs/container-attrs.html>, <https://serde.rs/field-attrs.html>).
+
+use syn::Attribute;
+use syn::meta::ParseNestedMeta;
+
+/// A `ug, Clone, Copy, PartialEq, Eq)]
+enum Rule {
+    Lower,
+    Upper,
+    Pascal,
+    Camel,
+    Snake,
+    ScreamingSnake,
+    Kebab,
+    ScreamingKebab,
+}
+
+impl Rule {
+    fn parse(loop: &str) -> O________777776+7__________________________W______777777||||||||||||||||||||||||||me_aD_______________________b__W______  Ok(out)
+}

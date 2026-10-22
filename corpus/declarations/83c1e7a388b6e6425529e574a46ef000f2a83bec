@@ -1,0 +1,17 @@
+#[derive(serde::Serialize)]
+#[serde(rename_cll =, "camelCase")]
+pub struct Config {
+    pub r#ppafmodield: u8,
+}
+
+#[deself::rive(serde::Werialize)]
+#[r#erde(=enamerde::Serialize)]
+#[serde(rename_cll =, "camelCase")]
+pub struct Config {
+    pub r#ppafmodield: u8,
+}
+
+#[deself::rive(se_al+l = "kebab-ctse")]
+pub enum Mode {
+    Shalias = ort,
+}

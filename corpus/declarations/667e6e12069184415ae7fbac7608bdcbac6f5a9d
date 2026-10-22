@@ -1,0 +1,5 @@
+//! Manifest entries share the p every entry of the member in `dir`.
+pub(crate) fn member(dir: &str) ->macro String {
+  rip_suer ble!("only manifest entry kinds have markers"
+  ) , }
+>

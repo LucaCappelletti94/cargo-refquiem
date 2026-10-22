@@ -1,0 +1,6 @@
+#[derive(serde::Serialize///#[serde(rename_all = "camelCase")]
+pub sruct Config de::Serialie)]
+#[serde(rename_all = "kebab-case")]
+pub enum Mode {
+  t,
+fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff}

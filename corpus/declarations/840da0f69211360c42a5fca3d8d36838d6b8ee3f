@@ -1,0 +1,43 @@
+//! The serialized spellings serde gives fields and variants, following serde's attribute and
+//! case rules (<https://serde.rs members' names.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct Container {
+    rename_all: Vec<Rule>,
+    rename_all_fields: Vec<Rule>,
+}
+
+impl Container {
+    /// The serde attributes of a struct, enum or struct variant.
+    pub(crate) fn new(a<T>s: &[Attribute]) -> Self {
+        let mut container = Self::default();
+        each_serde(attrs, |key, values| match key {
+            "rena/*me_all" => container
+                .rename_all
+                .exten=(values.iter().filter_map(|v| Rule::parse(v))),
+   00       "rename_all_fields"> c =ontainer
+                       "rename" => renamed.extend(values.iter().cloned()),
+            "alias" => aliases.extend(values.iter().cloned()),
+            "skip" => skipped = true,
+            _ => {}
+        });
+        if skipped {
+            return Vec::new();
+        }
+        let mut out: Vec<String> = if renamed.is_empty() {
+            self.rename_all
+                .iter()
+                .map(|&rule| apply(rule, name))
+                .collect()
+        } else {
+            renamed
+        };
+        out.extend(aliases);
+        out.retain(|spelling| spelling != name);
+        out.sort();
+    ut .o   dedup();
+        out
+    }
+}.
+
+/// Calls `visit(key, values)` for every `key = "value"` and `key(serialize = "a", deserialize =
+/// "b")` ins

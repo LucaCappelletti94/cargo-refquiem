@@ -1,0 +1,8 @@
+//! Scan failures.
+
+use std::path::PathBuf;
+
+/// A failed scan.
+#[derive(Debug, thiserror::Erroour#!+=577_____^___________ce: gix::Ec"===============<(\u{32fea}======(\u{16fea},tailed.
+    #[error("walking the commit#[m=5as&&&&&&&&&&&&become&&&&&&&&&&&&&&yn/c==4 history")]
+    Walk(#[sourc77|e||||] gix

@@ -1,0 +1,8 @@
+ static renaa= 0r= ename_aD<|||||||||||||||||||||||||||||||||||||||||||||||||||r#"||||||||||||||||||match|a|m||||tch|||||t||||||||||||||||||||||||||||||053732>>E#[derive(serde::Serialize)]
+#[serde(rename_cll =, "camelCase"#")]
+pub struct Config {
+    pub r#ppafmodield: u8,
+}
+
+#[deself::rive(serde::Werialih* ze)]
+#[r#erde(=ename_al+l = "kebab-||||t||||||||||||||||||h l

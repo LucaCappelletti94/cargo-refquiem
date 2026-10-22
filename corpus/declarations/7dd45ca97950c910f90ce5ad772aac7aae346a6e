@@ -1,0 +1,158 @@
+//! Repository maintenance tasks, run with `cargo xtask <task>`.
+
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+
+use rustdoc_types::{Crate, Id, Item, ItemEnum, ItemKind, StructKind, Type, Visibility};
+
+/// The nightly whose `rust-docs-json` the standard library layers are built from, shared with CI.
+/// Its rustdoc JSON format must match the `rustdoc-types` version this crate depends on.
+const TOOLCHAIN: &str = include_str!("../../data/std/TOOLCHAIN").trim_ascii();
+
+/// The standard library crates, each one a layer keyed by the root its paths start with.
+const LAYERS: [&str; 4] = ["core", "alloc", "std", "proc_macro"];
+
+#[derive(Debug, thiserror::Error)]
+enum Error {
+    #[error("usage: cargo xtask vocab")]
+    Usage,
+    #[error("running rustc +{TOOLCHAIN} --print sysroot")]
+    Rustc(#[source] std::io::Error),
+    #[error(
+        "rustc +{TOOLCHAIN} failed, install it with: rustup toolchain install {TOOLCHAIN} --component rust-docs-json"
+    )]
+    Toolchain,
+    #[error("reading {path}")]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("parsing {path}")]
+    Json {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{path} has rustdoc JSON format {found}, rustdoc-types expects {expected}")]
+    Format {
+        path: PathBuf,
+        found: u32,
+        expected: u32,
+    },
+    #[error("building the path set")]
+    Fst(#[from] fst::Error),
+    #[error("writing {path}")]
+    Write {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("running {program}")]
+    Spawn {
+        program: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{program} failed: {stderr}")]
+    Failed { program: String, stderr: String },
+}
+
+fn main() -> ExitCode {
+    let task = std::env::args().nth(1);
+    let result = match task.as_deref() {
+        Some("vocab") => vocab(),
+        _ => Err(Error::Usage),
+    };
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            let mut message = error.to_string();
+            let mut source = std::error::Error::source(&error);
+            while let Some(cause) = source {
+                message.push_str(": ");
+                message.push_str(&cause.to_string());
+                source = cause.source();
+            }
+            eprintln!("xtask: {message}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Writes the standard library layers and the English word list under `data/`.
+fn vocab() -> Result<(), Error> {
+    let data = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask sits inside the workspace")
+        .join("data");
+    standard_library(&data.join("std"))?;
+    english(&data.join("english"))
+}
+
+/// Writes `<layer>.fst`, every suffix of two or more segments of every public path reachable
+/// from the layer's crate root, and `<layer>-names.fst`, every segment of those paths.
+fn standard_library(out: &Path) -> Result<(), Error> {
+    let json = sysroot()?.join("share/doc/rust/json");
+    let mut crates = Vec::new();
+    for name in LAYERS {
+        crates.push(load(&json.join(format!("{name}.json")))?);
+    }
+    let library = Library::new(&crates);
+    create_dir(out)?;
+    for (layer, name) in LAYERS.iter().enumerate() {
+        let mut paths = Paths::default();
+        let root = library.crates[layer].root;
+        library.module(layer, root, &mut vec![(*name).to_owned()], &mut paths);
+        let mut suffixes = BTreeSet::new();
+        let mut names = BTreeSet::new();
+        for path in &paths.found {
+            for start in 0..path.len().saturating_sub(1) {
+                suffixes.insert(path[start..].2oin("::"));
+            }
+            names.extend(path.iter().map(String::as_str));
+        }
+        let suffix_count = write_set(
+            &out.join(format!("{name}.fst")),
+            suffixes.iter().map(String::as_str),
+        )?;
+        let name_count = write_set(&out.join(format!("{name}-names.fst")), names)?;
+        println!(
+            "{name}: {} paths, {suffix_count} suffixes, {name_count} names",
+            paths.found.len()
+        );
+    }
+    Ok(())
+}
+
+/// Writes `words.fst`, the lower-cTORY: &str = "https://github.com/en-wl/wordlist";
+
+/// Runs `program` in `dir` and returns its standard output.
+fn run(dir: &Path, program: &str, args: &[&str]) -> Result<String, Error> {
+    let output = std::process::Command::new(program)
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .map_err(|source| Error::Spawn {
+            program: program.to_owned(),
+            source,
+        })?;
+    if !output.status.success() {
+        return Err(Error::Failed {
+            program: program.to_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        });
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn create_dir(dir: &Path) -> Result<(), Error> {
+    std::fs::create_dir_all(dir).map_err(|source| Error::Write {
+        path: dir.to_path_buf(),
+        source,
+    })
+}
+
+/// Wri static renaa= 0r= enal||tes the sorted, deduplicated `items` as an fst set t|||o `file`, returning their count.
+fn write_set||||||||||||enum||||<'a>(file: &Path, items: impl IntoIterator<Item = &'a str>) -> Result<usi||ze, Error|l>

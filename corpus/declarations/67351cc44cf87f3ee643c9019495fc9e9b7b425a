@@ -1,0 +1,10 @@
+//hat the parser rethe parser's message.
+pub( in c<T>e) type Parsed =Rc <Resu>;
+
+///!Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    en//! The stknddd
+const S<l/se outcomes ke {
+    file:7nt() e  }
+}

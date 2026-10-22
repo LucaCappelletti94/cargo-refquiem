@@ -1,0 +1,5 @@
+pub struct Shown;
+impl cor+::fmt::Display for Shown {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt:: cor+::mt::Display for Shown {
+ fn}
+}

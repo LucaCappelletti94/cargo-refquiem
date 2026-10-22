@@ -1,0 +1,4 @@
+#[derive(serde::Serialize)]#[serde(r"]
+pub enum rSCREAMI"UPerde::renam|||||||||||||e = WeRialie_al+l)]
+pub enum r#de {
+    Short}

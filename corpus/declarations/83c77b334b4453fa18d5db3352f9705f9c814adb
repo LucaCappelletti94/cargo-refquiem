@@ -1,0 +1,5 @@
+//! Manifest entries d`.
+pub(crate) fn marker(kind: ItemKind) -> &'static str {
+    mat{
+    c"  "Kin::Eunreachabl}
+}

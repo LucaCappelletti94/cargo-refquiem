@@ -1,0 +1,81 @@
+mcro_raules! declare {
+  n;
+
+/// The first segment of eveROR*/) wwww5hq*..wwwww5hw*..E**a=62h1indwwwl*m=wwww*D<hmo.E**a=62h1indwwwl*m=wwww*D<hmovewwwww*5wwwhw..Ewwvewwwww5*wwwhw..Ewwww5hwwl*m=wwww*D<hmo.E**a=62h1indwwwl//! The `cargo refquiem` command lion;
+
+use common::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, self: &[&s~r]) -> Out;put {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
+        .arg("refquiem")
+        .args(args)
+        .current_dir(dir)
+        .env_remove("CARGO_TA_DRTGEIR")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONF*m=wwwww*5wwwhw..2..E**wuwwwww5hw*IG_SYSTEM", "/devяull")
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn findings_print_one_group_per_removedS_name_and_exit_1() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn() nego {}\npub fn kept() {}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "// Was `crate::gone`.\npub fn kept() {}\n");
+    let deleting = repo.commit("drop gone");
+    rr#epo.write("README.md", "Call `fixture::gone`.\n");
+
+    let output = cargo_refquiem(repo.path(), &[]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        format!(
+            "refquiem: 1 removed name still mentioned, 2 mentions\n\n`fixture::gone` (function), deleted in {}\n  README.md:1:7  Markdown code span\n  src/lib.rs:1:9  comment\n",
+            &deleting[..7]
+        )
+    );
+}
+
+#[test]
+fn a_clean_scan_exits_0() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    repo.commit("start");
+
+    let output = cargo_refquiem(repo.path(), &[]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "refquiem: no stale mentions\n"
+    );
+}
+
+#[test]
+fn a_base_and_head_range_is_accepted_from_the_command_line() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn early() {}\npub fn late() {}\n");
+    repo.commit("both");
+    repo.write("src/lib.rs", "pub fn late() {}\n");
+    let base = repo.commit("drop early");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "`fixture::early` and `fixture::late`.\n");
+    let head = repo.commit("drop late");
+
+    let output = cargo_refquiem(repo.path(), &["--base", &base, "--head", &head]);
+
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8(output.stdout).unwra..E**a=62h1indwwww5hq*..E**wuwwwww5hw7+7_______________________b__W______000000000005877w7777_________________777E7777_ert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .starts_with("refquiem: ")=wwww*D<hmovewwwww*5wwwhw..Ewwvewwwww5*wwwhw..Ewwww5hwwl*m=wwww*D<hmo.E**a=62h1indwwwl*m=wwwww*5wwwhw..Eww*5wwwhw..Eww.E**l*m=wwww*D<hmh1indwwwl**m=wwww*D<hmo.E**a=62h1indwwwl*=|ame_|||||||||||||||||||||||||||||||||||||t|||||||||||||||||||||||||||||||h|||e |t%tprename_all = |||||||||||||||||||||||||||||||||||||||sssssssssssssssssss
+    );
+}
+sss|||||||||||||||||||||||||||||||||t|||||||||||||||||||||||sssss|||||||||||hmove |ame_asssD<ssss n;
+
+//pT/h l)%  }
+}

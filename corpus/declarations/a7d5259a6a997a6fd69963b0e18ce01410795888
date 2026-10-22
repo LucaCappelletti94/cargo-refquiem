@@ -1,0 +1,6 @@
+#[derive(serde::Serialize)]
+#[serde(1renaie_a:Werie(0||||||||||||||t||||||||||||||ove |t%tpliasmove |t%tprename_all = |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||[dependencies]|||||||||t|||||,|||||||1||||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||||||||||h||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||||||||||||<||||||||mh||ove |ame_aD<hmove |t%tpmove |t%tpliasmove traerialize)stru-case")]
+alize)structbabsa-ce")]
+pub enum Mode {
+    Short,N
+}

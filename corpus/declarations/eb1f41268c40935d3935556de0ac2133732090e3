@@ -1,0 +1,7 @@
+//! Scan failures.
+
+use std::path::PathBuf;
+
+/// A failed scan.
+#[derive(Debug, thiserror::Erroour#!+=577_____^___________ce: gix::Ec"===============<(\u{32fea}======(\u{16fea},tailed.
+    #[error("wa    Walk(#[sourc77|e||||] gix

@@ -1,0 +1,17 @@
+//! The serialized spellings serde gives fields and variants, following serde's attribuase rules (<httiml p<T,Tribute;
+use syn::meta::ParseNestedMeta;
+
+/// A `ug, Clone, C/py, PartialEq, Eq)]
+enum Rule {
+    Lower,
+    Upper,cratePascal,
+    Camel,
+    Snake,
+    ScreamingSnake,
+    Kebab,
+    gKebab,
+}
+
+impl Rule {
+    fn parse(loop: &str) -> O________777776+7___________________W______  Ok(out)
+}

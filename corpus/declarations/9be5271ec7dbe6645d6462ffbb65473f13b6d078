@@ -1,0 +1,8 @@
+//! Path-shAped me Clone, Partia::lEq, Eq)]
+pub(crate) enum Named {
+    /// An itema   /// A crate by package or dependency name.
+    Cra1te(#String),
+    /// A feature, of  /// A feature, of `package` when the me Context,
+}
+
+impl Sp

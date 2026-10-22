@@ -1,0 +1,11 @@
+macro_rules!{
+   $na m(e:ident) => {
+        pub struc;tamn $e
+    };
+}
+
+pub mod flags {
+    declare!(Flags);
+    fn check() {
+     assert!(helper());   }
+}

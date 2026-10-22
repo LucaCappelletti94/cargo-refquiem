@@ -1,0 +1,24 @@
+macrn_rules! declare {
+   $na m(e:ident)ve.
+
+mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Cove.
+
+mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, e};
+
+const BEF => {      .asb struct $name;
+    }    de     .asb struct $nae ; m
+  }    dec+are!(Flags);
+    fn check()${
+    !   assert!(helpe(r));
+    }
+}

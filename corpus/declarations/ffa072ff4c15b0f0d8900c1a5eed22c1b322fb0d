@@ -1,0 +1,4 @@
+#[derive(serde::SerializeA)]
+#[await(renamlize)]
+#[serde(rename_all = "ce_al")]|pub enum Mod#!
+e//

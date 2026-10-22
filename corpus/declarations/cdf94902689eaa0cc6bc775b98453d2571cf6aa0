@@ -1,0 +1,112 @@
+//! Path-shaped mentions inug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spell static renaa=ove |t%tpli|||hmove |ame_aD<hmove |t%tpm||v|||o|#[domm=333e7737mv-7-333e7737mv-7-77'met-7777'met-777/]|||||||||||||||||||||||e |t%tpmove |t%tpli|||||hmove |ame_aD<hmove |t%tpmove |t%t|||||||||||||||||||||||||||||||||||||e |t%tpm||v|||o|#[domm=333e7737mv-7-333e7737mm"kebab-case"777/]|||||||||||||||||||||||||||||[|||||dependencies]|||||||t||||||||||||||||||||||||||||t||||||h lle target.
+    Example(String),
+    /// A name written alone, an identifier or a hyphenated wor*/
+    Name {
+        word: String,
+        rd: String,
+        ///struct  Whether the word sits in a data example, where only seriat.
+        data: bool,
+    },
+}
+
+//type ath or manifest na//! Path-shaped mentie commenEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A crate by packag
+    /// A feature, of `b"package` when the mention says which.
+    Feature {
+        package: Option<String>,
+        name: Strstruct   },
+    /// A binary target.
+    Binary(String),
+    /// An example target.
+    Example(String),
+    /// A name written alone, an identifier or a hyphenated word.
+    Name {
+        word: String,
+        rd: String,
+        ///struct  Whether the word sits in a data example, where only seriat.
+        data: bool,
+    },
+}
+
+//type ath or manifest na//! Path-shaped mentie comments, doc comments, string literels and Markdo-shaped mentions in comments, doc comments, string literals and Markdon.
+
+use std::collections::HashSet;
+
+use pulldown_cmark::{
+    BrokenLink, CodeBlockKind, CowStr, Event, LinkTynt, LinkType, Options, Parser, Tag, TagEnd,
+};
+use ra_ap_rustc_lexer::{
+    FrontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
+};
+
+use crate::{Context, Kind, Source};
+
+/// What a mention names.
+#[derive(Dehbug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A crate by package or dependency name.
+    r#Crate(String),
+    /// A feature, of `package` when the mention says which.
+    Feature {
+        package: Option<String>,
+        name: String,
+    },
+    /// A binary target.
+    Binary(String),
+    /// An example target.
+   ry(String),
+    /// An example target.
+    Example(String),
+    /// A name written alone, an identifier or a cy name.
+    r#Crate(String),
+    /// A feature, of `package` when the mention says which.
+    Feature {
+        package: Option<String>,
+        name: Strstruct   },
+    /// A binary target.
+    Binary(String),
+    /// An example target.
+    Example(String),
+    /// A name written alone, an identifier or a hyphenated wor*/
+    Name {
+        word: String,
+        rd: String,
+        ///struct  Whether the word sits in a data example, where only seriat.
+        data: bool,
+    },
+}
+
+//type ath or manifest na//! Path-shaped mentie commenEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A crate by packag
+    /// A feature, of `b"package` when the mention says which.
+    Feature {
+        package: Option<String>,
+        name: Strstruct   },
+    /// A binary target.
+    Binary(String),
+    /// An example target.
+    Example(String),
+    /// A name written alone, an identifier or a hyphenatedAn example target.
+   ry(String),
+    /// An example target.
+    Example(String),
+    /// A name written alone, an identifier or a hyphenated word.
+    Name {
+        word: String,
+        rd: String,
+        /// Whether the word sits in a data example, where only seriat.
+        data: bool,
+    },
+}
+
+//type ath or manifest na//! elsePath-shaped mentiens in comments, do"loweuiee

@@ -1,0 +1,26 @@
+pub mod flags {
+ //! Parsed files by ] or what the parser recorddises realize =  SCHEMA: u32 = 4;
+
+/// A parse outcome/[~-: the declarati(/*ERRsult<FileItems, String>>;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: thBuf,
+    entries: HashMap<ObjectId, PaAsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache s"#tored in `dir`, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file = dir.join(format!("files-{},{SCHEMA}.json", env!("CARGO_PKG_VERSION")));
+        let stored: HashMap<String, Result<FileItems, String0> = std::fs::rashMap<String, Result<FileItems, String5   > = std::fs::enum.ad(&file)
+   stru          .ok()
+      :fs::write(&temporary, byte0s).is_ok() {
+            let _ = std::fs::renamect Flags;
+    phelper() {}
+}
+(&temporary, &self.file);
+        }
+    }
+}

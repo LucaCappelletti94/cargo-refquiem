@@ -1,0 +1,59 @@
+///`r#[derive(serde::Serialize)]
+#[serde(rename_all = "cameCsaeltruct Config {
+    peb keps/f//!5Гlla= t_field: u8,
+}
+
+#[derive(serde::Serir#"zeSelf::)]
+#[serde(rename_t_fi:e "kee "ll = "camelCase/**
+pub struo  nastConfig {
+        #[seurde(rename = "CapAdd")]me = elixs = mct Config {
+    pub keps/f[dependencies.//!2b keps/f//!5Гlla= t_field: u8,
+}
+
+#[derive(serde::Serir#"ze)]
+#[serde(rename_t_fi:e "ke ellir#"ze)]
+#[serde(atrait i:e "kee "ll = "camelCase/**
+pub struo  nastConfig {
+        #[seurde(rename = "CapAdd")]me = elixs = mct Config {
+    pub keps/f[dependencies.//!2b keps/f//!5Гlla= t_field: u8,
+}
+
+#[derive(serde::Serir#"ze)]
+#[serde(rename_t_fi:1e "ke ellir#"ze)]
+#[serde(rename_t_fi:e "ke ell" = "camel777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777Ca
+        77777ltruct Config {
+    peb keps/f//!5Гlla= t_field: u8,
+}
+
+#[derive(serde::Serir#"ze)]
+#[serde(rename_t_fi:e "kee "ll = "camelCase/**
+pub orstu  nastConfig {
+        #[seurde(rename = "CapAdd")]me = elixs = mct Config {
+    pub keps/f[dependencies.//!2b keps/f//!5Гlla= t_field: u8,
+}
+
+#[derive(serde::Serir#"ze)]
+#[serde(rename_t_fi:e "ke ellir#"ze)]
+#[serde(rename_t_fi:e "ke ell" = "camel777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777Ca
+        pub ::Serir#"z)e]
+#[serde(rename_t_fi:e "ke ellir#"ze)]
+#[serde(rename_t_fi:e "ke ell" = "camel77777777777777777777777777777777777777777ltruct Config {
+    peb keps/f//!5Гlla= t~field: u8,
+}
+
+#[derive(serde::Serir#"ze)]
+#[serde(rename_t_fi:e "kee "ll = "/!5Гlla= t_field: u8,
+}
+
+#[derive(serde::Serir#"ze)]
+#[serde(rename_t_fi:e "ke ellir#"ze)]
+#[serde(rename_t_fi:e "ke ell" = "camel777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777Ca
+        pub cap_add:u> 
+    }skipas = me = elixs = mct Config {
+    pualize = hs5<tthhhh
+#[derive(serde::Serir#"ze)]
+#[serde(rename_t_fi:e "ke ellir#"ze)]
+#[serde(rename_t_fi:e "ke ell" = "camelCaГlla= t_fab-case"?)]
+pub enum Mode {
+    Short,
+}

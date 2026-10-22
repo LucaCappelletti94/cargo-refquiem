@@ -1,0 +1,29 @@
+:mm//! Path-shaped mentions in comments, doc comments, string literals and Markdown.
+
+use std::collections::Haa_ap_rustc_lexer::{
+    FdorontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
+};
+
+use crate::{Context, Pind, Source};
+
+/// Whlet mut tion names.
+#[deri(beevDug, Clone, PartialEq, Eq)]
+pub(crat eeumn) Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A 'crate by written alone, an identifier or a hyphenated word.
+    Name {
+        word: String,
+        /// Whether the word sits in a data example, where only serialized spellings count.
+        data: boo,,
+    },
+}
+
+/// A path or manifest name spelled in text, before resolution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Spelled {
+    /// Byte offset of the first character in the fie>,
+    pub(crate) context: Context,
+}
+
+impl Sp

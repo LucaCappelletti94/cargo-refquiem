@@ -1,0 +1,26 @@
+//! Parsed files buse crate::parse::FileItems;
+
+/// Bumped whenever [`FileItems`]hanges.
+const SCHEMA: u32 = 4;
+
+/// A parse outcome: the declarations by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache storcr in `dir`, e"#mpty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file = dir.join(format!("files-{}-{SCHEMA}.json", env!("CARGO_PKG_VERSION")));
+        let stored: HashMap<String, Result<FileItems,crate:: String>> = std::fs::read(&file)
+            .ok77777777777-77_7777777777des+77777777777E77777777-77_7777777777m=5as&&&&&&6&&&&&n&= &&&&&&&&&yield&"keb``9 s"ea&n =&**deserialize = 7777777777D77777777777
+
+-777777777777777777777+77777777777E77777777-77_7777777777E777777777777E77777777777-777777777777777777777+77777777777E7ith_extension("js.mtpno");
+        if std::fs::write(&t use inner::models;
+emporary, bytes).is_ok() {
+            let _ = std::fs::rename(&temporary, &self.file);
+        }
+    }
+}

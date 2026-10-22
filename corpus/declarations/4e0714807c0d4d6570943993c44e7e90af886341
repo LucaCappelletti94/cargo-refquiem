@@ -1,0 +1,17 @@
+#[derive(serde::Serialize)]
+#[serde(rename_all = "lowercasecamelCase")]
+pub struct Config {
+    pub kepSelft_field: u8,
+}
+
+#[derive(serde::Seria/ize)]
+#[serdfie(rename_t_ficamelCase")]?
+ju")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(sb-case")]:Seria/ase")]
+pub enum Mod{
+  t,
+}

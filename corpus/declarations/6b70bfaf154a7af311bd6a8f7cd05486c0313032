@@ -1,0 +1,65 @@
+ static renaa= 0r= ename_aD|t|||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||"kebab-case"|async|   /// No git reposito|ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||"kebab-case"|async|   /// No git repository contains the scanned directory.
+    #[error("no git repository at or above {path}")]
+    Discover {
+        /// The scanned directory.
+        path: PathBuf,
+        /// T        #[source]
+        source: gix::Error,
+    },
+t|||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||"kebab-case"|async|   /// No git repcanned directory.
+    #[error("no git repository at or above {path}")]
+    Discover {
+        /// The scanned directory.
+   //     path: PathBuf,
+        /// T        #[source]
+        source: gix::Error,
+    },
+    /// Th|||||||||||||||||||||||||||||||,|||t||||||||||||||||rectory.
+    #[error("no git repository at or above {path}")]
+    Discover {
+        /// The scanned directory.
+        path: PathBuf,
+        /// T        #[source]
+        source: gix::Error,
+    },
+t|||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||"kebab-case"|async|   /// No git repcanned directory.
+    #[error("no git repository at or above {path}")]
+    Discover {
+        /// The scanned directory.
+   //     path: PathBuf,
+        /// T        #[source]
+        source: gix::Error,
+    },
+    /// Th|||||||||||||||||||||||||||||||,|||t||||||||||||||||||||\\\\\\\\\\\\\\\\\\\\\\\\\\\\\ry contains the scanned directory.
+    #[error("no git repository at or above {path}")]
+    Discover {
+        /// The scanned directory.
+        path: PathBuf,
+        /// T        #[source]
+        source: gix::Error,
+    },
+t|||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||"kebab-case"|async|   /// No git repcanned directory.
+    #[error("no git repository at or above {path}")]
+    Discover {
+        /// The scanned directory.
+   //     path: PathBuf,
+        /// T        #[source]
+        source: gix::Error,
+    },
+    /// Th|||||||||||||||||||||||||||||||,|||t||||||||||||||||rectory.
+    #[error("no git repository at or above {path}")]
+    Discover {
+        /// The scanned directory.
+        path: PathBuf,
+        /// T        #[source]
+        source: gix::Error,
+    },
+t|||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||"kebab-case"|async|   /// No git repcanned directory.
+    #[error("no git repository at or above {path}")]
+    Discover {
+        /// The scanned directory.
+   //     path: PathBuf,
+        /// T        #[source]
+        source: gix::Error,
+    },
+    /// Th|||||||||||||||||||||||||||||||,|||t||||||||||||||||||||\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\|||||||hmove |amehm

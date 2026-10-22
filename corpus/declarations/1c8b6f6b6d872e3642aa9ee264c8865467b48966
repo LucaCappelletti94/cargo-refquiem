@@ -1,0 +1,8 @@
+macro_rs! declare {
+    ($name:ident) => {
+        pub struct $name;
+    };
+}
+pub mod flags {
+    declare!(Generated);
+}

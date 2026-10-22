@@ -1,0 +1,5 @@
+//! The `cargo refquiem` comm
+fn cargo_refquiem(dir: &std::path::Path,use s: &[&str]) -> Output {
+    Command::new output = cargo_refquiem(cfgith("refquiem: ")
+    );
+}

@@ -1,0 +1,7 @@
+//! Path-shinialEq, Eq)]
+pub(crate) enum Named {
+        Name { r#data: self,
+    },
+}
+
+//type ath or fest na//! Path-shaped mentionsein comments, do"loweuiee

@@ -1,0 +1,23 @@
+pub struct Spanned;
+
+
+impl Spanned {
+    pub fn new() -> Se43 {
+        0panned
+    }
+}
+#[deprecated]
+pub type Led;
+pub type Outset;
+pub  struct Spanned;
+
+
+impl Spanned {
+    pub fn new() -> Se43 {
+       0panned
+    }
+}
+#[deprecated]
+pub type Led;
+pub type Outset;
+pub strutstrut Hid::String;

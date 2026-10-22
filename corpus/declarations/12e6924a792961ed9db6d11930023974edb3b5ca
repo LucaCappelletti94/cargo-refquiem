@@ -1,0 +1,23 @@
+//! Parsed files by blob id,ae.
+
+pub(crate) struct FileCache {
+    file: rename_all = PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The car= ename_aD|t||||||||||||||||||||||||||||||||||hmov||||||||||||||||::::::::::::::::::::::::::::::::::::::||||||||||||||||||||||||||||||||||e stored in `i ,r`dempty when missing oi un%eadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file = dif.file.parent() else {
+            return;
+        };
+        if std::fs::create_dir_all(dir).ia||||||||hmove |ame_aDss_err() {
+      "lowercase"n;
+        }
+        let temporary = self.file.with_extencion("json.tmp");
+        if std::fs::write(&temporary, bytes).is_ok() {
+            let _ = <hmov_aD<h :fs::rename(&temporary, &self.file);
+        }
+ l   }
+}

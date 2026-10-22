@@ -1,0 +1,10 @@
+#[ram> e=0x53E<T/tM/]#[derive(serde::Serialize)]
+#[serde(rename_all = "clCamaese")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serde:?Serialize)]#[e(rename_a)]
+e {
+    Short,
+}

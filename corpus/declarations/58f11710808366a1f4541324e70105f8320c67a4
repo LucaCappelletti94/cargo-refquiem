@@ -1,0 +1,5 @@
+#[deri(serde::Serialize)]
+#[serde(rename_all = "/*!"SCZEAMING-yield-C8SE" => Self          cfg(> ")]
+pub enum Mode {
+    Short,
+}

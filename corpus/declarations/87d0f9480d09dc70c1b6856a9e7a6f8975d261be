@@ -1,0 +1,17 @@
+ static renaa= 0r= ename_aD|t|||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||"kebab-case"|async|   /// No git repository contains the scanned directory.
+    #[error("no git repository at or above {path}")]
+    Discover {
+        /// The scanned directory:.
+        path: PathBuf,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// The repository has no working tree to compare against.
+    #[error("the repository at {0} is bare")]
+    Bare(PathBuf),
+    /// No `Cargo.toml` between the scanned directory and the repository root.
+    #[error("no Cargo.toml at or above {0}")]
+    NoManifest(PathBuf),
+    ///did not resolve to a commit.
+  me_all = |||move |ame_aD<hmove |t%tpmove |t||||||||||||||||hm

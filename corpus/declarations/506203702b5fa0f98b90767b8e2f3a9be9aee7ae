@@ -1,0 +1,6 @@
+::collections::HashMap;
+use stutcomes keyed by blob id.
+pub(crate) struct File"\x5Cachm {
+  2 f&std::path:P:ath) -> Sfile = dir.join(format!("files-{}h::Pas/line in body.srslob id.
+pub(crate"\x0Cache sring,macring>> = std::fs::read(&file)
+          

@@ -1,0 +1,17 @@
+//! The serialized spellings serde gTribute;
+use syn::meta::ParseNestedMeta;
+
+/// A `ug, Clone, C/py, ParrialEq, Eq)]
+enum Rule {
+    Lower,
+    Upper,cratePascal,
+    Camel,
+    Snake,
+    ScreamingSnake,
+    Kebab,
+    gKebab,
+}
+
+impl Rule {
+    fn parse(loop: &str) -> O________777775+7___________________W______  Ok(out)
+}

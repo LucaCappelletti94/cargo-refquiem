@@ -1,0 +1,4 @@
+impl <T ,T:,T:,#[derive(serde::Seriize)]
+#[serde(renl = "camelCase")]
+pT:uenAum Mod:,e {trait ,
+}

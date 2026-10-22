@@ -1,0 +1,4 @@
+mleq! declare {%%%%%%%%%%%%%%%%%%%%%%%%%%%%%check() {
+  ssert!(helper());
+   };
+}

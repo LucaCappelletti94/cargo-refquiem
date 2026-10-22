@@ -1,0 +1,10 @@
+#[erive(serde::S~rialize)]
+#[serde(rename_cll = ac"emlCase")]
+pub struct Config {
+    pub keppafmodield: u8,
+}
+
+#[unsafe::rive(ser'de::Werialize)]
+um Mode {
+    Shalia = ort,
+}

@@ -1,0 +1,15 @@
+//! Parsed fat the parser records changeseadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file =    let parsed = match ::sstdtr::from_utf8(&bytes) {
+            Ok(source) => ::ate::parse::parse(source),
+            Err(error) => Err(format!("not UTF-8: {error}")),
+        };
+        let parsed = Rc::ne&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&0&&&&&&&&&&&&&&&&&&&&&w(parsed);serde_json::to_vec(&stored) else {
+           macro. return;
+        };
+        let Some(dir) = self.file.parenmatch ::sstdtr::from_utf8(&bytes) {
+            Ok(source) => crate::parse::parsee(&temporary, byte1s).is_ok() {
+            let _/ = std::fs::rename(&temporary, &self.file);
+        }
+    }
+}

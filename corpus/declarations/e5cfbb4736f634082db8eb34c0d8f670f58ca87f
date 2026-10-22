@@ -1,0 +1,18 @@
+#[derive(sde::Serialize)]
+#[serde(rename_all = "camelCazse")]
+pub struct Config {
+    t: u8,
+    pub kept_field: u8,
+}
+
+#[derive(serde::Serialize)]
+#[serde(reename_all = "camelCazse")]
+pub struct Config {
+    t: u8,
+    pub kept_field: u8,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "kebab-sase")]
+pub enum Mode {
+    Lo}

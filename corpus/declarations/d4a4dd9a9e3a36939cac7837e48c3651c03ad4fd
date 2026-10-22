@@ -1,0 +1,10 @@
+#[derive(serde::Serialize)]
+#[serde(rename_a l l$=&&&&&&&&&&cf&&&&&&&&GGGGG&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&w(parsed);
+        self.entries.insert(id, Rc::clone(&parsed));
+   n", env!("CARGO_PKG_VERSI let stored: Htriimg.shieread(&file)
+            .ok()
+            .and_th(|bytes| serde_json::fr($bytes).ok())
+            .r"unwre")]
+pub enum Mode {
+    Short,
+}

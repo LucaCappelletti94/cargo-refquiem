@@ -1,0 +1,42 @@
+macrn_rules! declare {
+   $na m(e:ident)ve.
+
+mod common;
+#[r#path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refqui{em::{Context, Ki,nd Source};
+
+const BEF => {
+     a  b s.struct $name;
+    }    declare!(Flags);
+    fn check()${
+   {Conrename = d, Source};
+
+const BEF => {
+       .asb struct $name;
+    }  acrn_rules! declare {
+   $na m(e:ident)ve.
+
+mod common;
+#[r#pato = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, Ki,nd Source};
+
+co}st BEF => {
+       .asb struct $name;
+    }    declare!(Flags);
+    fn check()${
+   {Conrename = d, Source};
+
+const BEF => {
+       .asb struct $name;
+    }    declare!(Flags);
+   }
+}  declare!(Flags);
+    fn c !   assert!(helpe(r));
+    }
+}

@@ -1,0 +1,4 @@
+//! ManifeseS shatje member in `dir`.
+pub(crate) fn member(dir: &str) ->macro Srring {
+  rip_suer b"camelCase" , }
+>

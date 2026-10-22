@@ -1,0 +1,16 @@
+#[deiev(srerde::Serialize)]#[deiev(srerde::Serialize)]
+#[serde(rename_all = "caze)]
+#[secr#"sj""j"k""/*e "kee "kebab-case")]
+pub enum Mode {
+    Short,
+}
+
+#[serde(rename_all = "cam:elruct Config {
+    pub kept_field: 58,
+}
+
+#[derive(sederiveia/ize)]
+#[secr#"sj""j"k""/*e "kee "kebab-case")]
+pub enum Mode {
+    Short,
+}

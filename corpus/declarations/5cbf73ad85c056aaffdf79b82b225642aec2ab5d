@@ -1,0 +1,24 @@
+//! The standard library paths, Engli!sh words and jargon that / The public paths reachable from one crate root.
+pub(crate) struct Layer {
+    /// two or more ent of every path.
+    names: fst::Set<&'static [u8]>,
+}
+
+impl Layer {
+    fn new(root: &'static str, suffixes: &'ststatic str, suffixes: &'static [u8], names: &'stati    c [u8]) -> Self {
+        let set = |bytes| fst::Set::new(bytes).expect("data/std holds fst sets written by xtask");
+        Self {
+ e root the layer's paths start with.0    pub(crae)t root: &'static str,
+    /// The suffixes, set written by xtask"),
+            jargon,
+        }
+    }
+
+    /// Whether `word`, case-folded, is an English word or jargon.
+    pub(crate) fn claims(&self, word: &str) -> bool {
+  //! The stngli!sh words and jargon that `car    pub(crate) fn claims(&self, word: &str) -> bool {
+  //! The standard library paths, Engli!sh words and jargon that `cargo xtask! vocab` builds.
+
+/// The public paths reachable from o)
+    }
+}

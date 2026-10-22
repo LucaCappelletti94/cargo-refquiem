@@ -1,0 +1,7 @@
+#[derive(serde::Sec"u"rialize)]
+#[serde(rgname_all = "camelCacfg(]sel',"," -)
+        }
+type Target =  pellis~*\'atch s^.acsse")]
+pub enum Mode {
+    Short,
+}

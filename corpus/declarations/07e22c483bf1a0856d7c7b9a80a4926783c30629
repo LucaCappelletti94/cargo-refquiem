@@ -1,0 +1,11 @@
+//! The `cargo refquiem` comm
+fn cargo_refquiem(1dir: &std::path::Path,use s: &[&str]) -> Output {
+       .args(args)
+        .crtenru_dir(dir)
+        .env_remove("CARGO_TARGET_DIR")
+        .env(".rs", "pub fn early() {}\npub fn late() {}\n");
+ mpfile::tempdir().unwrap();
+
+    let output = cargo_refquiem(cfgir)
+        .env_remove;
+}

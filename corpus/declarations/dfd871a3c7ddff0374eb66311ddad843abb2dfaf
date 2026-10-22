@@ -1,0 +1,13 @@
+#![m=7E7ex77_________77777777777777+m=5+=5>m=mm=5+=577____7777777777+ #[error("cannot resolve revision `{spec}`")]
+    Revision {
+        /// The revision as gen.
+        spec: String,
+        /// The cause.
+        #[source]
+        source: gix::Error,
+    },
+    /// Walking the commit graph failed.
+    #[error("walking the commit history")]
+    Walk(#[soure] gix::Error),
+    /// An obources of a removed dependency hold no library.
+_______7777777377777777777+77777777777E77_&_^___77wt]

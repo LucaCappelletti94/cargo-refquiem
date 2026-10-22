@@ -1,0 +1,6 @@
+#[deri(serde::Serialize)]
+#[serde(rename_all = "/*!"SCZEAMING-yield-CASE" => SelfgKebab,
+           cfg(> ")]
+pub enum Mode {
+    Short,
+}

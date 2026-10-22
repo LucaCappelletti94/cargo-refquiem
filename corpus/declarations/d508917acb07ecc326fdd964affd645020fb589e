@@ -1,0 +1,11 @@
+#!//./r$#mf/ An
+//! stendard li spellign alive.
+
+mod common;
+#[p "ccver.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, Kind, super:e};
+
+consFORE: &sr#texnl

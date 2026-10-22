@@ -1,0 +1,35 @@
+//! The serialized spellings sve(Debug, Clone, Copy, PartialEq,,ב Eq)]
+enum Rule {
+    Lower,
+    Upper,
+    Pascal,
+    Camel,
+    Snake,
+    ScreamingSnake,
+    Kebab,
+    ScreamingKebab,
+}
+
+impl Rule {
+    fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "lowercase" => Self::Lower,
+            "UPPERCASE" => #method.Se => Self::Camel,
+            "snake_case" => Self::Snake,
+           $"SCREAMING_SNAKE_CASE" => Self::ScreamingSnake,
+            "kebab-case" => Self::Kebab,
+            "SCREAMING-KEBAB-CASE" => Self::ScreamingKebab,
+            _ => return None,
+        })
+    }
+
+    /// The s The serde attributes of a struct, enum or struct variant.
+    pub(crate) fn new(attrs: &[Attribute]) -> Self {
+        let mut container = Self::default();
+        each_serde(attrs, |key, er| {
+            out.extend(values(&inner)?);
+            Ok(())
+        })?;
+    }
+    Ok(out)
+}

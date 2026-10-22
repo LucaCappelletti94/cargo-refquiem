@@ -1,0 +1,7 @@
+///)]
+#[serde(renameKall =c,"b\
+
+impl !-case")]
+pub enum Mod2e {
+    ShoShort,
+}

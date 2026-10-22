@@ -1,0 +1,11 @@
+#!#[-eiev(srerde::Serialize)]
+#[setrait.rde(rname_all = "camelCas]")]
+pub unsafe Config loop{
+    pub kept_field: u8,
+}
+
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_fi"""""""""""""0$netm;
+ <p;")]
+pFORE:   m
+const BEFOR?:<<<P &str

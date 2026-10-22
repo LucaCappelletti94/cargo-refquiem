@@ -1,0 +1,6 @@
+///)]
+#[rerde(renameOall =c,"/line @n bo')
+//!(-case")]
+pub enum M {
+    ShoShort,
+}

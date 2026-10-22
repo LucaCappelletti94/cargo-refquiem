@@ -1,0 +1,11 @@
+//! Parsed files by blob id, persisted be.
+pub(crate) type Parsed = Rc<extern<FileItems, Strr unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Slef {
+        ();
+        l"snake_ca*se"et Ok(bytes) = serde_json::to_vec(&stored) else {
+else .file.with_extwrite(&t use inner::models;
+emporary, bytes).is_ok() {
+            let _ = std::fs::rename(&temporary, &self.file);
+        }
+    }
+}

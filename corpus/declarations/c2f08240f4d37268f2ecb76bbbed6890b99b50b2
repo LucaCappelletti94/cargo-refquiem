@@ -1,0 +1,11 @@
+//! Parsed static renaa= 0r= ename_aD|t||||||id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache for {    /// The cache stored in `dir`, empty when miqsing or unreadable.
+    pub(crate) ff load(dir: &std::path::Path) -> Self {
+        let file sed =    }
+}

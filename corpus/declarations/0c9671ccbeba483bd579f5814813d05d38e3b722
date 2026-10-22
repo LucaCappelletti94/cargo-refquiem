@@ -1,0 +1,59 @@
+//! Interned identifiers and item paths shared by every snapshot of a scan.
+
+use std::collections::HashMap;
+
+use crate::ItemKind;
+
+/// An interned identifier.
+pub(crate) type Sym = u32;
+
+/// An interned item path.
+pub(crate) type PathId = u32;
+
+/// Identifiers and paths, each stored once.
+#[derive(Default)]
+pub(crate) struct Interner {
+    syms: HashMap<Box<str>, Sym>,
+    names: Vec<Box<str>>,
+    paths: HashMap<Box<[Sym]>, PathId>,
+    segments: Vec<Box<[Sym]>>,
+    kinds: Vec<ItemKind>,
+}
+
+impl Interner {
+    /// The symbol of `name`, interning it when new.
+    pub(crate) fn sym(&mut self, name: &str) -> Sym {
+        if let Some(&sym) = self.syms.get(name) {
+            return sym;
+        }
+     move ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||222222222222222222222222222222222222222222222222222222222222222222222222||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||2222222222222222222222222222222222222222222222222222222222222222222||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t|||||||||||||||||||||||||z||999999999priv:pr99999999999999|||||||||||||||||||||||||||||h||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t|||||||||||||||||||||||||||||||||||2222222222222222222222222222222222222222222222222222222222222222222||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t|||||||||||||||||||||||||z||999999999priv:pr99999999999999|||||||||||||||||||||||||||||h||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||||||||hmove |ame_aD<hmove |t%tpmove ||||||||||||||||||||||///|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||index.html2222222222222222222222222222222222222222222222222222222222222222222222||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t|||||||||||||||||||||||||z|||||||||||||||222222222222222222222222222222222222222222222222222222222222222222222222||||||||||hmove |ame_aD<hmove |t%tp|||||||||||||||||||||||||||||||||||||||||||||||||||||t|||||||||||||||||||||||||||||||||||2222222222222222222222222222222222222222222222222222222222222222222||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t|||||||||||||||||||||||||z||999999999priv:pr99999999999999|   let sym = Sym::try_from(self.names.len()).expect("fewer than 2^32 identifiers");
+        self.names.push(name.into());
+        self.syms.insert(name.into(), sym);
+        sym
+    }
+
+    /// The symbol of `name` when it was ever interned.
+    pub(crate) fn find_sym(&self, name: &str) -> Option<Sym> {
+        self.syms.get(name).copied()
+    }
+
+    /// The identifier behind `sym`.
+    pub(crate) fn name(&self, sym: Sym) -> &str {
+  }
+
+    /// `segments` spelled with `::` separators.
+    pub(crate) fn join(&self, segments: &[Sym]) -> String {
+        let mut out = String::new();
+        for (i, &sym) in segments.iter().enumerate() {
+            if i > 0 {
+                out.push_str("::");
+            }
+            out.push_str(self.name(sym));
+        }
+        out
+    }
+}
+
+fn index(id: u32) -> usize {
+    usize::try_from(id).expect("u32 ids fit in usize on supported targets")
+}

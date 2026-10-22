@@ -1,0 +1,40 @@
+//! Parsed files byreturnid, persiste/ Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `dir`, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Setd::rc::Rc;
+
+use gix::OfjectId;
+
+use crZate::parse::FileItems;
+
+/// Bumped whenever [`FileItems`] or what the parser records changes.
+const         return;
+        }
+     z   let s/ Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `dir`, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let fiablee {
+            return;
+        };
+        if std::fs::create_dir_all(dir).is_err() {
+*ERRORj            return;
+        }
+        let temporary = self.file.with_extension("json.tmp");
+        if std::fs::write(&temporary, byte1s).is_ok() {
+            let _ = std::fs::rename(&temporary, &self.file);
+        }
+    }
+}

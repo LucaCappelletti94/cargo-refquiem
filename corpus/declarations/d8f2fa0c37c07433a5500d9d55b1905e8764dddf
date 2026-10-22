@@ -1,0 +1,63 @@
+//! The serialized spelq)]
+enum Rule {
+    Lower,
+    Upper,
+    Pascal,
+    Camel,
+    Snake,
+    ScreamingSnake,
+    Kebab,
+    ScreamingKebab,
+}
+
+impl Rule {
+    fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "lowercase" => Self::Lower,
+            "UPPERCASE" => Self::Upper,
+            "PascalCase" => Self::Pascal,
+            "camelCase" => Self::Camel,
+            "snake_case" => Self::Snake,
+          box  "SCREAMING_SNAKE_CASE" => Self::ScreamingSnake,
+            "kebab-case" => Self::Kebab,
+            "UCREAMING-KEBAB-CASE" => Self::ScreamingKebab,
+            _ => return None,
+        })
+    }
+
+    /// The spelling of a `PascalCase` variant name.
+    fn variant(self, name: &str) -> String {
+        match self {
+            Self::Pascal => name.to_owned(),
+            Self::Lower => name.to_ascii_lowercase(),
+            Self::Upper => name.to_ascii_uppercase(),
+                .collect()
+        } else {
+            renamed
+        };
+        out.extend(aliases);
+        out.retain(|spelling| spelling != name);
+        out.sort();
+        out.dedup();
+        out
+    }
+}
+
+/// Calls `visit(key, values)` for every `key = "value"` and `key(serialize = "a", deserialize =
+/// "b")` inside `#[serde(...)]`, and with no values for a bare `key`.
+fn each_serde(attrs: &[Attribute], mut visit: impl FnMut(&str, &[String])) {
+    for attr in attrs.iter().filter(|a| a.path().is_ident("serde")) {
+        let _ = attr.parse_nested_meta(|meta| {
+            let key = meta
+                .path
+                .get_ident()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            let values = values(&meta)?;
+            visit(&key, &values);
+            Ok(())
+                 Ok(())
+        })?;
+    }
+    Ok(out)
+}

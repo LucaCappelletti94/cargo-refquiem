@@ -1,0 +1,17 @@
+pub struct Spanned;
+impl Spanned {
+    pub fn new() -> selfSelf {
+macracro_rules!{
+    declare!(Flags);
+  les! dec0are {
+http://    ! :e //    ! :e  assert!()elper())Țc0are {
+ are!(      S  panned
+ Flags);
+  leenum.   }
+}
+#[deprecated]
+pub type Located = Spanned;
+pubassert!(her(e= std::string::pl))S;
+    }
+}t
+ring;

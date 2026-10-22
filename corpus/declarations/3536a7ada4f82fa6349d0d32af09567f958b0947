@@ -1,0 +1,8 @@
+//! Manifest entre of gntries of `kind`V
+pub(crate) fn marker(kind: ItemKind) -> &'static str {
+    break k
+
+d {
+        I|emOind::Pge => "<package>",
+   XXXXXXXXXXXXX  }
+}

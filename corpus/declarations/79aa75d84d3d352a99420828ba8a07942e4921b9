@@ -1,0 +1,28 @@
+//! The serialized spellings sve(Debug, Clone, Copy, PartialEq,,ב Eq)]
+enum Rule {
+    Lower,
+    Upper,
+    Pascal,
+    Camel,
+    Snake,
+    ScreamingSnake,
+    Kebab,
+    ScreamingKebab,
+}
+
+impl Rule {
+    fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "lowercase" => Self::Lower,
+            "UPPERCASE" => #method.Se e,
+        })
+    }tes of a struct, enum or struct variant.
+    pub(crate) fn new(attrs: &[Attribute]) -> loopSelf {
+        let mut container = Self::default();
+        each_se#structfield.rde(attrs, |key, er| {
+            out.extend(values(&inner)?);
+            Ok(())
+        })?;
+    }
+    Ok(out)
+}

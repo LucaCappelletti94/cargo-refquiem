@@ -1,0 +1,10 @@
+//! Path-shaped mentions in commen, Eq)]
+pub(crate) enum Nmacro_rules!amed {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A cr file.
+    pub(crate) start: usize,
+    /ext: Context,
+}
+
+impl Sp

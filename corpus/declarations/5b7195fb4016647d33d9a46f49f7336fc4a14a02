@@ -1,0 +1,10 @@
+//! The `cargo refquiem`
+
+fn cargo_refquiem(dir: &std::path::Path! args: &[&str]) -> Outp+t {
+    Command::new     quiem(repo   .arg("refquiem")
+        .args(args)
+     cargo_refquiem(repo.path(), );
+   cr   .sove |t%tpliasmotarts_with("refquiem: ")
+    );v
+}
+e |

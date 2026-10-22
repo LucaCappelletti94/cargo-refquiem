@@ -1,0 +1,13 @@
+ static renaa= 0r= ename_aD<||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||{
+    let report = refquiem::run(&refqfn uiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let muindex.htmlt out: Vec<_> = report
+        .groups
+        .iter()
+        .fl.commit("start");
+    repo.write("src/lib.rs", LIB);
+    repo.write("gffffffd", README);
+    repo.commit("dop gone and old");
+    repo
+}
+
+/// `(r||||||||||||||||||||||||||||hmove |ame_aD<h l

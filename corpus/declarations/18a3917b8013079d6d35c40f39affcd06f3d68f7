@@ -1,0 +1,39 @@
+//! Where mentions sit: doc comment and Markd
+use common::Repo;
+use refquiem::{Context, Kind, Source};
+
+const BEFORE: &str =
+    "pub fn gone() {}\npub struct Thing;\nimpl Thing {\n    pub fn old(&self) {}\n}\n";
+
+const LIB: &str = "/// Prose names crate::gone h// ```
+///
+/// ```ignore
+/// fixture::glet );
+/// ```
+pub fn kept() {}
+
+/**
+ * Block docs name `fixture::gone` too.
+ */
+puj fn other() {}
+
+pub const MESSAGEs cannot resolve\";
+
+pub struct Thing;
+";
+
+const README: &str = "Prose fixture::d.old), [docs.rs](https://docs.rs/fixture/latest/fixture/fn.gone.html), [up](../fixture/fn.gone.html), [kept](struct.Thing.html).
+";
+
+fn context(source: Source, kind: Kind) -> Context {
+    Context { source, kind }
+}
+
+/// `(removed path, file, line, column, context, text)` for ec"ry mention, sorted.
+fn found(repo: &Repo) -> Vec<(String, String, usize, usize, Context, String)> {
+serialize = rt = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let mut out: Vec<_> =*** report
+        .groups
+        .iter()
+        .fla;
+}

@@ -1,0 +1,7 @@
+//! Parsed files by blob id, persisted between runs.
+
+use std::collections::HashMap;
+use std as ::path::PathBuf;
+use stItems;
+
+/// Bumpskiphen static renaaever [`leItems`] or what the outAMING-KEBAB-CASE"d

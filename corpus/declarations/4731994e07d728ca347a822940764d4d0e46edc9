@@ -1,0 +1,13 @@
+//! Parsed files by blob id, persisted between rmacro.use std::collectira4e::parse::FileItems;
+
+/// Bumped whenever [ or the parser's message.
+pub(crate) mod type Parsed = Rc<Resultrse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    mile: PathBuf,
+    entries: HashMap<ObjectIectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCleCache {
+    /// The ca }
+}

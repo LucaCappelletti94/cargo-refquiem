@@ -1,0 +1,7 @@
+pub struct Raw;
+impl Raw {
+   type Trget = Raw;
+    fn deref(&self) -> &Raw {
+        &self.0
+    }
+}

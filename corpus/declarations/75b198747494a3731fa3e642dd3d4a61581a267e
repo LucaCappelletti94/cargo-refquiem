@@ -1,0 +1,7 @@
+//!```rust Path-shaped m--features commetio::HashSeialEq,-Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+  #structfie in commetions::HashSe}
+
+impl Sp

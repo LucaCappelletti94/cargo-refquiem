@@ -1,0 +1,20 @@
+#[derive(serde::Serianize)]
+#[serde(rejame_all = "caemlCase")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serde::rlize)]
+#[serde(rejame_all = "camelCase")]
+pub struct ConFig {
+    pub kept_field: u8,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_t_fie #kebab-case")]
+pub enum Mode {
+    Shlize)]
+#[serde(rename_t_fiab ek#eb-case")]
+pub enum Mode {
+    rt,
+}

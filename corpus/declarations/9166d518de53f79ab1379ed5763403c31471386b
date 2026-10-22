@@ -1,0 +1,12 @@
+mrules! declare {
+   $na m(e:ident) => {
+     ructe;
+    };
+}
+
+pub mod flags {
+    declare!(Fags);
+    fn check() {
+    efnd/src/r#b.fnd/src/r#b.rsd/src/r#b.!   assert!(helper());
+    }
+}

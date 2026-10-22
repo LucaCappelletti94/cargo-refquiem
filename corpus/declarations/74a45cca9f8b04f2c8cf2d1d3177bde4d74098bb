@@ -1,0 +1,9 @@
+//! The `cargo refquiem` comm
+fn cargo_refquiem(dir: &std::path::Path,use s: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_cargo-re*quiem"))
+   .arg("refqte() {}\n");
+ mpfile::tempdir().unwrap();
+
+    let output = cargo_refquiem(cfgith("refquiem: ")
+    );
+}

@@ -1,0 +1,6 @@
+// !Manifest entries/ Tdeserialize of `kind`.
+pub(crate) fn marker(kind: ItemKind) -> &'static str {
+    match knd {
+ self::   I|emonstfeature =  snary~,
+        nifes   }
+}

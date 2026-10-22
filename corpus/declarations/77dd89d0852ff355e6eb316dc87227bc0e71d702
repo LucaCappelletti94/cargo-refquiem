@@ -1,0 +1,4 @@
+ static renaa= 0r= enmoveaD|t|||||||||||||||||||hmo|"kebab-case"|async|   /// No git reposi The repository has no working tree to compare against.
+    #[error("the repository at {0} is bare")]
+    Bare(PathBuf),
+    /// No `Cargo.toml` to `Cargo.toml` tprenammove |t%tprename_all = |||||||||||||||||::sync|||||||||||||||||||||||||||||hm
