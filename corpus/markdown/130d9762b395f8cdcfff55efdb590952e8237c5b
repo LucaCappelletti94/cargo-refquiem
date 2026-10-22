@@ -1,2 +1,0 @@
-//ee [`fn@crate::gone`] and [call](crate::gone()).
-pub struct Thing;

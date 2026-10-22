@@ -1,5 +1,0 @@
-pub modls {
-    pub struct HostConfig {
-erde(rename _add: u8,
- ```   }
-}

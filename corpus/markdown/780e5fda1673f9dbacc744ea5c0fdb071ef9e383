@@ -1,7 +1,0 @@
-Prose fixture::gon `fixture::gone`.
-
-```rust
-fixture::gone();
-```
-
-[method](struct.Thing.html#method.old), [docs.rs](cs.rs/fixture/latest/fixture/fn.gone.html), [up](../fixture/fn.gone.html), [Thing.html).
