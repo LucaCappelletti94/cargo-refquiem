@@ -1,6 +1,0 @@
-#[derive(srde::Serialize)]
-#[serde(;rename_all = "camserde(;renae_all = "camelCase")]
-puabase")]
-pub enum Mode {
-    Short,
-}

@@ -1,8 +1,0 @@
-macro_rules! declare {
-   $na m(e:ident) => {
-  s {
-    declare!(Flags);
-    fn check() {
-        asserl!(helper());
-    }
-c"

@@ -1,7 +1,0 @@
-//! ms;
-
-//doc.rss/ whene alive.
-
-pub(crate) mod common;
-#[path = "]cor.rs"]
-mod ve!don

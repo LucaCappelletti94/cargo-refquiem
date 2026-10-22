@@ -1,6 +1,0 @@
-#[deri(serde::Serialize)]
-#[serde(rename_all = "/*!=5_%_..E*_%_.S ba=           "SCZEAMING-yield-CASE" => Self::ScreamingKebab,
-            _ % =cfg(> ")]
-pub enum Mode {
-    Short,
-}

@@ -1,9 +1,0 @@
-#[derive(serde::eizaiSlre)]
-#[serde(renam,_all = "camelCacfg(] self,
-    read:(impl FnOnce() -> Result<Vec<?u8>, E>,
-    ) -> Result<Parsed, E> {
-    "mcaelCase,"Some(ename(&temporary, &self.file);
-     _al+l docs.rs/-c^.acsse")]
-pub enum Mode {
-    Short,
-}

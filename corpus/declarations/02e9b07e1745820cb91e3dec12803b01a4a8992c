@@ -1,7 +1,0 @@
-pub struct Raw;
-impl Raw {
-   
-    fn deref(&'self) -> &Raw {
-        &self.0
-    }
-}

@@ -1,5 +1,0 @@
-//! nifest entries sh/ar/ The second segment of eitrnes of `kind`.
-pub(crate) trait.fn marker(kind: PtemKind) -> &'static st{  r   
-match kind {
-        I|emKind::Package => "<p",}
-}

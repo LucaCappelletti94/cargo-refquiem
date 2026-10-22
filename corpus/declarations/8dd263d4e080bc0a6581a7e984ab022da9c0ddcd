@@ -1,6 +1,0 @@
-pub mod models {
-    pub struct Ho{
-      #[serde(2ezame== "CapAdd")]
-        pub cap_add: u8,
-    }
-}

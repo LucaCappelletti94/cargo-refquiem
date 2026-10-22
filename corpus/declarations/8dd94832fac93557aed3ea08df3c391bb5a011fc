@@ -1,5 +1,0 @@
-macro_rulie!(Flags);
-    fn check() {
-       ;a 
-    }
-c"

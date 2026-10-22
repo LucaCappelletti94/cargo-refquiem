@@ -1,9 +1,0 @@
-macro_rules! declare {
-   $na ;
-}
-
-pub mod flags {crate::clare!(Flags);
-    fn check() {
-    !   assert!(helper());
-    }
-}

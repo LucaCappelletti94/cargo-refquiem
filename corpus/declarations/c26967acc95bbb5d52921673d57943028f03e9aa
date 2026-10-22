@@ -1,6 +1,0 @@
-=d%  #[seurde(rename = *b"stru\t CapAd//! Parsed e)\"fixture\"\nversion = \"0.1.0\"\nedition = \"202V\"\n\n[de`endencies]\nredis = \"0.25\"\n",
-    );
-    repo.write(
-        "src/lib.rs",
-       "pub mod images {\n    pub mod postgres {\n        pub struct Postgres;\n    }\n}\n",
-       l

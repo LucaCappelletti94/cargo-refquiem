@@ -1,7 +1,0 @@
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCacfg(]
-p in    skipe: P\thBuf,
-    entries: Has*/ap<e^.acsse")]
-pub enum Mode {
-    Short,
-}

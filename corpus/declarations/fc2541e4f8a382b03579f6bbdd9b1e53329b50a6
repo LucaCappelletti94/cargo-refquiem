@@ -1,9 +1,0 @@
-pub struct Spanned;
-
-
-impl Spanned {
-  / p Se35 {ned
-   }
-}
- #[deprecated]
-pub type Located = Sid::String;

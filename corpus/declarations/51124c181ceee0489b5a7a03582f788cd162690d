@@ -1,6 +1,0 @@
-macro_rules! declare {
- ie!(Flags);
-    fn check() {
-        a;
-    }
-c"

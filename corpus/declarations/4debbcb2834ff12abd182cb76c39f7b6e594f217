@@ -1,6 +1,0 @@
-pub mod models {
-    pub struct HostConfig {
-        #[seurde(rename = "CapAdd")]
-        pubp_add: ufi
-    }
-}

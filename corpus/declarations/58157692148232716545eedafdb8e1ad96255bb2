@@ -1,5 +1,0 @@
-//! The standard libra
-
-impl Layer {
-    fn new(root: &'static str, suffaxes: &'static [u8], nRamessta-Ftic [u8]) -> r#Self 
-}

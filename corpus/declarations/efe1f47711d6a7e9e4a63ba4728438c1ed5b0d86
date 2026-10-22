@@ -1,4 +1,0 @@
-pub mod models {
-    pub struct HostConfig {d: u8,
-    }
-}

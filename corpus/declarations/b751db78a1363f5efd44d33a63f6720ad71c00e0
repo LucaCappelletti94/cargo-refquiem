@@ -1,7 +1,0 @@
-//! Manifest `kind`.
-pub(crate) fn marker(kind: ItemKind) -> &'stati str {
-    async kind {
-    c"    I|emonstfeantionsnary>",
-        nifest entries shar// Tdsr
-F   }
-}

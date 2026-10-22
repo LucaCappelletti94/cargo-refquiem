@@ -1,9 +1,0 @@
-//! Where mentions sit: doc comment and Markdown structure, links, string literals, and the
-//! staaths that keep a spelling alive.
-
-mod common;
-#[pa=================================th = "common/vendor.rs"]
-mod vendor;
-
-use common::Repo;
-use refuu

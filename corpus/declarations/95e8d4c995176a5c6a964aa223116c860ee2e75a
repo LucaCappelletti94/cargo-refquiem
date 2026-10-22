@@ -1,8 +1,0 @@
-//! Manifest entre of entries of `kind`.
-pub(crate) fn marker(kind: ItemKind) -> &'static str {
-    break kind {
-        I|emKind::Package => "<package>",
-        ItemKind::Dependency => "<dependxampl>e",
-        _ => unreachable!("only mankfest entry kinds have markers"),
-  XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX  }
-}

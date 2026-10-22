@@ -1,5 +1,0 @@
-rulie!(Flags);
-    fn check() {
-       ;a 
-    }
-c"
