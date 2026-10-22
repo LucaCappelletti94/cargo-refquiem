@@ -50,6 +50,9 @@ def link($path; $line):
   "\($server)/\($repo)/blob/\($sha)/\($path | split("/") | map(@uri) | join("/"))#L\($line)";
 def at: "\(.path):\(.line):\(.column)";
 def linked: "- [`\(at)`](\(.link))";
+def places: if length == 1
+  then "is still mentioned in [`\(.[0] | at)`](\(.[0].link))."
+  else "is still mentioned in these places.\n\n" + (map(linked) | join("\n")) end;
 def footer($mention):
   "[👎 Report a wrong review](https://github.com/LucaCappelletti94/cargo-refquiem/issues/new?template=wrong-review.yml&title=\("Wrong review on \($reviewed)" | @uri)&version=\($version | @uri)&review=\($review_url | @uri)&mention=\($mention | @uri)) [❤️ Support refquiem](https://github.com/sponsors/LucaCappelletti94)";
 def plural($n; $one; $many): "\($n) \(if $n == 1 then $one else $many end)";
@@ -82,8 +85,7 @@ def fence($line): ([$line | scan("`+") | length] | max // 0) as $run
     side: "LEFT",
     at: "\(.declared_at.file):\(.declared_at.line)",
     text: .headline,
-    body: ("\(.headline), is still mentioned in these places.\n\n"
-      + (.mentions | map(linked) | join("\n"))
+    body: ("\(.headline), \(.mentions | places)"
       + "\n\n" + (reduce .mentions[].link as $link ([];
           if index($link) then . else . + [$link] end) | .[:3] | join("\n"))
       + "\n\n" + footer("\(.declared_at.file):\(.declared_at.line)"))
@@ -128,7 +130,7 @@ review_body() {
 [ $p.groups[] | select(.id as $id | $anchored | index($id) | not)
   | .headline as $h | [.mentions[] | unposted]
   | select(length > 0)
-  | "\($h), is still mentioned in these places.\n\n" + (map(linked) | join("\n")) ]
+  | "\($h), \(places)" ]
 + [ [$p.markers[] | unposted | "\(linked) \(.text)"] | select(length > 0) | join("\n") ]
 | . as $unplaced
 | "refquiem found "
