@@ -1336,6 +1336,7 @@ dependencies = [
  "syn 3.0.9",
  "thiserror",
  "toml",
+ "unicode-ident",
 ]
 
 [[package]]
