@@ -72,6 +72,8 @@ pub(crate) struct Decl {
     pub(crate) public: bool,
     /// For a function or trait method, its parameter types and return type as normalized tokens.
     pub(crate) signature: Option<String>,
+    /// The line of its name in the parsed text.
+    pub(crate) line: u32,
 }
 
 /// An impl block, inherent or of a trait.
@@ -81,8 +83,9 @@ pub(crate) struct Impl {
     /// The self type's path segments without generic arguments.
     pub(crate) self_ty: Vec<String>,
     pub(crate) trait_path: Option<Vec<String>>,
-    /// Each item's name, kind, whether it is visible, and an inherent method's signature.
-    pub(crate) items: Vec<(String, ItemKind, bool, Option<String>)>,
+    /// Each item's name, kind, whether it is visible, an inherent method's signature and the
+    /// line of its name.
+    pub(crate) items: Vec<(String, ItemKind, bool, Option<String>, u32)>,
 }
 
 /// A named import, type alias or glob re-export.
@@ -95,6 +98,8 @@ pub(crate) struct Use {
     pub(crate) name: Option<String>,
     /// Whether the `use` is `pub`.
     pub(crate) public: bool,
+    /// The line of the name it creates, or of the `*` of a glob.
+    pub(crate) line: u32,
 }
 
 /// A `mod name;` declaration.
@@ -139,6 +144,8 @@ pub(crate) struct MacroRules {
     /// The rules as text.
     pub(crate) body: String,
     pub(crate) exported: bool,
+    /// The line of its name.
+    pub(crate) line: u32,
 }
 
 /// A path whose members another path reaches, by auto-deref through an
@@ -199,8 +206,9 @@ fn error_message(error: &syn::Error) -> String {
     format!("{}:{}: {error}", start.line, start.column + 1)
 }
 
-/// A member of an item: its name, kind, whether it is `pub`, and its serialized spellings.
-type Member = (String, ItemKind, bool, Vec<String>);
+/// A member of an item: its name, kind, whether it is `pub`, its serialized spellings and the
+/// line of its name.
+type Member = (String, ItemKind, bool, Vec<String>, u32);
 
 /// Walks a file's items, tracking the enclosing inline modules.
 struct Collector<'s> {
@@ -214,14 +222,14 @@ impl Collector<'_> {
     fn items(&mut self, items: &[Item]) {
         for item in items {
             match item {
-                Item::Const(item) => self.decl(&item.ident.to_string(), ItemKind::Const, &item.vis),
+                Item::Const(item) => self.decl(&item.ident, ItemKind::Const, &item.vis),
                 Item::Enum(item) => {
                     self.enumeration(item);
                     self.generics(&item.generics);
                 }
                 Item::Fn(item) => {
                     let name = item.sig.ident.to_string();
-                    self.decl(&name, ItemKind::Function, &item.vis);
+                    self.decl(&item.sig.ident, ItemKind::Function, &item.vis);
                     let end = item.block.brace_token.span.open().byte_range().start;
                     let signature = self.signature(&item.sig, end);
                     self.sign(&[&name], ItemKind::Function, signature);
@@ -235,7 +243,7 @@ impl Collector<'_> {
                 Item::Macro(item) => self.macro_item(item),
                 Item::Mod(item) => self.mod_item(item),
                 Item::Static(item) => {
-                    self.decl(&item.ident.to_string(), ItemKind::Static, &item.vis);
+                    self.decl(&item.ident, ItemKind::Static, &item.vis);
                 }
                 Item::Struct(item) => {
                     let container = Container::new(&item.attrs);
@@ -244,7 +252,13 @@ impl Collector<'_> {
                         Fields::Unnamed(_) | Fields::Unit => Vec::new(),
                     };
                     let name = item.ident.to_string();
-                    self.owner(&name, ItemKind::Struct, &item.vis, fields);
+                    self.owner(
+                        &name,
+                        ItemKind::Struct,
+                        &item.vis,
+                        fields,
+                        line(&item.ident),
+                    );
                     self.generics(&item.generics);
                 }
                 Item::Trait(item) => {
@@ -252,7 +266,7 @@ impl Collector<'_> {
                     self.generics(&item.generics);
                 }
                 Item::TraitAlias(item) => {
-                    self.decl(&item.ident.to_string(), ItemKind::TraitAlias, &item.vis);
+                    self.decl(&item.ident, ItemKind::TraitAlias, &item.vis);
                     self.generics(&item.generics);
                 }
                 Item::Type(item) => {
@@ -262,7 +276,8 @@ impl Collector<'_> {
                 Item::Union(item) => {
                     let container = Container::new(&item.attrs);
                     let fields = named_fields(&item.fields.named, &container);
-                    self.owner(&item.ident.to_string(), ItemKind::Union, &item.vis, fields);
+                    let name = item.ident.to_string();
+                    self.owner(&name, ItemKind::Union, &item.vis, fields, line(&item.ident));
                     self.generics(&item.generics);
                 }
                 Item::Use(item) => {
@@ -275,11 +290,11 @@ impl Collector<'_> {
         }
     }
 
-    fn decl(&mut self, name: &str, kind: ItemKind, vis: &Visibility) {
-        self.push(&[name], kind, is_pub(vis));
+    fn decl(&mut self, ident: &syn::Ident, kind: ItemKind, vis: &Visibility) {
+        self.push(&[&ident.to_string()], kind, is_pub(vis), line(ident));
     }
 
-    fn push(&mut self, names: &[&str], kind: ItemKind, public: bool) {
+    fn push(&mut self, names: &[&str], kind: ItemKind, public: bool, line: u32) {
         if names.contains(&"_") {
             return;
         }
@@ -289,6 +304,7 @@ impl Collector<'_> {
             kind,
             public,
             signature: None,
+            line,
         });
     }
 
@@ -375,29 +391,36 @@ impl Collector<'_> {
         out.join(" ")
     }
 
-    /// Declares `name` and its `members`, each with its serialized spellings.
-    fn owner(&mut self, name: &str, kind: ItemKind, vis: &Visibility, members: Vec<Member>) {
+    /// Declares `name` at `line` and its `members`, each with its serialized spellings.
+    fn owner(
+        &mut self,
+        name: &str,
+        kind: ItemKind,
+        vis: &Visibility,
+        members: Vec<Member>,
+        line: u32,
+    ) {
         let public = is_pub(vis);
-        self.push(&[name], kind, public);
-        for (member, member_kind, member_public, spellings) in members {
+        self.push(&[name], kind, public, line);
+        for (member, member_kind, member_public, spellings, line) in members {
             let public = public && member_public;
-            self.push(&[name, &member], member_kind, public);
-            self.spellings(&[name, &member], &spellings, public);
+            self.push(&[name, &member], member_kind, public, line);
+            self.spellings(&[name, &member], &spellings, public, line);
         }
     }
 
     /// Declares the serialized `spellings` of the member at `owner`, below a marker path so
     /// re-exports carry them like any other member.
-    fn spellings(&mut self, owner: &[&str], spellings: &[String], public: bool) {
+    fn spellings(&mut self, owner: &[&str], spellings: &[String], public: bool, line: u32) {
         if spellings.is_empty() {
             return;
         }
         let mut names = owner.to_vec();
         names.push(SERDE_MARKER);
-        self.push(&names, ItemKind::Serialized, public);
+        self.push(&names, ItemKind::Serialized, public, line);
         for spelling in spellings {
             names.push(spelling);
-            self.push(&names, ItemKind::Serialized, public);
+            self.push(&names, ItemKind::Serialized, public, line);
             names.pop();
         }
     }
@@ -411,10 +434,16 @@ impl Collector<'_> {
             .map(|v| {
                 let variant = v.ident.to_string();
                 let spellings = container.variant(strip_raw(&variant), &v.attrs);
-                (variant, ItemKind::Variant, true, spellings)
+                (variant, ItemKind::Variant, true, spellings, line(&v.ident))
             })
             .collect();
-        self.owner(&name, ItemKind::Enum, &item.vis, variants);
+        self.owner(
+            &name,
+            ItemKind::Enum,
+            &item.vis,
+            variants,
+            line(&item.ident),
+        );
         let public = is_pub(&item.vis);
         for variant in &item.variants {
             let Fields::Named(fields) = &variant.fields else {
@@ -429,9 +458,15 @@ impl Collector<'_> {
                     &[&name, &variant_name, &field_name],
                     ItemKind::Field,
                     public,
+                    line(ident),
                 );
                 let spellings = fields_container.field(strip_raw(&field_name), &field.attrs);
-                self.spellings(&[&name, &variant_name, &field_name], &spellings, public);
+                self.spellings(
+                    &[&name, &variant_name, &field_name],
+                    &spellings,
+                    public,
+                    line(ident),
+                );
             }
         }
     }
@@ -441,17 +476,17 @@ impl Collector<'_> {
             match item {
                 syn::ForeignItem::Fn(item) => {
                     let name = item.sig.ident.to_string();
-                    self.decl(&name, ItemKind::Function, &item.vis);
+                    self.decl(&item.sig.ident, ItemKind::Function, &item.vis);
                     let end = item.semi_token.span.byte_range().start;
                     let signature = self.signature(&item.sig, end);
                     self.sign(&[&name], ItemKind::Function, signature);
                     self.params(&item.sig);
                 }
                 syn::ForeignItem::Static(item) => {
-                    self.decl(&item.ident.to_string(), ItemKind::Static, &item.vis);
+                    self.decl(&item.ident, ItemKind::Static, &item.vis);
                 }
                 syn::ForeignItem::Type(item) => {
-                    self.decl(&item.ident.to_string(), ItemKind::TypeAlias, &item.vis);
+                    self.decl(&item.ident, ItemKind::TypeAlias, &item.vis);
                 }
                 syn::ForeignItem::Macro(item) => self.invocation(&item.mac, false),
                 _ => {}
@@ -463,13 +498,14 @@ impl Collector<'_> {
         if let Some(ident) = &item.ident {
             let name = ident.to_string();
             let exported = item.attrs.iter().any(|a| a.path().is_ident("macro_export"));
-            self.push(&[&name], ItemKind::Macro, exported);
+            self.push(&[&name], ItemKind::Macro, exported, line(ident));
             self.out.macro_rules.push(MacroRules {
                 module: self.module.clone(),
                 name,
                 idents: idents(&item.mac.tokens),
                 body: item.mac.tokens.to_string(),
                 exported,
+                line: line(ident),
             });
         } else if let Some(path) = include_path(&item.mac) {
             self.out.includes.push(Include {
@@ -483,7 +519,12 @@ impl Collector<'_> {
 
     fn mod_item(&mut self, item: &syn::ItemMod) {
         let name = strip_raw(&item.ident.to_string()).to_owned();
-        self.push(&[&name], ItemKind::Module, is_pub(&item.vis));
+        self.push(
+            &[&name],
+            ItemKind::Module,
+            is_pub(&item.vis),
+            line(&item.ident),
+        );
         if let Some((_, items)) = &item.content {
             self.module.push(name);
             self.items(items);
@@ -503,8 +544,8 @@ impl Collector<'_> {
         let mut members = Vec::new();
         let mut signatures = Vec::new();
         for trait_item in &item.items {
-            let (name, kind) = match trait_item {
-                TraitItem::Const(c) => (c.ident.to_string(), ItemKind::AssociatedConst),
+            let (name, kind, at) = match trait_item {
+                TraitItem::Const(c) => (c.ident.to_string(), ItemKind::AssociatedConst, &c.ident),
                 TraitItem::Fn(f) => {
                     self.params(&f.sig);
                     let end = f.default.as_ref().map_or_else(
@@ -517,16 +558,16 @@ impl Collector<'_> {
                     );
                     let name = f.sig.ident.to_string();
                     signatures.push((name.clone(), self.signature(&f.sig, end)));
-                    (name, ItemKind::Method)
+                    (name, ItemKind::Method, &f.sig.ident)
                 }
-                TraitItem::Type(t) => (t.ident.to_string(), ItemKind::AssociatedType),
+                TraitItem::Type(t) => (t.ident.to_string(), ItemKind::AssociatedType, &t.ident),
                 TraitItem::Macro(m) => {
                     self.invocation(&m.mac, false);
                     continue;
                 }
                 _ => continue,
             };
-            members.push((name, kind, true, Vec::new()));
+            members.push((name, kind, true, Vec::new(), line(at)));
         }
         let trait_name = item.ident.to_string();
         for bound in &item.supertraits {
@@ -538,7 +579,13 @@ impl Collector<'_> {
                 });
             }
         }
-        self.owner(&trait_name, ItemKind::Trait, &item.vis, members);
+        self.owner(
+            &trait_name,
+            ItemKind::Trait,
+            &item.vis,
+            members,
+            line(&item.ident),
+        );
         for (name, signature) in signatures {
             self.sign(&[&trait_name, &name], ItemKind::Method, signature);
         }
@@ -596,7 +643,7 @@ impl Collector<'_> {
             })
             .map(|(ident, kind, vis, signature)| {
                 let name = strip_raw(&ident.to_string()).to_owned();
-                (name, kind, of_trait || is_pub(vis), signature)
+                (name, kind, of_trait || is_pub(vis), signature, line(ident))
             })
             .collect();
         self.out.impls.push(Impl {
@@ -611,13 +658,14 @@ impl Collector<'_> {
     /// members.
     fn type_alias(&mut self, item: &syn::ItemType) {
         let name = item.ident.to_string();
-        self.decl(&name, ItemKind::TypeAlias, &item.vis);
+        self.decl(&item.ident, ItemKind::TypeAlias, &item.vis);
         if let Some(source) = type_path(&item.ty) {
             self.out.uses.push(Use {
                 module: self.module.clone(),
                 source,
                 name: Some(strip_raw(&name).to_owned()),
                 public: is_pub(&item.vis),
+                line: line(&item.ident),
             });
         }
     }
@@ -630,6 +678,7 @@ impl Collector<'_> {
                 prefix.pop();
             }
             UseTree::Name(name) => {
+                let at = line(&name.ident);
                 let ident = strip_raw(&name.ident.to_string()).to_owned();
                 let (source, name) = if ident == "self" {
                     (prefix.clone(), prefix.last().cloned())
@@ -644,6 +693,7 @@ impl Collector<'_> {
                         source,
                         name,
                         public,
+                        line: at,
                     };
                     if exported {
                         self.out.uses.push(decl);
@@ -667,13 +717,15 @@ impl Collector<'_> {
                     source,
                     name: Some(alias),
                     public,
+                    line: line(&rename.rename),
                 });
             }
-            UseTree::Glob(_) if exported => self.out.uses.push(Use {
+            UseTree::Glob(glob) if exported => self.out.uses.push(Use {
                 module: self.module.clone(),
                 source: prefix.clone(),
                 name: None,
                 public,
+                line: span_line(glob.star_token.spans[0]),
             }),
             UseTree::Group(group) => {
                 for tree in &group.items {
@@ -741,11 +793,28 @@ fn named_fields(
     fields
         .iter()
         .filter_map(|field| {
-            let name = field.ident.as_ref()?.to_string();
+            let ident = field.ident.as_ref()?;
+            let name = ident.to_string();
             let spellings = container.field(strip_raw(&name), &field.attrs);
-            Some((name, ItemKind::Field, is_pub(&field.vis), spellings))
+            Some((
+                name,
+                ItemKind::Field,
+                is_pub(&field.vis),
+                spellings,
+                line(ident),
+            ))
         })
         .collect()
+}
+
+/// The line of `ident` in the parsed text.
+fn line(ident: &syn::Ident) -> u32 {
+    span_line(ident.span())
+}
+
+/// The line `span` starts at in the parsed text.
+fn span_line(span: proc_macro2::Span) -> u32 {
+    u32::try_from(span.start().line).expect("files have fewer than 2^32 lines")
 }
 
 /// The names `pattern` binds.
@@ -953,14 +1022,16 @@ mod tests {
             ]
         );
         assert_eq!(out.impls[0].self_ty, ["Point"]);
+        let items: Vec<_> = out.impls[0]
+            .items
+            .iter()
+            .map(|(name, kind, public, signature, _)| {
+                (name.as_str(), *kind, *public, signature.as_deref())
+            })
+            .collect();
         assert_eq!(
-            out.impls[0].items,
-            [(
-                "norm".into(),
-                ItemKind::Method,
-                true,
-                Some("(self, u32) -> f64".into())
-            )]
+            items,
+            [("norm", ItemKind::Method, true, Some("(self, u32) -> f64"))]
         );
         assert_eq!(out.lends[0].owner, ["Shape"]);
         assert_eq!(out.lends[0].source, ["Default"]);

@@ -292,6 +292,17 @@ pub struct Suggestion {
     pub path: String,
     /// How it relates to the removed name.
     pub change: Change,
+    /// Where head declares it, absent when no file of head declares it.
+    pub declared_at: Option<Position>,
+}
+
+/// A line of a file.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Position {
+    /// The file, relative to the repository root with `/` separators.
+    pub file: String,
+    /// One-based line.
+    pub line: usize,
 }
 
 /// A removed name and its remaining mentions.
@@ -305,6 +316,9 @@ pub struct Group {
     pub member: Option<String>,
     /// The change that removed it, unknown when no commit of the range shows the removal.
     pub removed_in: Option<RemovedIn>,
+    /// Where the range's starting revision declares it, absent for a full-history scan or when
+    /// that revision has no declaration of it in a file.
+    pub declared_at: Option<Position>,
     /// The name it most likely became.
     pub suggestion: Option<Suggestion>,
     /// The names it may have become when no single one stands out.
@@ -313,16 +327,25 @@ pub struct Group {
     pub mentions: Vec<Mention>,
 }
 
-/// The fields, the suggestion as its path, plus the `headline` a reader shows for the group.
+/// The fields, the suggestion as its path and its position as `suggested_at`, plus the
+/// `headline` a reader shows for the group.
 impl serde::Serialize for Group {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct as _;
-        let mut group = serializer.serialize_struct("Group", 8)?;
+        let mut group = serializer.serialize_struct("Group", 10)?;
         group.serialize_field("path", &self.path)?;
         group.serialize_field("kind", &self.kind)?;
         group.serialize_field("member", &self.member)?;
         group.serialize_field("removed_in", &self.removed_in)?;
+        group.serialize_field("declared_at", &self.declared_at)?;
         group.serialize_field("suggestion", &self.suggestion.as_ref().map(|s| &s.path))?;
+        group.serialize_field(
+            "suggested_at",
+            &self
+                .suggestion
+                .as_ref()
+                .and_then(|s| s.declared_at.as_ref()),
+        )?;
         group.serialize_field("candidates", &self.candidates)?;
         group.serialize_field("headline", &self.headline())?;
         group.serialize_field("mentions", &self.mentions)?;
@@ -333,6 +356,9 @@ impl serde::Serialize for Group {
 /// Every removed name still mentioned, by path.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Report {
+    /// The commit the range starts from, whose files the `declared_at` positions refer to,
+    /// absent for a full-history scan.
+    pub base: Option<String>,
     /// One group per removed name.
     pub groups: Vec<Group>,
     /// Removed dependencies whose sources cargo could not resolve, so their items went

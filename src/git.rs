@@ -344,8 +344,12 @@ pub(crate) enum Head {
     Commit(ObjectId),
 }
 
-/// The commits of `range`, children before parents, and what they are compared against.
-pub(crate) fn range(repo: &gix::Repository, range: &Range) -> Result<(Vec<Commit>, Head), Error> {
+/// The commits of `range`, children before parents, what they are compared against, and the
+/// range's starting commit when it has one.
+pub(crate) fn range(
+    repo: &gix::Repository,
+    range: &Range,
+) -> Result<(Vec<Commit>, Head, Option<ObjectId>), Error> {
     let head_commit = || -> Option<ObjectId> { repo.head_id().ok().map(gix::Id::detach) };
     let (tip, hidden, head) = match range {
         Range::Full => (head_commit(), None, Head::WorkTree(head_commit())),
@@ -366,7 +370,7 @@ pub(crate) fn range(repo: &gix::Repository, range: &Range) -> Result<(Vec<Commit
         }
     };
     let Some(tip) = tip else {
-        return Ok((Vec::new(), head));
+        return Ok((Vec::new(), head, hidden));
     };
     let mut ids: Vec<(ObjectId, Vec<ObjectId>)> = Vec::new();
     let walk = repo
@@ -386,15 +390,20 @@ pub(crate) fn range(repo: &gix::Repository, range: &Range) -> Result<(Vec<Commit
     }
     let mut commits = Vec::with_capacity(ids.len());
     for (id, parents) in topological(ids) {
-        let tree = repo
-            .find_commit(id)
-            .map_err(|source| Error::Object { id, source })?
-            .tree_id()
-            .map_err(|source| Error::Object { id, source })?
-            .detach();
+        let tree = tree(repo, id)?;
         commits.push(Commit { id, tree, parents });
     }
-    Ok((commits, head))
+    Ok((commits, head, hidden))
+}
+
+/// The tree of commit `id`.
+pub(crate) fn tree(repo: &gix::Repository, id: ObjectId) -> Result<ObjectId, Error> {
+    Ok(repo
+        .find_commit(id)
+        .map_err(|source| Error::Object { id, source })?
+        .tree_id()
+        .map_err(|source| Error::Object { id, source })?
+        .detach())
 }
 
 fn resolve(repo: &gix::Repository, spec: &str) -> Result<ObjectId, Error> {
