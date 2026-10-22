@@ -494,6 +494,64 @@ fn the_commit_that_removed_an_item_is_named_rather_than_the_merge() {
     );
 }
 
+/// A pull request branch forked from an older `main`, deleted the item, then merged a newer
+/// `main`. The deleting commit's parent lies below the range's base, outside the range.
+#[test]
+fn a_removal_on_a_branch_that_merged_a_newer_base_is_still_named() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn doomed() {}\npub fn kept() {}\n");
+    repo.commit("start");
+    repo.git(&["checkout", "-q", "-b", "topic"]);
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    let deleting = repo.commit("drop doomed");
+    repo.git(&["checkout", "-q", "main"]);
+    repo.write("README.md", "Call `fixture::doomed`.\n");
+    let base = repo.commit("docs on main");
+    repo.git(&["checkout", "-q", "topic"]);
+    repo.git(&["merge", "-q", "--no-ff", "-m", "Merge main", "main"]);
+    let head = repo.rev("HEAD");
+
+    let mut options = repo.options();
+    options.range = Range::Base {
+        base,
+        head: Some(head),
+    };
+    let report = refquiem::run(&options).unwrap();
+
+    assert_eq!(removed(&report), ["fixture::doomed"]);
+    assert_eq!(
+        report.groups[0].removed_in,
+        Some(RemovedIn::Commit(deleting))
+    );
+}
+
+/// The base's own parents stay outside blame, so a removal before the base is never named.
+#[test]
+fn a_removal_below_the_base_of_a_merged_branch_is_not_blamed_on_the_branch() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn doomed() {}\npub fn kept() {}\n");
+    repo.commit("start");
+    repo.git(&["checkout", "-q", "-b", "topic"]);
+    repo.write("README.md", "Call `fixture::doomed`.\n");
+    repo.commit("docs on topic");
+    repo.git(&["checkout", "-q", "main"]);
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    let base = repo.commit("drop doomed on main");
+    repo.git(&["checkout", "-q", "topic"]);
+    repo.git(&["merge", "-q", "--no-ff", "-m", "Merge main", "main"]);
+    let head = repo.rev("HEAD");
+
+    let mut options = repo.options();
+    options.range = Range::Base {
+        base,
+        head: Some(head),
+    };
+    let report = refquiem::run(&options).unwrap();
+
+    assert_eq!(removed(&report), ["fixture::doomed"]);
+    assert_eq!(report.groups[0].removed_in, None);
+}
+
 #[test]
 fn a_removal_by_uncommitted_changes_is_attributed_to_the_working_tree() {
     let repo = Repo::new();
