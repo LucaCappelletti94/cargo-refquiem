@@ -153,20 +153,11 @@ impl<'r> TreeSnapshot<'r> {
     ) -> Result<Option<(ObjectId, gix::objs::tree::EntryMode)>, Error> {
         let mut memo = self.trees.borrow_mut();
         if let std::collections::hash_map::Entry::Vacant(slot) = memo.entry(dir) {
-            let tree = self
-                .repo
-                .find_object(dir)
-                .map(gix::Object::into_tree)
-                .map_err(|source| Error::Object { id: dir, source })?;
-            let mut entries = Vec::new();
-            for entry in tree.iter() {
-                let entry = entry.map_err(|source| Error::TreeList { id: dir, source })?;
-                entries.push((
-                    entry.filename().to_string(),
-                    entry.object_id(),
-                    entry.mode(),
-                ));
-            }
+            let entries = match self.entries(dir) {
+                Ok(entries) => entries,
+                Err(Error::TreeList { .. }) => return self.first_match(dir, name),
+                Err(error) => return Err(error),
+            };
             slot.insert(entries.into());
         }
         let entries = memo.get(&dir).expect("the missing tree was just inserted");
@@ -174,6 +165,48 @@ impl<'r> TreeSnapshot<'r> {
             .iter()
             .find(|(entry, _, _)| *entry == name)
             .map(|(_, id, mode)| (*id, *mode)))
+    }
+
+    /// The parsed entries of tree `dir`.
+    fn entries(
+        &self,
+        dir: ObjectId,
+    ) -> Result<Vec<(String, ObjectId, gix::objs::tree::EntryMode)>, Error> {
+        let tree = self
+            .repo
+            .find_object(dir)
+            .map(gix::Object::into_tree)
+            .map_err(|source| Error::Object { id: dir, source })?;
+        let mut entries = Vec::new();
+        for entry in tree.iter() {
+            let entry = entry.map_err(|source| Error::TreeList { id: dir, source })?;
+            entries.push((
+                entry.filename().to_string(),
+                entry.object_id(),
+                entry.mode(),
+            ));
+        }
+        Ok(entries)
+    }
+
+    /// The first entry of tree `dir` called `name`, re-reading the tree.
+    fn first_match(
+        &self,
+        dir: ObjectId,
+        name: &str,
+    ) -> Result<Option<(ObjectId, gix::objs::tree::EntryMode)>, Error> {
+        let tree = self
+            .repo
+            .find_object(dir)
+            .map(gix::Object::into_tree)
+            .map_err(|source| Error::Object { id: dir, source })?;
+        for entry in tree.iter() {
+            let entry = entry.map_err(|source| Error::TreeList { id: dir, source })?;
+            if entry.filename() == name {
+                return Ok(Some((entry.object_id(), entry.mode())));
+            }
+        }
+        Ok(None)
     }
 }
 
