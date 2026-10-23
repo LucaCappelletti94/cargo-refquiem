@@ -1127,6 +1127,52 @@ fn chained_reexports_keep_their_copies_reportable() {
 }
 
 #[test]
+fn a_glob_copies_what_its_source_gains_from_later_globs() {
+    let repo = Repo::new();
+    let lib = |item| {
+        format!(
+            "pub mod a {{ pub use crate::b::*; }}\npub mod b {{ pub use crate::c::*; }}\npub mod c {{ pub use crate::d::*; }}\npub mod d {{ pub mod inner {{ {item} pub fn kept() {{}} }} }}\n"
+        )
+    };
+    repo.write("src/lib.rs", &lib("pub fn gone() {}"));
+    repo.commit("a chain of globs");
+    repo.write("src/lib.rs", &lib(""));
+    repo.write(
+        "README.md",
+        "`fixture::a::inner::gone`, `fixture::b::inner::gone` and `fixture::a::inner::kept`.\n",
+    );
+    repo.commit("drop gone");
+
+    assert_eq!(
+        removed(&run(&repo)),
+        ["fixture::a::inner::gone", "fixture::b::inner::gone"]
+    );
+}
+
+#[test]
+fn a_glob_through_an_alias_resolved_in_a_later_round_copies_its_items() {
+    let repo = Repo::new();
+    let lib = |item| {
+        format!(
+            "pub mod m {{ pub mod n {{ {item} pub fn kept() {{}} }} }}\npub mod x {{ pub use crate::y::B as A; }}\npub mod y {{ pub use crate::m::n as B; }}\npub mod z {{ pub use crate::x::*; }}\n"
+        )
+    };
+    repo.write("src/lib.rs", &lib("pub fn gone() {}"));
+    repo.commit("a glob over a late alias");
+    repo.write("src/lib.rs", &lib(""));
+    repo.write(
+        "README.md",
+        "`fixture::z::A::gone`, `fixture::x::A::gone` and `fixture::z::A::kept`.\n",
+    );
+    repo.commit("drop gone");
+
+    assert_eq!(
+        removed(&run(&repo)),
+        ["fixture::x::A::gone", "fixture::z::A::gone"]
+    );
+}
+
+#[test]
 fn a_glob_reexport_copies_top_level_items_to_the_crate_root() {
     let repo = Repo::new();
     repo.write(
