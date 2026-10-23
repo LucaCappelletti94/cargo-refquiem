@@ -1243,6 +1243,26 @@ fn members_declared_under_a_path_no_snapshot_interned_yet_join_it_once_a_glob_cr
 }
 
 #[test]
+fn a_glob_into_a_module_that_takes_an_origin_late_follows_an_alias_it_stopped_at() {
+    let repo = Repo::new();
+    let lib = |item| {
+        format!(
+            "pub mod src {{ pub use crate::p::n as d; }}\npub mod p {{\n    pub use super::w::deep as n;\n    pub mod n {{ pub use crate::src::*; {item} pub fn kept() {{}} }}\n}}\npub mod w {{ pub use super::v::*; }}\npub mod v {{ pub use super::u::*; }}\npub mod u {{ pub fn deep() {{}} }}\n"
+        )
+    };
+    repo.write("src/lib.rs", &lib("pub fn inner() {}"));
+    repo.commit("a module named like a function three globs away");
+    repo.write("src/lib.rs", &lib(""));
+    repo.write(
+        "README.md",
+        "`fixture::p::n::d::inner` and `fixture::p::n::d::kept`.\n",
+    );
+    repo.commit("drop inner");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::p::n::d::inner"]);
+}
+
+#[test]
 fn a_dependency_glob_reexport_of_another_crate_keeps_its_items_alive() {
     let repo = Repo::new();
     repo.vendor("inner", "0.1.0", "pub struct Gadget;\n");
