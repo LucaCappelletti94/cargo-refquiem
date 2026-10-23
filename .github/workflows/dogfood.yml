@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,24 +19,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       # The released binary predates the code under review, so the action scans with the branch build.
       - run: cargo install --path . --locked
-      # A fork's token is read-only, so its review is prepared here and posted by Dogfood post.
+      # The job runs the pull request's code with a read-only token, so it only prepares the
+      # review and Dogfood post posts it.
       - uses: ./
         id: refquiem
         with:
           install: false
           pr-number: ${{ github.event.pull_request.number }}
           dry-run: ${{ github.event_name == 'push' }}
-          mode: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'prepare' || 'review' }}
+          mode: ${{ github.event_name == 'pull_request' && 'prepare' || 'review' }}
           payload: refquiem-payload
       - name: Check the review outcome
         env:
           STATUS: ${{ steps.refquiem.outputs.review-status }}
         run: |
           case "$STATUS" in
-            posted | dry-run | prepared | skipped-clean | skipped-readonly) echo "the review ended $STATUS" ;;
+            dry-run | prepared | skipped-clean) echo "the review ended $STATUS" ;;
             *) echo "unexpected review outcome: $STATUS"; exit 1 ;;
           esac
       - uses: actions/upload-artifact@v4

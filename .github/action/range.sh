@@ -55,7 +55,11 @@ case "$GITHUB_EVENT_NAME" in
       fetch_all
     fi
     ;;
-  pull_request | pull_request_target)
+  pull_request_target)
+    echo "::error title=refquiem::pull_request_target runs with the base repository's credentials, run refquiem on pull_request and post with workflow_run"
+    exit 1
+    ;;
+  pull_request)
     # The scan ends at the pull request head, the commit review comments anchor their lines to,
     # and starts where the pull request forked from its base branch.
     tip="$(field .pull_request.base.sha)"
