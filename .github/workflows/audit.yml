@@ -39,7 +39,7 @@ jobs:
           restore-keys: |
             dl-${{ runner.os }}-
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked

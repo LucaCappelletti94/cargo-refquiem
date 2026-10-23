@@ -1,20 +1,37 @@
 #!/usr/bin/env bash
 # Posts report findings together in one pull request review.
-# MODE selects review, prepare or post, and DRY_RUN renders without posting.
-# RUN_HEAD_SHA binds a prepared review to the preparing run's checkout.
+# MODE review renders and posts, prepare leaves the report for a later job, and post renders
+# that report on the pull request its run built. DRY_RUN renders without posting.
 # No `set -e`, a failed api call records its own outcome instead of aborting the run.
 set -uo pipefail
 
 repo="$GITHUB_REPOSITORY"
 pr="${PR_NUMBER:-}"
-comments="$PAYLOAD/comments.ndjson"
-meta="$PAYLOAD/review.json"
 mkdir -p "$PAYLOAD"
+work="$(mktemp -d)"
+comments="$work/comments.ndjson"
+meta="$work/review.json"
+report="$work/report.json"
 
 finish() {
   echo "$1" > "$STATUS"
   exit "${2:-0}"
 }
+
+reject() {
+  echo "refquiem: $1, nothing is posted"
+  finish rejected 1
+}
+
+stale() {
+  echo "refquiem: $1, nothing is posted"
+  finish skipped-stale
+}
+
+uri() { jq -rn --arg s "$1" '$s | @uri'; }
+
+# Whether file $1 holds at most $2 bytes.
+within() { [ "$(wc -c < "$1" | tr -d ' ')" -le "$2" ]; }
 
 # Matches the HTTP status `$2` in the gh error output `$1`.
 http_status() { grep -qE "HTTP $2|\"status\": \"$2\"" <<< "$1"; }
@@ -71,6 +88,67 @@ reduce .[] as $file ({};
           .RIGHT += [.right] | .left += 1 | .right += 1
         else . end)
     | {LEFT, RIGHT}))'
+
+# Keeps the report fields the review renders. Names render in code spans, so they hold no
+# backtick or control character, and each headline is the one its group's fields produce.
+canonical_program='
+def str: type == "string";
+def int: type == "number" and . >= 1 and . <= 2147483647 and . == floor;
+def name: str and length > 0 and (test("[`\\x00-\\x1f\\x7f]") | not);
+def line: str and (test("[\\x00-\\x08\\x0a-\\x1f\\x7f]") | not);
+def commit: str and test("^[0-9a-f]{40}([0-9a-f]{24})?$");
+def need(c): if c then . else error("malformed") end;
+def position: if . == null then null
+  else need(type == "object" and (.file | name) and (.line | int)) | {file, line} end;
+def kinds: {module: "module", struct: "struct", enum: "enum", union: "union", trait: "trait",
+  trait_alias: "trait alias", type_alias: "type alias", const: "const", static: "static",
+  function: "function", macro: "macro", variant: "variant", field: "field", method: "method",
+  associated_const: "associated const", associated_type: "associated type",
+  reexport: "re-export", package: "package", dependency: "dependency", feature: "feature",
+  binary: "binary", example: "example", serialized: "serialized name"};
+def headline($change):
+  . as $g
+  | (if any(("package", "dependency", "feature", "binary", "example"); . == $g.kind)
+      then "removed" else "deleted" end) as $verb
+  | "`\($g.path)` (\(kinds[$g.kind])"
+    + (if $g.member != null then " of `\($g.member)`" else "" end) + ")"
+    + (if $g.removed_in == null then ""
+      elif $g.removed_in == "working_tree" then ", \($verb) in the working tree"
+      else ", \($verb) in \($g.removed_in[:7])" end)
+    + (if $g.suggestion != null then ", \($change) `\($g.suggestion)`"
+      elif ($g.candidates | length) > 0
+      then ", perhaps \($g.candidates[:-1] | map("`\(.)`") | join(", ")) or `\($g.candidates[-1])`"
+      else "" end);
+def group:
+  need(type == "object" and (.path | name) and (.kind | str) and kinds[.kind] != null
+    and (.member == null or (.member | name))
+    and (.removed_in == null or .removed_in == "working_tree" or (.removed_in | commit))
+    and (.suggestion == null or (.suggestion | name))
+    and (.candidates | type == "array" and all(.[]; name))
+    and (.headline | str) and (.mentions | type == "array"))
+  | need(. as $g | if $g.suggestion != null
+      then any(("moved to", "renamed to", "replaced by"); . as $c | $g | headline($c) == $g.headline)
+      else headline(null) == $g.headline end)
+  | {path, kind, member, removed_in, declared_at: (.declared_at | position), suggestion,
+     suggested_at: (if .suggestion == null then null else .suggested_at | position end),
+     candidates, headline,
+     mentions: [.mentions[]
+       | need(type == "object" and (.file | name) and (.line | int) and (.column | int)
+         and (.text | str) and (.replacement == null or (.replacement | line)))
+       | {file, line, column, text, replacement}]};
+.[0]
+| need(type == "object" and (.groups | type == "array") and (.unused_markers | type == "array")
+  and (.skipped | type == "array") and (.base == null or (.base | commit)))
+| {base,
+   groups: [.groups[] | group],
+   unused_markers: [.unused_markers[]
+     | need(type == "object" and (.file | name) and (.line | int) and (.column | int)
+       and (.name | name))
+     | {file, line, column, name}],
+   skipped: [.skipped[] | need(type == "object" and (.dependency | name)) | {dependency}]}'
+
+# Validates the report in $1 into "$report".
+canonical() { jq -c -s "$canonical_program" "$1" > "$report" 2>/dev/null; }
 
 # Reads the report into the plan: the groups and markers with links to the head commit, the
 # skipped dependencies, the removal comments and the inline comments.
@@ -219,103 +297,139 @@ render_dry_run() {
   finish dry-run
 }
 
-if [ "$MODE" = post ]; then
-  if [ ! -s "$meta" ] || [ ! -f "$comments" ]; then
-    echo "refquiem: the prepared review is missing from $PAYLOAD"
+# The pull request the payload names, accepted only when run $RUN_ID built it at the payload's
+# head. Everything but the run id comes from the API.
+bind_to_run() {
+  local run run_event run_head run_repo run_owner run_branch open built
+  [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]] || reject "the triggering run has no id"
+  if ! run="$(gh api "repos/$repo/actions/runs/$RUN_ID" 2>&1)"; then
+    echo "refquiem: cannot read run $RUN_ID, the review is not posted"
+    printf '%s\n' "$run"
     finish failed 1
   fi
-  pr="$(jq -r .pr "$meta")"
-  head_sha="$(jq -r .head_sha "$meta")"
-  version="$(jq -r '.version // ""' "$meta")"
-  if ! [[ "$pr" =~ ^[0-9]+$ ]]; then
-    echo "refquiem: the prepared review names no pull request"
+  run_event="$(jq -r '.event // empty' <<< "$run")"
+  run_head="$(jq -r '.head_sha // empty' <<< "$run")"
+  run_repo="$(jq -r '.head_repository.full_name // empty' <<< "$run")"
+  run_owner="$(jq -r '.head_repository.owner.login // empty' <<< "$run")"
+  run_branch="$(jq -r '.head_branch // empty' <<< "$run")"
+  [ "$run_event" = pull_request ] || reject "the triggering run did not come from a pull request"
+  [[ "$run_head" =~ ^[0-9a-f]{40}$ ]] && [ -n "$run_repo" ] && [ -n "$run_owner" ] \
+    && [ -n "$run_branch" ] || reject "the triggering run names no head"
+  if ! open="$(gh api "repos/$repo/pulls?state=open&head=$(uri "$run_owner:$run_branch")&per_page=100" \
+    --paginate --jq '.[]' 2>&1)"; then
+    echo "refquiem: cannot list the open pull requests, the review is not posted"
+    printf '%s\n' "$open"
     finish failed 1
   fi
+  built="$(jq -r --arg sha "$run_head" --arg full "$run_repo" \
+    'select(.head.sha == $sha and .head.repo.full_name == $full) | .number' <<< "$open" 2>/dev/null)"
+  [ -n "$built" ] || stale "no open pull request has the head run $RUN_ID built"
+  grep -qx -- "$pr" <<< "$built" || reject "run $RUN_ID did not build pull request $pr"
+  [ "$head_sha" = "$run_head" ] || reject "the prepared head is not the head run $RUN_ID built"
+}
+
+case "$MODE" in
+  prepare)
+    version="${VERSION:-}"
+    if [ "$DRY_RUN" != true ]; then
+      [[ "$pr" =~ ^[1-9][0-9]*$ ]] || { echo "refquiem: prepare needs pr-number"; finish failed 1; }
+      head_sha="${SCANNED_HEAD:-}"
+      if [ -z "$head_sha" ] && ! head_sha="$(gh api "repos/$repo/pulls/$pr" --jq .head.sha 2>&1)"; then
+        echo "refquiem: cannot read pull request $pr"
+        printf '%s\n' "$head_sha"
+        finish failed 1
+      fi
+      cp "$REPORT" "$PAYLOAD/report.json"
+      jq -n --arg pr "$pr" --arg head "$head_sha" --arg version "$version" \
+        '{pr: $pr, head_sha: $head, version: $version}' > "$PAYLOAD/meta.json"
+      echo "refquiem: the report is prepared in $PAYLOAD for a later job"
+      finish prepared
+    fi
+    canonical "$REPORT" || reject "the report is malformed"
+    ;;
+  post)
+    for f in meta.json report.json; do
+      if [ ! -f "$PAYLOAD/$f" ]; then
+        echo "refquiem: the prepared review in $PAYLOAD lacks $f"
+        finish failed 1
+      fi
+    done
+    within "$PAYLOAD/meta.json" 4096 && within "$PAYLOAD/report.json" 16777216 \
+      || reject "the prepared review is too large"
+    jq -e -s '.[0] | type == "object" and (.pr | type == "string" and test("^[1-9][0-9]{0,9}$"))
+      and (.head_sha | type == "string" and test("^[0-9a-f]{40}$"))
+      and ((.version // "") | type == "string" and test("^([0-9A-Za-z][0-9A-Za-z.+-]{0,39})?$"))' \
+      "$PAYLOAD/meta.json" > /dev/null 2>&1 || reject "the prepared metadata is malformed"
+    claimed="$(jq -r '.pr' "$PAYLOAD/meta.json")"
+    [ -z "$pr" ] || [ "$pr" = "$claimed" ] || reject "the job names pull request $pr, the payload $claimed"
+    pr="$claimed"
+    head_sha="$(jq -r '.head_sha' "$PAYLOAD/meta.json")"
+    version="$(jq -r '.version // ""' "$PAYLOAD/meta.json")"
+    if [ "${EVENT_NAME:-}" = workflow_run ]; then
+      bind_to_run
+    else
+      # No run vouches for the payload here, so the job names the pull request itself.
+      [ -n "${PR_NUMBER:-}" ] || reject "outside workflow_run the job names the pull request"
+      if ! current="$(gh api "repos/$repo/pulls/$pr" --jq .head.sha 2>&1)"; then
+        echo "refquiem: cannot read pull request $pr, the review is not posted"
+        printf '%s\n' "$current"
+        finish failed 1
+      fi
+      [ "$current" = "$head_sha" ] || stale "pull request $pr moved on from the prepared head"
+    fi
+    canonical "$PAYLOAD/report.json" || reject "the prepared report is malformed"
+    ;;
+  *)
+    version="${VERSION:-}"
+    canonical "$REPORT" || reject "the report is malformed"
+    ;;
+esac
+
+if [ "$(jq '(.groups | length) + (.unused_markers | length)' "$report")" = 0 ]; then
+  echo "refquiem: no stale mention, the review is not posted"
+  if [ "$DRY_RUN" != true ] && [ -n "$pr" ]; then
+    dismiss
+  fi
+  finish skipped-clean
+fi
+
+lines='{}'
+if [ "$MODE" != post ]; then
+  head_sha="${GITHUB_SHA:-HEAD}"
+fi
+if [ "$DRY_RUN" != true ]; then
+  if [ "$MODE" != post ] && ! head_sha="$(gh api "repos/$repo/pulls/$pr" --jq .head.sha 2>&1)"; then
+    echo "refquiem: cannot read pull request $pr, the review is not posted"
+    printf '%s\n' "$head_sha"
+    finish failed 1
+  fi
+  if ! lines="$(gh api "repos/$repo/pulls/$pr/files" --paginate --jq '.[] | {filename, patch}' \
+    | jq -s -c "$commentable_program")"; then
+    echo "refquiem: cannot read the files of pull request $pr, the review is not posted"
+    finish failed 1
+  fi
+fi
+# Without a pull request, a dry run on a push, the report names the run.
+if [ -n "$pr" ]; then
   reviewed="$repo#$pr"
   review_url="$GITHUB_SERVER_URL/$repo/pull/$pr"
-  # Anyone can trigger the preparing run, so the payload posts only on a pull request whose
-  # head is still the commit that run checked out.
-  if [ -n "${RUN_HEAD_SHA:-}" ]; then
-    current="$(gh api "repos/$repo/pulls/$pr" --jq .head.sha 2>/dev/null)" || current=''
-    if [ "$head_sha" != "$RUN_HEAD_SHA" ] || [ "$current" != "$RUN_HEAD_SHA" ]; then
-      echo "refquiem: pull request $pr is not at $RUN_HEAD_SHA, the review is not posted"
-      finish skipped-stale
-    fi
-  fi
-  if [ "$(jq -r '.clean // false' "$meta")" = true ]; then
-    echo "refquiem: pull request $pr has no stale mention"
-    if [ "$DRY_RUN" != true ]; then
-      dismiss
-    fi
-    finish skipped-clean
-  fi
-  if [ "$DRY_RUN" = true ]; then
-    render_dry_run
-  fi
 else
-  version="${VERSION:-}"
-  if [ "$(jq '(.groups | length) + (.unused_markers | length)' "$REPORT")" = 0 ]; then
-    echo "refquiem: no stale mention, the review is not posted"
-    if [ "$DRY_RUN" != true ] && [ -n "$pr" ]; then
-      if [ "$MODE" = prepare ]; then
-        if ! head_sha="$(gh api "repos/$repo/pulls/$pr" --jq .head.sha 2>&1)"; then
-          echo "refquiem: cannot read pull request $pr"
-          printf '%s\n' "$head_sha"
-          finish failed 1
-        fi
-        : > "$comments"
-        jq -n --arg pr "$pr" --arg head "$head_sha" \
-          '{pr: $pr, head_sha: $head, clean: true}' > "$meta"
-        echo "refquiem: the clean outcome is prepared in $PAYLOAD for a later job"
-        finish prepared
-      fi
-      dismiss
-    fi
-    finish skipped-clean
-  fi
+  reviewed="$repo"
+  review_url="$GITHUB_SERVER_URL/$repo/actions/runs/${GITHUB_RUN_ID:-}"
+fi
 
-  head_sha="${GITHUB_SHA:-HEAD}"
-  lines='{}'
-  if [ "$DRY_RUN" != true ]; then
-    if ! head_sha="$(gh api "repos/$repo/pulls/$pr" --jq .head.sha 2>&1)"; then
-      echo "refquiem: cannot read pull request $pr, the review is not posted"
-      printf '%s\n' "$head_sha"
-      finish failed 1
-    fi
-    if ! lines="$(gh api "repos/$repo/pulls/$pr/files" --paginate --jq '.[] | {filename, patch}' \
-      | jq -s -c "$commentable_program")"; then
-      echo "refquiem: cannot read the files of pull request $pr, the review is not posted"
-      finish failed 1
-    fi
-  fi
-  # Without a pull request, a dry run on a push, the report names the run.
-  if [ -n "$pr" ]; then
-    reviewed="$repo#$pr"
-    review_url="$GITHUB_SERVER_URL/$repo/pull/$pr"
-  else
-    reviewed="$repo"
-    review_url="$GITHUB_SERVER_URL/$repo/actions/runs/${GITHUB_RUN_ID:-}"
-  fi
+plan="$(jq -c --arg server "$GITHUB_SERVER_URL" --arg repo "$repo" --arg sha "$head_sha" \
+  --arg reviewed "$reviewed" --arg review_url "$review_url" --arg version "$version" \
+  "$plan_program" "$report")"
+# GitHub rejects a whole review holding a comment off the diff, a dry run shows them all.
+jq -c --argjson lines "$lines" --arg dry "$DRY_RUN" \
+  '.removals[], .inline[]
+  | select($dry == "true" or (.line as $line | ($lines[.path][.side] // []) | any(.[]; . == $line)))' \
+  <<< "$plan" > "$comments"
+jq -n --argjson plan "$plan" '{plan: ($plan | {groups, markers, skipped})}' > "$meta"
 
-  plan="$(jq -c --arg server "$GITHUB_SERVER_URL" --arg repo "$repo" --arg sha "$head_sha" \
-    --arg reviewed "$reviewed" --arg review_url "$review_url" --arg version "$version" \
-    "$plan_program" "$REPORT")"
-  # GitHub rejects a whole review holding a comment off the diff, a dry run shows them all.
-  jq -c --argjson lines "$lines" --arg dry "$DRY_RUN" \
-    '.removals[], .inline[]
-    | select($dry == "true" or (.line as $line | ($lines[.path][.side] // []) | any(.[]; . == $line)))' \
-    <<< "$plan" > "$comments"
-  jq -n --arg pr "$pr" --arg head "$head_sha" --arg version "$version" --argjson plan "$plan" \
-    '{pr: $pr, head_sha: $head, version: $version, plan: ($plan | {groups, markers, skipped})}' \
-    > "$meta"
-
-  if [ "$DRY_RUN" = true ]; then
-    render_dry_run
-  fi
-  if [ "$MODE" = prepare ]; then
-    echo "refquiem: the review is prepared in $PAYLOAD for a later job"
-    finish prepared
-  fi
+if [ "$DRY_RUN" = true ]; then
+  render_dry_run
 fi
 
 readonly_notice() {

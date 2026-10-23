@@ -221,6 +221,42 @@ fn a_merge_group_scans_its_base_and_head() {
     );
 }
 
+/// The trigger runs with the base repository's credentials, so the action refuses it.
+#[test]
+fn a_pull_request_target_run_is_refused() {
+    let origin = Repo::new();
+    let head = origin.commit("a");
+    let clone = shallow_clone(&origin, "main");
+    let dir = tempfile::tempdir().unwrap();
+    let event = dir.path().join("event.json");
+    let output = dir.path().join("output");
+    std::fs::write(
+        &event,
+        format!(
+            r#"{{"pull_request": {{"base": {{"sha": "{head}"}}, "head": {{"sha": "{head}"}}}}}}"#
+        ),
+    )
+    .unwrap();
+    std::fs::write(&output, "").unwrap();
+    let result = Command::new("bash")
+        .arg(script("range.sh"))
+        .current_dir(clone.path())
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GITHUB_EVENT_NAME", "pull_request_target")
+        .env("GITHUB_EVENT_PATH", &event)
+        .env("GITHUB_SHA", &head)
+        .env("GITHUB_OUTPUT", &output)
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert!(
+        String::from_utf8_lossy(&result.stdout).contains("pull_request_target"),
+        "{}",
+        String::from_utf8_lossy(&result.stdout)
+    );
+    assert_eq!(std::fs::read_to_string(&output).unwrap(), "");
+}
+
 #[test]
 fn a_manual_audit_fetches_the_whole_history_and_tags_and_keeps_since() {
     let origin = Repo::new();
@@ -283,11 +319,15 @@ const EARLIER_REVIEWS: &str = r#"{"id":101,"state":"CHANGES_REQUESTED","body":"s
 {"id":102,"state":"DISMISSED","body":"older\n\n<!-- refquiem -->"}
 {"id":103,"state":"CHANGES_REQUESTED","body":"a maintainer's request"}"#;
 
+/// The head commit the fake pull request 7 and the fake run 99 point at.
+const HEAD: &str = "f00df00df00df00df00df00df00df00df00df00d";
+
 impl FakeGh {
     /// `changed` are the pull request's files, each a hunk covering its first 200 lines on
     /// both sides. `fail` makes the review post fail with that status for `review`, only a
-    /// post carrying comments for `review-comments`, listing the files for `files`, or a
-    /// dismissal for `dismissals`.
+    /// post carrying comments for `review-comments`, listing the files for `files`, a
+    /// dismissal for `dismissals`, or reading the run for `runs`. Run 99 built pull request 7
+    /// from the `feature` branch of `fork/repo` at [`HEAD`].
     fn new(changed: &[&str], fail: Option<(&str, u16)>) -> Self {
         let whole = format!(
             "@@ -1,200 +1,200 @@\n{}{}",
@@ -312,6 +352,10 @@ impl FakeGh {
             listed.push(b'\n');
         }
         std::fs::write(dir.path().join("files.ndjson"), listed).unwrap();
+        let gh = Self { dir };
+        gh.run(&serde_json::json!({"event": "pull_request"}), HEAD);
+        gh.open(&[7]);
+        let dir = gh.dir;
         let script = format!(
             r#"#!/usr/bin/env bash
 log="{log}"
@@ -347,12 +391,21 @@ REVIEWS
       exit 1
     fi
     cat "{files}" ;;
+  *actions/runs/*)
+    if [ '{fail_key}' = runs ]; then
+      echo 'gh: HTTP {fail_status}' >&2
+      exit 1
+    fi
+    cat "{run}" ;;
+  *'pulls?state=open'*) cat "{open}" ;;
   *pulls/7*) echo 'f00df00df00df00df00df00df00df00df00df00d' ;;
   *) echo "unexpected gh $*" >&2; exit 1 ;;
 esac
 "#,
             log = dir.path().join("log").display(),
             files = dir.path().join("files.ndjson").display(),
+            run = dir.path().join("run.json").display(),
+            open = dir.path().join("open.ndjson").display(),
             reviews = EARLIER_REVIEWS,
         );
         let gh = dir.path().join("gh");
@@ -364,6 +417,32 @@ esac
 
     fn log(&self) -> String {
         std::fs::read_to_string(self.dir.path().join("log")).unwrap()
+    }
+
+    /// Makes run 99 the run `fields` describe, built from `fork/repo` at `head`.
+    fn run(&self, fields: &serde_json::Value, head: &str) {
+        let mut run = serde_json::json!({
+            "head_sha": head,
+            "head_branch": "feature",
+            "head_repository": {"full_name": "fork/repo", "owner": {"login": "fork"}},
+        });
+        run.as_object_mut()
+            .unwrap()
+            .extend(fields.as_object().unwrap().clone());
+        std::fs::write(self.dir.path().join("run.json"), run.to_string()).unwrap();
+    }
+
+    /// Makes `numbers` the open pull requests whose head is `fork:feature` at [`HEAD`].
+    fn open(&self, numbers: &[u64]) {
+        let open: String = numbers
+            .iter()
+            .map(|number| {
+                serde_json::json!({"number": number, "head": {"sha": HEAD, "repo": {"full_name": "fork/repo"}}})
+                    .to_string()
+                    + "\n"
+            })
+            .collect();
+        std::fs::write(self.dir.path().join("open.ndjson"), open).unwrap();
     }
 }
 
@@ -487,6 +566,42 @@ fn run_review(
         std::fs::read_to_string(&status).unwrap().trim().to_owned(),
         std::fs::read_to_string(&summary).unwrap(),
     )
+}
+
+/// The environment of the `workflow_run` job posting the payload of run 99.
+const IN_WORKFLOW_RUN: &[(&str, &str)] = &[("EVENT_NAME", "workflow_run"), ("RUN_ID", "99")];
+
+/// The payload a `prepare` run leaves for `report` on pull request 7.
+fn prepared(report: &str) -> tempfile::TempDir {
+    let payload = tempfile::tempdir().unwrap();
+    let preparing = FakeGh::new(&["README.md", "src/lib.rs"], None);
+    let (status, _) = review(&preparing, "prepare", false, payload.path(), report);
+    assert_eq!(status, "prepared");
+    payload
+}
+
+/// Runs the posting job on `payload`, returning whether it exited successfully and its status.
+fn post(gh: &FakeGh, payload: &Path, env: &[(&str, &str)]) -> (bool, String) {
+    let (success, status, _) = run_review(gh, "post", false, payload, "", env);
+    (success, status)
+}
+
+/// Replaces `from` with `to` in every file of `payload`.
+fn forge(payload: &Path, from: &str, to: &str) {
+    for entry in std::fs::read_dir(payload).unwrap() {
+        let path = entry.unwrap().path();
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(&path, text.replace(from, to)).unwrap();
+    }
+}
+
+/// Asserts the posting job refuses `payload` and touches no review.
+fn assert_rejected(gh: &FakeGh, payload: &Path, env: &[(&str, &str)]) {
+    let outcome = post(gh, payload, env);
+    let log = gh.log();
+    assert_eq!(outcome, (false, "rejected".to_owned()), "{log}");
+    assert!(reviews_posted(&log).is_empty(), "{log}");
+    assert_eq!(dismissed(&log), Vec::<&str>::new(), "{log}");
 }
 
 /// Every `gh` call in the log as its arguments and the stdin it read.
@@ -1015,21 +1130,18 @@ fn prepare_then_post_posts_the_review_a_read_only_job_computed() {
     assert!(!preparing.log().contains("comments"), "{}", preparing.log());
     assert!(!preparing.log().contains("reviews"), "{}", preparing.log());
 
-    let posting = FakeGh::new(&[], None);
-    let (status, _) = review_with(
-        &posting,
-        "post",
-        false,
-        payload.path(),
-        "",
-        &[("RUN_HEAD_SHA", "f00df00df00df00df00df00df00df00df00df00d")],
-    );
+    let posting = FakeGh::new(&["README.md", "src/lib.rs"], None);
+    let (status, _) = review_with(&posting, "post", false, payload.path(), "", IN_WORKFLOW_RUN);
     assert_eq!(status, "posted");
     let log = posting.log();
     assert_eq!(on_deleted_lines(&log), [pair("src/lib.rs", "1")]);
     assert_eq!(
         commented(&log),
         [pair("README.md", "3"), pair("src/lib.rs", "1")]
+    );
+    assert!(
+        log.contains("pulls?state=open&head=fork%3Afeature"),
+        "the run's own head names the pull request\n{log}"
     );
     let review = review_call(&log);
     assert!(
@@ -1048,14 +1160,8 @@ fn a_prepared_review_in_dry_run_posts_nothing() {
     assert_eq!(status, "prepared");
 
     let posting = FakeGh::new(&[], None);
-    let (status, summary) = review_with(
-        &posting,
-        "post",
-        true,
-        payload.path(),
-        "",
-        &[("RUN_HEAD_SHA", "f00df00df00df00df00df00df00df00df00df00d")],
-    );
+    let (status, summary) =
+        review_with(&posting, "post", true, payload.path(), "", IN_WORKFLOW_RUN);
     let log = posting.log();
     assert!(!log.contains("comments"), "{log}");
     assert!(!log.contains("reviews"), "{log}");
@@ -1073,14 +1179,11 @@ fn post_skips_a_payload_whose_pull_request_is_not_at_the_run_head() {
     review(&preparing, "prepare", false, payload.path(), &report);
 
     let posting = FakeGh::new(&[], None);
-    let (status, _) = review_with(
-        &posting,
-        "post",
-        false,
-        payload.path(),
-        "",
-        &[("RUN_HEAD_SHA", "0123456789012345678901234567890123456789")],
+    posting.run(
+        &serde_json::json!({"event": "pull_request"}),
+        "0123456789012345678901234567890123456789",
     );
+    let (status, _) = review_with(&posting, "post", false, payload.path(), "", IN_WORKFLOW_RUN);
     assert_eq!(status, "skipped-stale");
     assert!(!posting.log().contains("comments"), "{}", posting.log());
     assert!(!posting.log().contains("reviews"), "{}", posting.log());
@@ -1111,6 +1214,179 @@ fn post_without_a_prepared_review_fails() {
         .unwrap();
     assert!(!result.status.success());
     assert_eq!(std::fs::read_to_string(&status).unwrap().trim(), "failed");
+}
+
+/// Two pull requests can share a head commit, so the payload posts only on one the run built.
+#[test]
+fn post_rejects_a_payload_naming_a_pull_request_the_run_did_not_build() {
+    let payload = prepared(&stale_scan());
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
+    gh.open(&[8]);
+    assert_rejected(&gh, payload.path(), IN_WORKFLOW_RUN);
+}
+
+#[test]
+fn post_rejects_a_clean_payload_for_a_pull_request_the_run_did_not_build() {
+    let payload = prepared(&clean_scan());
+    let gh = FakeGh::new(&["README.md"], None);
+    gh.open(&[8]);
+    assert_rejected(&gh, payload.path(), IN_WORKFLOW_RUN);
+}
+
+#[test]
+fn post_rejects_a_pr_number_input_naming_another_pull_request() {
+    let payload = prepared(&stale_scan());
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
+    let env = [IN_WORKFLOW_RUN, &[("PR_NUMBER", "8")]].concat();
+    assert_rejected(&gh, payload.path(), &env);
+}
+
+#[test]
+fn post_rejects_a_run_that_did_not_come_from_a_pull_request() {
+    let payload = prepared(&stale_scan());
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
+    gh.run(&serde_json::json!({"event": "push"}), HEAD);
+    assert_rejected(&gh, payload.path(), IN_WORKFLOW_RUN);
+}
+
+#[test]
+fn post_fails_when_the_run_cannot_be_read() {
+    let payload = prepared(&stale_scan());
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], Some(("runs", 500)));
+    let (success, status) = post(&gh, payload.path(), IN_WORKFLOW_RUN);
+    assert!(!success);
+    assert_eq!(status, "failed");
+    assert!(reviews_posted(&gh.log()).is_empty(), "{}", gh.log());
+}
+
+/// Outside `workflow_run` no run vouches for the payload, so the job names the pull request.
+#[test]
+fn post_outside_workflow_run_needs_the_pull_request_named() {
+    let payload = prepared(&stale_scan());
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
+    assert_rejected(&gh, payload.path(), &[("EVENT_NAME", "push")]);
+
+    let named = [("EVENT_NAME", "push"), ("PR_NUMBER", "7")];
+    assert_eq!(
+        post(&gh, payload.path(), &named),
+        (true, "posted".to_owned())
+    );
+}
+
+/// The review is rendered from the report's fields, so prepared text that differs is refused.
+#[test]
+fn post_rejects_text_the_report_fields_do_not_produce() {
+    let payload = prepared(&stale_scan());
+    forge(
+        payload.path(),
+        "(function), deleted in",
+        "(function) [a link](https://example.com/phish), deleted in",
+    );
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
+    assert_rejected(&gh, payload.path(), IN_WORKFLOW_RUN);
+    assert!(!gh.log().contains("phish"), "{}", gh.log());
+}
+
+/// A backtick would end the code span a name renders in and let markdown through.
+#[test]
+fn post_rejects_markdown_in_a_reported_name() {
+    let payload = prepared(&stale_scan());
+    forge(
+        payload.path(),
+        "fixture::gone",
+        "fixture::gone` [a link](https://example.com/phish) `",
+    );
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
+    assert_rejected(&gh, payload.path(), IN_WORKFLOW_RUN);
+}
+
+#[test]
+fn post_rejects_an_oversized_payload() {
+    let payload = prepared(&stale_scan());
+    for entry in std::fs::read_dir(payload.path()).unwrap() {
+        let path = entry.unwrap().path();
+        let mut text = std::fs::read_to_string(&path).unwrap();
+        text.push_str(&" ".repeat(16 << 20));
+        std::fs::write(&path, text).unwrap();
+    }
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
+    assert_rejected(&gh, payload.path(), IN_WORKFLOW_RUN);
+}
+
+/// The posting job renders what a job reviewing its own pull request posts.
+#[test]
+fn review_and_post_post_the_same_review() {
+    let report = stale_scan();
+    let reviewing = FakeGh::new(&["README.md", "src/lib.rs"], None);
+    let payload = tempfile::tempdir().unwrap();
+    review(&reviewing, "review", false, payload.path(), &report);
+
+    let posting = FakeGh::new(&["README.md", "src/lib.rs"], None);
+    let payload = prepared(&report);
+    assert_eq!(
+        post(&posting, payload.path(), IN_WORKFLOW_RUN),
+        (true, "posted".to_owned())
+    );
+    assert_eq!(last_review(&posting.log()), last_review(&reviewing.log()));
+}
+
+/// Every headline the scanner writes is one the review rebuilds from its fields.
+#[test]
+fn every_headline_shape_renders() {
+    let reworked = Repo::new();
+    reworked.write(
+        "src/lib.rs",
+        "pub mod a {\n    pub fn shifted() {}\n}\npub fn colour() {}\npub fn gone(x: u32) {}\n",
+    );
+    reworked.commit("start");
+    reworked.write(
+        "src/lib.rs",
+        "pub mod b {\n    pub fn shifted() {}\n}\npub fn color() {}\npub fn first(x: u32) {}\npub fn second(x: u32) {}\n",
+    );
+    reworked.write(
+        "README.md",
+        "`fixture::a::shifted` `fixture::colour` `fixture::gone`\n",
+    );
+    reworked.commit("rework");
+
+    let members = Repo::new();
+    members.write("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n");
+    for member in ["alpha", "beta"] {
+        members.write(
+            &format!("crates/{member}/Cargo.toml"),
+            &format!("[package]\nname = \"{member}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[features]\nx = []\n"),
+        );
+        members.write(&format!("crates/{member}/src/lib.rs"), "");
+    }
+    members.commit("two members");
+    members.write(
+        "crates/alpha/Cargo.toml",
+        "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    members.write("crates/alpha/README.md", "`--features x`\n");
+
+    for (report, headlines) in [
+        (
+            scan(&reworked, &["--since", "HEAD~1"]),
+            &[
+                "moved to [`fixture::b::shifted`]",
+                "renamed to [`fixture::color`]",
+                ", perhaps `fixture::first` or `fixture::second`",
+            ][..],
+        ),
+        (
+            scan(&members, &[]),
+            &["`x` (feature of `alpha`), removed in the working tree"][..],
+        ),
+    ] {
+        let gh = FakeGh::new(&[], None);
+        let payload = tempfile::tempdir().unwrap();
+        let (status, summary) = review(&gh, "review", true, payload.path(), &report);
+        assert_eq!(status, "dry-run", "{summary}");
+        for headline in headlines {
+            assert!(summary.contains(headline), "{headline}\n{summary}");
+        }
+    }
 }
 
 #[test]
@@ -1200,14 +1476,7 @@ fn a_clean_prepared_review_in_a_dry_run_dismisses_nothing() {
     assert_eq!(status, "prepared");
 
     let dry = FakeGh::new(&[], None);
-    let (status, _) = review_with(
-        &dry,
-        "post",
-        true,
-        payload.path(),
-        "",
-        &[("RUN_HEAD_SHA", "f00df00df00df00df00df00df00df00df00df00d")],
-    );
+    let (status, _) = review_with(&dry, "post", true, payload.path(), "", IN_WORKFLOW_RUN);
     assert_eq!(status, "skipped-clean");
     assert!(!dry.log().contains("reviews"), "{}", dry.log());
 }
@@ -1230,26 +1499,23 @@ fn a_clean_prepare_lets_the_post_job_dismiss_at_the_run_head() {
     assert!(!preparing.log().contains("reviews"), "{}", preparing.log());
 
     let moved_on = FakeGh::new(&[], None);
+    moved_on.run(
+        &serde_json::json!({"event": "pull_request"}),
+        "0123456789012345678901234567890123456789",
+    );
     let (status, _) = review_with(
         &moved_on,
         "post",
         false,
         payload.path(),
         "",
-        &[("RUN_HEAD_SHA", "0123456789012345678901234567890123456789")],
+        IN_WORKFLOW_RUN,
     );
     assert_eq!(status, "skipped-stale");
     assert_eq!(dismissed(&moved_on.log()), Vec::<&str>::new());
 
     let posting = FakeGh::new(&[], None);
-    let (status, _) = review_with(
-        &posting,
-        "post",
-        false,
-        payload.path(),
-        "",
-        &[("RUN_HEAD_SHA", "f00df00df00df00df00df00df00df00df00df00d")],
-    );
+    let (status, _) = review_with(&posting, "post", false, payload.path(), "", IN_WORKFLOW_RUN);
     assert_eq!(status, "skipped-clean");
     let log = posting.log();
     assert_eq!(dismissed(&log), ["101"]);

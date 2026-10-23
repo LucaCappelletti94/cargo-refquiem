@@ -5,19 +5,22 @@ on:
     workflows: [Dogfood]
     types: [completed]
 
-permissions:
-  actions: read
-  contents: read
-  pull-requests: write
+permissions: {}
 
 jobs:
   post:
-    name: Post the review a fork pull request prepared
-    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name != github.repository
+    name: Post the review a pull request prepared
+    if: github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
     steps:
-      # The default branch, so the posting code never comes from the fork.
+      # The default branch, so the posting code never comes from the pull request.
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Download the prepared review
         id: download
         env:

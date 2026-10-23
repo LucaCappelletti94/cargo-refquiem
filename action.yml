@@ -45,7 +45,7 @@ inputs:
     required: false
     default: 'true'
   mode:
-    description: review posts the findings in one job, prepare writes the payload for a later job, post consumes it
+    description: review posts the findings in one job, prepare leaves the report for a later job, post reviews it on the pull request its workflow_run run built
     required: false
     default: 'review'
   payload:
@@ -55,7 +55,7 @@ inputs:
 
 outputs:
   review-status:
-    description: How the review ended, posted, dry-run, prepared, skipped-clean, skipped-readonly, skipped-stale or failed
+    description: How the review ended, posted, dry-run, prepared, skipped-clean, skipped-readonly, skipped-stale, rejected or failed
     value: ${{ steps.review.outputs.status }}
 
 runs:
@@ -168,7 +168,9 @@ runs:
         PR_NUMBER: ${{ inputs.pr-number }}
         PAYLOAD: ${{ inputs.payload }}
         VERSION: ${{ steps.scan.outputs.version }}
-        RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        SCANNED_HEAD: ${{ steps.range.outputs.head }}
+        EVENT_NAME: ${{ github.event_name }}
+        RUN_ID: ${{ github.event.workflow_run.id }}
       run: |
         export PAYLOAD="${PAYLOAD:-$RUNNER_TEMP/refquiem-payload}"
         export REPORT="$RUNNER_TEMP/refquiem-report.json"
