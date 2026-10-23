@@ -1208,6 +1208,23 @@ fn a_glob_reexport_copies_top_level_items_to_the_crate_root() {
 }
 
 #[test]
+fn a_glob_copies_the_members_a_type_gains_before_a_glob_declares_the_type() {
+    let repo = Repo::new();
+    let lib = |item| {
+        format!(
+            "pub trait Named {{ fn name(); }}\nimpl Named for Gadget {{ {item} }}\npub mod other {{ pub struct Gadget; }}\npub use other::*;\npub mod g {{ pub use super::*; }}\n"
+        )
+    };
+    repo.write("src/lib.rs", &lib("fn name() {}"));
+    repo.commit("a trait implemented for a type a glob brings in");
+    repo.write("src/lib.rs", &lib(""));
+    repo.write("README.md", "`fixture::g::Gadget::name`.\n");
+    repo.commit("drop the member");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::g::Gadget::name"]);
+}
+
+#[test]
 fn a_dependency_glob_reexport_of_another_crate_keeps_its_items_alive() {
     let repo = Repo::new();
     repo.vendor("inner", "0.1.0", "pub struct Gadget;\n");
