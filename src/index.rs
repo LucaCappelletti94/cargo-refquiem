@@ -1676,14 +1676,12 @@ impl Changes {
         let tick = self.clock;
         let ticks = self.ticks.entry(id).or_default();
         *ticks = (tick, tick);
-        let mut at = interner.parent(id);
-        while let Some(above) = at {
+        for (_, above) in interner.ancestors(id) {
             let below = &mut self.ticks.entry(above).or_default().1;
             if *below == tick {
                 break;
             }
             *below = tick;
-            at = interner.parent(above);
         }
     }
 
