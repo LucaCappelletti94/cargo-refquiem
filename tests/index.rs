@@ -1173,6 +1173,26 @@ fn a_glob_through_an_alias_resolved_in_a_later_round_copies_its_items() {
 }
 
 #[test]
+fn a_module_that_later_stands_for_a_function_lets_a_glob_follow_its_self_alias() {
+    let repo = Repo::new();
+    let lib = |item| {
+        format!(
+            "pub fn real() {{}}\npub mod a_glob {{ pub use super::p::*; }}\npub mod p {{\n    pub use super::q::real2 as n;\n    pub mod n {{ pub use super::n as again; {item} pub fn kept() {{}} }}\n}}\npub mod q {{ pub use super::real as real2; }}\n"
+        )
+    };
+    repo.write("src/lib.rs", &lib("pub fn gone() {}"));
+    repo.commit("a module sharing its name with a re-exported function");
+    repo.write("src/lib.rs", &lib(""));
+    repo.write(
+        "README.md",
+        "`fixture::a_glob::n::again::gone` and `fixture::a_glob::n::again::kept`.\n",
+    );
+    repo.commit("drop gone");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::a_glob::n::again::gone"]);
+}
+
+#[test]
 fn a_glob_reexport_copies_top_level_items_to_the_crate_root() {
     let repo = Repo::new();
     repo.write(
