@@ -1,11 +1,10 @@
 //! Interned identifiers and item paths shared by every snapshot of a scan.
 
-use std::collections::HashMap;
-use std::hash::{BuildHasher, RandomState};
+use std::hash::BuildHasher;
 
-use hashbrown::HashTable;
+use hashbrown::{DefaultHashBuilder, HashTable};
 
-use crate::ItemKind;
+use crate::{HashMap, ItemKind};
 
 /// An interned identifier.
 pub(crate) type Sym = u32;
@@ -24,7 +23,7 @@ pub(crate) struct Interner {
     ends: Vec<u32>,
     /// Every path, found by the hash of its segments.
     paths: HashTable<PathId>,
-    state: RandomState,
+    state: DefaultHashBuilder,
     kinds: Vec<ItemKind>,
     /// The path one segment shorter than each path, [`NO_PARENT`] while that is not interned.
     parents: Vec<PathId>,

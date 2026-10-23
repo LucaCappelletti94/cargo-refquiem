@@ -2,7 +2,7 @@
 
 use crate::index::Index;
 use crate::intern::{Interner, PathId};
-use crate::{Change, Group, ItemKind, Kind};
+use crate::{Change, Group, HashMap, ItemKind, Kind};
 
 /// The rules' outcome for one removed name.
 #[derive(Default)]
@@ -19,7 +19,7 @@ pub(crate) fn suggest(
     removed: PathId,
     head: &Index,
     before: &Index,
-    first_seen: &std::collections::HashMap<PathId, usize>,
+    first_seen: &HashMap<PathId, usize>,
     first: usize,
 ) -> Outcome {
     let kind = interner.kind(removed);

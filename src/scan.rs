@@ -1,7 +1,7 @@
 //! A scan: index the range, subtract head, find mentions, attribute removals.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -17,8 +17,8 @@ use crate::parse::SERDE_MARKER;
 use crate::stdlib::Vocabulary;
 use crate::text::{self, Named, Spelled};
 use crate::{
-    Context, Error, Group, ItemKind, Kind, Mention, Options, Position, Range, RemovedIn, Report,
-    Source, Suggestion, UnusedMarker, entry, manifest, stdlib, suggest,
+    Context, Error, Group, HashMap, HashSet, ItemKind, Kind, Mention, Options, Position, Range,
+    RemovedIn, Report, Source, Suggestion, UnusedMarker, entry, manifest, stdlib, suggest,
 };
 
 /// What the commits of the range declare beyond head, each distinct tree stored once.
@@ -211,6 +211,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         mentions,
         &dependency_items,
     );
+    drop(entries);
     let scan = Historical {
         repo: &repo,
         workspace: &layout.workspace,
@@ -391,7 +392,7 @@ fn suggestions(
 ) -> Result<(), Error> {
     let mut befores: HashMap<ObjectId, Index> = HashMap::new();
     for input in suggestable {
-        if let std::collections::hash_map::Entry::Vacant(slot) = befores.entry(input.tree) {
+        if let hashbrown::hash_map::Entry::Vacant(slot) = befores.entry(input.tree) {
             let before = TreeSnapshot::new(scan.repo, input.tree, &indexer.trees);
             slot.insert(indexer.index(&before, scan.workspace, false)?);
         }

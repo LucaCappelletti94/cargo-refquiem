@@ -1,6 +1,5 @@
 //! Parsed files by blob id and parsed macro expansions by their inputs, persisted between runs.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -9,6 +8,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
+use crate::HashMap;
 use crate::parse::FileItems;
 
 /// Bumped whenever [`FileItems`] or what the parser records changes.
@@ -101,7 +101,7 @@ impl Store {
             "{kind}-{}-{SCHEMA}.json",
             env!("CARGO_PKG_VERSION")
         ));
-        let stored: HashMap<String, Box<RawValue>> = std::fs::read(&file)
+        let stored: std::collections::HashMap<String, Box<RawValue>> = std::fs::read(&file)
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
@@ -133,7 +133,7 @@ impl Store {
         if !self.dirty {
             return;
         }
-        let stored: HashMap<String, &RawValue> = self
+        let stored: std::collections::HashMap<String, &RawValue> = self
             .entries
             .iter()
             .map(|(id, raw)| (id.to_string(), &**raw))

@@ -1,7 +1,5 @@
 //! Path-shaped mentions in comments, doc comments, string literals and Markdown.
 
-use std::collections::HashSet;
-
 use pulldown_cmark::{
     BrokenLink, CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd,
 };
@@ -9,7 +7,7 @@ use ra_ap_rustc_lexer::{
     DocStyle, FrontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
 };
 
-use crate::{Context, Kind, Source};
+use crate::{Context, HashSet, Kind, Source};
 
 #[derive(Debug)]
 pub(crate) struct MarkdownError;

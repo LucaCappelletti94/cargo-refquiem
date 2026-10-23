@@ -1,13 +1,12 @@
 //! Commit ranges and the files of a commit or of the working tree.
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use gix::ObjectId;
 
-use crate::{Error, Range};
+use crate::{Error, HashMap, HashSet, Range};
 
 /// Read access to the files of one revision, by `/`-separated path from the repository root.
 pub(crate) trait Snapshot {
@@ -152,7 +151,7 @@ impl<'r> TreeSnapshot<'r> {
         name: &str,
     ) -> Result<Option<(ObjectId, gix::objs::tree::EntryMode)>, Error> {
         let mut memo = self.trees.borrow_mut();
-        if let std::collections::hash_map::Entry::Vacant(slot) = memo.entry(dir) {
+        if let hashbrown::hash_map::Entry::Vacant(slot) = memo.entry(dir) {
             match self.entries(dir) {
                 Ok(entries) => {
                     slot.insert(entries.into());

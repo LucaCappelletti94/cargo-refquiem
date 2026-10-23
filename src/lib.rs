@@ -26,6 +26,9 @@ mod text;
 
 pub use error::Error;
 
+/// The hash maps and sets the internal tables keep, which no public type holds.
+pub(crate) use hashbrown::{HashMap, HashSet};
+
 /// Which commits are scanned and what they are compared against.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Range {
