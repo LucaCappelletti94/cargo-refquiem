@@ -1,6 +1,9 @@
 //! Workspace members, their compilation targets and their manifest entries, read from the
 //! `Cargo.toml` files of a snapshot.
 
+use std::collections::HashMap;
+
+use gix::ObjectId;
 use toml::Table;
 use toml::de::{DeTable, DeValue};
 
@@ -61,11 +64,19 @@ pub(crate) struct Member {
     pub(crate) targets: Vec<Target>,
 }
 
+/// The manifests parsed so far, by the blob id of their `Cargo.toml`, on which the parse
+/// depends alone.
+pub(crate) type Manifests = HashMap<ObjectId, Table>;
+
 /// Every member of the workspace whose root manifest sits in `dir`.
 ///
 /// A missing root manifest yields no members. A manifest that is not valid TOML is an error.
-pub(crate) fn workspace(snapshot: &dyn Snapshot, dir: &str) -> Result<Vec<Member>, Error> {
-    let Some(root) = read_manifest(snapshot, dir)? else {
+pub(crate) fn workspace(
+    snapshot: &dyn Snapshot,
+    dir: &str,
+    manifests: &mut Manifests,
+) -> Result<Vec<Member>, Error> {
+    let Some(root) = read_manifest(snapshot, dir, manifests)? else {
         return Ok(Vec::new());
     };
     let workspace = root.get("workspace").and_then(toml::Value::as_table);
@@ -93,7 +104,7 @@ pub(crate) fn workspace(snapshot: &dyn Snapshot, dir: &str) -> Result<Vec<Member
     for member_dir in &dirs {
         let member = if member_dir == dir {
             read_member(snapshot, member_dir, &root, (dir, inherited))?
-        } else if let Some(manifest) = read_manifest(snapshot, member_dir)? {
+        } else if let Some(manifest) = read_manifest(snapshot, member_dir, manifests)? {
             read_member(snapshot, member_dir, &manifest, (dir, inherited))?
         } else {
             None
@@ -110,6 +121,7 @@ pub(crate) fn packages(
     snapshot: &dyn Snapshot,
     dirs: &[String],
     members: &[Member],
+    manifests: &mut Manifests,
 ) -> Vec<Member> {
     dirs.iter()
         .filter(|dir| !members.iter().any(|member| member.dir == **dir))
@@ -120,26 +132,33 @@ pub(crate) fn packages(
             )
         })
         .filter_map(|dir| {
-            let manifest = read_manifest(snapshot, dir).ok()??;
+            let manifest = read_manifest(snapshot, dir, manifests).ok()??;
             read_member(snapshot, dir, &manifest, (dir, None)).ok()?
         })
         .collect()
 }
 
-/// The manifest in `dir`, `None` when there is none.
-pub(crate) fn read_manifest(snapshot: &dyn Snapshot, dir: &str) -> Result<Option<Table>, Error> {
+/// The manifest in `dir`, `None` when there is none, parsing each manifest blob once.
+pub(crate) fn read_manifest(
+    snapshot: &dyn Snapshot,
+    dir: &str,
+    manifests: &mut Manifests,
+) -> Result<Option<Table>, Error> {
     let path = join(dir, "Cargo.toml");
     let Some(id) = snapshot.blob(&path)? else {
         return Ok(None);
     };
+    if let Some(manifest) = manifests.get(&id) {
+        return Ok(Some(manifest.clone()));
+    }
     let bytes = snapshot.read(&path, id)?;
     let text = String::from_utf8_lossy(&bytes);
-    text.parse::<Table>()
-        .map(Some)
-        .map_err(|source| Error::Manifest {
-            path,
-            source: Box::new(source),
-        })
+    let manifest = text.parse::<Table>().map_err(|source| Error::Manifest {
+        path,
+        source: Box::new(source),
+    })?;
+    manifests.insert(id, manifest.clone());
+    Ok(Some(manifest))
 }
 
 fn read_member(
