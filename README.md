@@ -18,7 +18,7 @@ A cargo requiem for the refs your Rust code left behind.
 ## Usage
 
 ```sh
-cargo install --git https://github.com/LucaCappelletti94/cargo-refquiem --locked refquiem
+cargo install refquiem --locked
 cargo refquiem                                 # every commit, against the working tree
 cargo refquiem --base origin/main --head HEAD  # what a branch removed
 cargo refquiem --json                          # the report as JSON

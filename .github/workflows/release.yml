@@ -52,11 +52,24 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+      # The first version is published by hand, since crates.io trusts a publisher only for a
+      # crate that exists, so a version already in the index is skipped.
+      - name: Check whether the version is published
+        id: published
+        run: |
+          version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "refquiem") | .version')"
+          if curl -sf https://index.crates.io/re/fq/refquiem | jq -e --arg v "$version" 'select(.vers == $v)' > /dev/null; then
+            echo "refquiem $version is already on crates.io" >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        if: steps.published.outputs.skip != 'true'
       - name: Authenticate to crates.io
         id: auth
+        if: steps.published.outputs.skip != 'true'
         uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1
       - name: Publish the crate
+        if: steps.published.outputs.skip != 'true'
         run: cargo publish --locked -p refquiem
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
