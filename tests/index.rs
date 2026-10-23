@@ -1229,15 +1229,15 @@ fn members_declared_under_a_path_no_snapshot_interned_yet_join_it_once_a_glob_cr
     let repo = Repo::new();
     repo.write(
         "src/lib.rs",
-        "pub trait Named { fn name(); }\nimpl Named for Gadget { fn name() {} }\npub mod other { pub struct Gadget; }\npub use other::*;\npub mod g { pub use super::*; }\n",
+        "impl Gadget { pub fn name() {} }\npub mod other { pub struct Gadget; }\npub use other::*;\npub mod g { pub use super::*; }\npub mod z { pub use super::other::Gadget as Copied; }\n",
     );
-    repo.commit("a trait implemented for a type a glob brings in");
+    repo.commit("an impl of a type a glob brings in");
     repo.write(
         "src/lib.rs",
-        "pub trait Named { fn name(); }\npub mod other { pub struct Gadget; }\npub mod g { pub use super::*; }\n",
+        "pub mod other { pub struct Gadget; }\npub mod g { pub use super::*; }\n",
     );
     repo.write("README.md", "`fixture::g::Gadget::name`.\n");
-    repo.commit("drop the implementation and the glob");
+    repo.commit("drop the impl and the glob");
 
     assert_eq!(removed(&run(&repo)), ["fixture::g::Gadget::name"]);
 }
