@@ -1263,6 +1263,30 @@ fn a_glob_into_a_module_that_takes_an_origin_late_follows_an_alias_it_stopped_at
 }
 
 #[test]
+fn members_read_before_their_type_are_copied_with_the_type() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod a { impl crate::b::Gadget { pub fn name() {} pub fn label() {} } }\npub mod b { pub struct Gadget; }\npub mod g { pub use crate::b::*; }\n",
+    );
+    repo.commit("an impl in a module read before the type's");
+    repo.write(
+        "src/lib.rs",
+        "pub mod a {}\npub mod b {}\npub mod g { pub use crate::b::*; }\n",
+    );
+    repo.write(
+        "README.md",
+        "`fixture::g::Gadget::name` and `fixture::g::Gadget::label`.\n",
+    );
+    repo.commit("drop the type and its impl");
+
+    assert_eq!(
+        removed(&run(&repo)),
+        ["fixture::g::Gadget::label", "fixture::g::Gadget::name"]
+    );
+}
+
+#[test]
 fn a_dependency_glob_reexport_of_another_crate_keeps_its_items_alive() {
     let repo = Repo::new();
     repo.vendor("inner", "0.1.0", "pub struct Gadget;\n");
