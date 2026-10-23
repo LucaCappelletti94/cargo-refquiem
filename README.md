@@ -1,8 +1,10 @@
 # cargo-refquiem
 
 [![CI](https://github.com/LucaCappelletti94/cargo-refquiem/actions/workflows/ci.yml/badge.svg)](https://github.com/LucaCappelletti94/cargo-refquiem/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/github/LucaCappelletti94/cargo-refquiem/graph/badge.svg)](https://codecov.io/github/LucaCappelletti94/cargo-refquiem)
 [![crates.io](https://img.shields.io/crates/v/refquiem.svg)](https://crates.io/crates/refquiem)
 [![docs.rs](https://docs.rs/refquiem/badge.svg)](https://docs.rs/refquiem)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/LucaCappelletti94/cargo-refquiem/blob/main/LICENSE)
 
 A cargo requiem for the refs your Rust code left behind.
 
