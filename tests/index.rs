@@ -1225,6 +1225,24 @@ fn a_glob_copies_the_members_a_type_gains_before_a_glob_declares_the_type() {
 }
 
 #[test]
+fn members_declared_under_a_path_no_snapshot_interned_yet_join_it_once_a_glob_creates_it() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub trait Named { fn name(); }\nimpl Named for Gadget { fn name() {} }\npub mod other { pub struct Gadget; }\npub use other::*;\npub mod g { pub use super::*; }\n",
+    );
+    repo.commit("a trait implemented for a type a glob brings in");
+    repo.write(
+        "src/lib.rs",
+        "pub trait Named { fn name(); }\npub mod other { pub struct Gadget; }\npub mod g { pub use super::*; }\n",
+    );
+    repo.write("README.md", "`fixture::g::Gadget::name`.\n");
+    repo.commit("drop the implementation and the glob");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::g::Gadget::name"]);
+}
+
+#[test]
 fn a_dependency_glob_reexport_of_another_crate_keeps_its_items_alive() {
     let repo = Repo::new();
     repo.vendor("inner", "0.1.0", "pub struct Gadget;\n");
