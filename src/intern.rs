@@ -28,8 +28,8 @@ pub(crate) struct Interner {
     kinds: Vec<ItemKind>,
     /// The path one segment shorter than each path, [`NO_PARENT`] while that is not interned.
     parents: Vec<PathId>,
-    /// Paths interned before the path one segment shorter, by the hash of its segments.
-    orphans: HashMap<u64, Vec<PathId>>,
+    /// Paths interned before the path one segment shorter, by that path's segments.
+    orphans: HashTable<(Box<[Sym]>, Vec<PathId>)>,
     /// Paths [`Self::child`] found, by their parent and last segment.
     children: HashMap<(PathId, Sym), PathId>,
     /// The segments [`Self::child`] builds a path in.
@@ -84,7 +84,17 @@ impl Interner {
             let above_hash = self.state.hash_one(above);
             let found = self.find_hashed(above_hash, above);
             if found.is_none() {
-                self.orphans.entry(above_hash).or_default().push(id);
+                let Self { orphans, state, .. } = self;
+                orphans
+                    .entry(
+                        above_hash,
+                        |(waiting_for, _)| **waiting_for == *above,
+                        |(waiting_for, _)| state.hash_one(&**waiting_for),
+                    )
+                    .or_insert_with(|| (above.into(), Vec::new()))
+                    .into_mut()
+                    .1
+                    .push(id);
             }
             found
         });
@@ -104,19 +114,11 @@ impl Interner {
         paths.insert_unique(hash, id, |&known| state.hash_one(span(arena, ends, known)));
         kinds.push(kind);
         parents.push(parent.unwrap_or(NO_PARENT));
-        if let Some(waiting) = orphans.get_mut(&hash) {
-            waiting.retain(|&child| {
-                let adopted = span(arena, ends, child)
-                    .split_last()
-                    .map(|(_, above)| above)
-                    == Some(segments);
-                if adopted {
-                    parents[index(child)] = id;
-                }
-                !adopted
-            });
-            if waiting.is_empty() {
-                orphans.remove(&hash);
+        if let Ok(waiting) = orphans.find_entry(hash, |(waiting_for, _)| **waiting_for == *segments)
+        {
+            let ((_, children), _) = waiting.remove();
+            for child in children {
+                parents[index(child)] = id;
             }
         }
         id
