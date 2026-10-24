@@ -1265,24 +1265,34 @@ fn a_glob_into_a_module_that_takes_an_origin_late_follows_an_alias_it_stopped_at
 #[test]
 fn members_read_before_their_type_are_copied_with_the_type() {
     let repo = Repo::new();
+    let lib = "pub mod a;\npub mod b;\npub mod g { pub use crate::a::*; pub use crate::b::*; }\n";
+    repo.write("src/lib.rs", lib);
+    // Whichever file is read first holds members of a type the other file declares.
     repo.write(
-        "src/lib.rs",
-        "pub mod a { impl crate::b::Gadget { pub fn name() {} pub fn label() {} } }\npub mod b { pub struct Gadget; }\npub mod g { pub use crate::b::*; }\n",
+        "src/a.rs",
+        "pub struct Early;\nimpl crate::b::Late { pub fn name() {} pub fn label() {} }\n",
     );
-    repo.commit("an impl in a module read before the type's");
     repo.write(
-        "src/lib.rs",
-        "pub mod a {}\npub mod b {}\npub mod g { pub use crate::b::*; }\n",
+        "src/b.rs",
+        "pub struct Late;\nimpl crate::a::Early { pub fn name() {} pub fn label() {} }\n",
     );
+    repo.commit("each file implements the other's type");
+    repo.write("src/a.rs", "");
+    repo.write("src/b.rs", "");
     repo.write(
         "README.md",
-        "`fixture::g::Gadget::name` and `fixture::g::Gadget::label`.\n",
+        "`fixture::g::Early::name`, `fixture::g::Early::label`, `fixture::g::Late::name` and `fixture::g::Late::label`.\n",
     );
-    repo.commit("drop the type and its impl");
+    repo.commit("drop the types and their impls");
 
     assert_eq!(
         removed(&run(&repo)),
-        ["fixture::g::Gadget::label", "fixture::g::Gadget::name"]
+        [
+            "fixture::g::Early::label",
+            "fixture::g::Early::name",
+            "fixture::g::Late::label",
+            "fixture::g::Late::name",
+        ]
     );
 }
 
