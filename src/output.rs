@@ -76,6 +76,44 @@ impl Report {
         out
     }
 
+    /// The job summary for a GitHub step, which hides a summary that passes `limit` bytes, so
+    /// the table stops before it and a closing line names the left-out rows.
+    #[must_use]
+    pub fn github_summary(&self, root: Option<&str>, limit: usize) -> String {
+        let mut out = self.prefix();
+        let mut kept = 0;
+        let mut capped = false;
+        for group in &self.groups {
+            let row = self.row(group, root);
+            let separator = usize::from(kept > 0);
+            let tail = self
+                .closing(root)
+                .len()
+                .max(notice(self.groups.len() - kept).len());
+            if out.len() + separator + row.len() + 1 + tail > limit {
+                capped = true;
+                break;
+            }
+            if separator == 1 {
+                out.push('\n');
+            }
+            out.push_str(&row);
+            kept += 1;
+        }
+        if capped {
+            if kept > 0 {
+                out.push('\n');
+            }
+            out.push_str(&notice(self.groups.len() - kept));
+        } else {
+            if kept > 0 {
+                out.push('\n');
+            }
+            out.push_str(&self.closing(root));
+        }
+        out
+    }
+
     /// The heading and the table's heading, or the notice when nothing is stale.
     fn prefix(&self) -> String {
         if self.groups.is_empty() {
@@ -131,6 +169,11 @@ impl Report {
             let path = self.suggested(&path, suggestion.declared_at.as_ref(), root);
             let _ = write!(action, "Verify and update the reference to {path}");
         } else if let Some(candidates) = group.became() {
+            let candidates = if group.candidates.len() > 3 {
+                folded_candidates(&group.candidates)
+            } else {
+                candidates
+            };
             let _ = write!(
                 action,
                 "Review candidates before changing this reference ({})",
@@ -139,13 +182,12 @@ impl Report {
         } else {
             action.push_str("Review the mention and remove or rewrite it if stale");
         }
-        let mut mentions = String::new();
-        for (i, mention) in group.mentions.iter().enumerate() {
-            if i > 0 {
-                mentions.push_str("<br>");
-            }
-            mentions.push_str(&self.position(&mention.file, mention.line, mention.column, root));
-        }
+        let mentions = group
+            .mentions
+            .iter()
+            .map(|mention| self.position(&mention.file, mention.line, mention.column, root))
+            .collect::<Vec<_>>();
+        let mentions = folded(&mentions);
         format!(
             "| {} | {} | {removed_in} | {status} | {action} | {} |",
             cell(&name),
@@ -292,11 +334,163 @@ fn cell(text: &str) -> String {
     text.replace('|', "\\|")
 }
 
+/// Up to three of `items` joined with `<br>`, the rest inside a `<details>` element.
+fn folded(items: &[String]) -> String {
+    if items.len() <= 3 {
+        return items.join("<br>");
+    }
+    let (visible, rest) = items.split_at(3);
+    format!(
+        "{}<br>and <details><summary>{} more</summary>{}</details>",
+        visible.join("<br>"),
+        rest.len(),
+        rest.join("<br>")
+    )
+}
+
+/// The first three of `names` with the rest inside a `<details>` element, in the prose a
+/// candidates cell uses.
+fn folded_candidates(names: &[String]) -> String {
+    let (visible, rest) = names.split_at(3);
+    let span = |name: &String| format!("`{name}`");
+    format!(
+        "perhaps {} and <details><summary>{} more</summary>{}</details>",
+        visible.iter().map(span).collect::<Vec<_>>().join(", "),
+        rest.len(),
+        rest.iter().map(span).collect::<Vec<_>>().join("<br>")
+    )
+}
+
+/// The closing line of a capped summary, naming the rows left out.
+fn notice(count: usize) -> String {
+    let (verb, object) = if count == 1 {
+        ("is", "it")
+    } else {
+        ("are", "them")
+    };
+    format!(
+        "{} {verb} not shown. `--json` and the annotations list {object}.",
+        crate::plural(count, "removed name", "removed names")
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Report;
-    use crate::{Context, Group, HashSet, ItemKind, Kind, Mention, Source};
+    use super::{Report, notice};
+    use crate::{Context, Group, HashSet, ItemKind, Kind, Mention, RemovedIn, Source};
 
+    fn mention(file: &str, line: usize) -> Mention {
+        Mention {
+            file: file.to_owned(),
+            line,
+            column: 7,
+            text: String::new(),
+            context: Context {
+                source: Source::Comment,
+                kind: Kind::Text,
+            },
+            replacement: None,
+        }
+    }
+
+    fn group(path: &str, mentions: usize) -> Group {
+        Group {
+            path: path.to_owned(),
+            kind: ItemKind::Function,
+            member: None,
+            removed_in: Some(RemovedIn::Commit("a".repeat(40))),
+            declared_at: None,
+            suggestion: None,
+            candidates: vec![],
+            mentions: (1..=mentions)
+                .map(|line| mention("docs.md", line))
+                .collect(),
+        }
+    }
+
+    fn report(groups: Vec<Group>) -> Report {
+        Report {
+            base: None,
+            head: Some("b".repeat(40)),
+            groups,
+            skipped: vec![],
+            unused_markers: vec![],
+            edited: HashSet::new(),
+        }
+    }
+
+    #[test]
+    fn the_github_summary_equals_the_job_summary_when_everything_fits() {
+        let report = report(vec![group("a::one", 2), group("a::two", 3)]);
+        assert_eq!(
+            report.github_summary(Some("https://github.com/o/r"), 1_048_576),
+            report.job_summary(Some("https://github.com/o/r"))
+        );
+    }
+
+    #[test]
+    fn the_github_summary_names_the_rows_the_cap_leaves_out() {
+        let report = report(vec![
+            group("a::one", 1),
+            group("a::two", 1),
+            group("a::three", 1),
+        ]);
+        let root = Some("https://github.com/o/r");
+        let limit =
+            report.prefix().len() + report.row(&report.groups[0], root).len() + 1 + notice(2).len();
+        let summary = report.github_summary(root, limit);
+        assert!(summary.contains("`a::one`"), "{summary}");
+        assert!(!summary.contains("`a::two`"), "{summary}");
+        assert!(summary.ends_with(&format!("\n{}", notice(2))), "{summary}");
+    }
+
+    #[test]
+    fn the_github_summary_keeps_no_rows_when_none_fit() {
+        let report = report(vec![group("a::one", 1), group("a::two", 1)]);
+        let summary = report.github_summary(None, 1);
+        assert_eq!(summary, format!("{}{}", report.prefix(), notice(2)));
+        assert!(!summary.contains("`a::one`"));
+    }
+
+    #[test]
+    fn the_notice_counts_the_left_out_names() {
+        assert_eq!(
+            notice(1),
+            "1 removed name is not shown. `--json` and the annotations list it."
+        );
+        assert_eq!(
+            notice(2),
+            "2 removed names are not shown. `--json` and the annotations list them."
+        );
+    }
+
+    #[test]
+    fn the_cell_folds_the_mentions_beyond_the_third() {
+        let report = report(vec![group("a::gone", 5)]);
+        let row = report.row(&report.groups[0], None);
+        assert!(
+            row.contains(
+                "`docs.md:1:7`<br>`docs.md:2:7`<br>`docs.md:3:7`<br>and <details><summary>2 more</summary>`docs.md:4:7`<br>`docs.md:5:7`</details>"
+            ),
+            "{row}"
+        );
+    }
+
+    #[test]
+    fn the_cell_folds_the_candidates_beyond_the_third() {
+        let mut group = group("a::gone", 1);
+        group.candidates = ["a::one", "a::two", "a::three", "a::four"]
+            .map(str::to_owned)
+            .to_vec();
+        let report = report(vec![group]);
+        let row = report.row(&report.groups[0], None);
+        assert!(
+            row.contains(
+                "(perhaps `a::one`, `a::two`, `a::three` and <details><summary>1 more</summary>`a::four`</details>)"
+            ),
+            "{row}"
+        );
+    }
     #[test]
     fn the_removed_in_cell_is_empty_without_a_removal_commit() {
         let mention = Mention {

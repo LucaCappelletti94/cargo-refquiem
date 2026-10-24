@@ -155,6 +155,50 @@ fn markdown_names_a_move_a_rename_and_an_ambiguous_replacement() {
 }
 
 #[test]
+fn the_markdown_folds_more_than_three_mentions() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    repo.commit("drop gone");
+    repo.write(
+        "README.md",
+        "Call `fixture::gone` once.\nCall `fixture::gone` twice.\nCall `fixture::gone` three times.\nCall `fixture::gone` four times.\nCall `fixture::gone` five times.\n",
+    );
+
+    let output = cargo_refquiem(repo.path(), &["--markdown"], None);
+    let summary = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        summary.contains(
+            "`README.md:1:7`<br>`README.md:2:7`<br>`README.md:3:7`<br>and <details><summary>2 more</summary>`README.md:4:7`<br>`README.md:5:7`</details>"
+        ),
+        "{summary}"
+    );
+}
+
+#[test]
+fn the_markdown_folds_more_than_three_candidates() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone(x: u32) {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "pub fn alpha(x: u32) {}\npub fn beta(x: u32) {}\npub fn gamma(x: u32) {}\npub fn delta(x: u32) {}\n",
+    );
+    repo.write("README.md", "`fixture::gone`\n");
+    repo.commit("rework");
+
+    let output = cargo_refquiem(repo.path(), &["--markdown"], None);
+    let summary = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        summary.contains(
+            "(perhaps `fixture::alpha`, `fixture::beta`, `fixture::delta` and <details><summary>1 more</summary>`fixture::gamma`</details>)"
+        ),
+        "{summary}"
+    );
+}
+
+#[test]
 fn json_prints_the_report_with_snake_case_keys() {
     let (repo, deleting) = fixture();
     let output = cargo_refquiem(repo.path(), &["--json"], None);

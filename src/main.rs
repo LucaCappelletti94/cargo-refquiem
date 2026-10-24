@@ -4,6 +4,9 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
+/// The largest step summary GitHub displays, in bytes.
+const GITHUB_SUMMARY_LIMIT: usize = 1_048_576;
+
 #[derive(clap::Parser)]
 #[command(
     name = "refquiem",
@@ -80,7 +83,9 @@ impl Output {
                     .map_err(io)?;
                 std::io::Write::write_all(
                     &mut file,
-                    report.job_summary(web_root.as_deref()).as_bytes(),
+                    report
+                        .github_summary(web_root.as_deref(), GITHUB_SUMMARY_LIMIT)
+                        .as_bytes(),
                 )
                 .map_err(io)?;
             }
