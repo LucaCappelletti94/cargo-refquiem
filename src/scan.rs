@@ -853,8 +853,8 @@ fn word_of(slot: u32) -> usize {
 }
 
 /// The tree slots holding one path, one bit per distinct slot, so a removal scan tests
-/// membership without searching the path's runs at every commit. The words set by the last
-/// path are remembered, and only they are cleared before the next.
+/// membership without searching the path's runs at every commit. The buffer is reused, and
+/// the words are cleared before each path is set.
 struct PathBits {
     inner: RefCell<PathBitsInner>,
 }
@@ -862,20 +862,14 @@ struct PathBits {
 struct PathBitsInner {
     /// One bit per distinct tree slot.
     words: Vec<u64>,
-    /// The word indices set by the last path, for the next clear.
-    touched: Vec<usize>,
 }
 
 impl PathBits {
     /// Sizes the words for `slots` distinct tree slots.
     fn with_slots(slots: usize) -> Self {
         let words = vec![0; slots.div_ceil(64)];
-        let inner = PathBitsInner {
-            words,
-            touched: Vec::new(),
-        };
         Self {
-            inner: RefCell::new(inner),
+            inner: RefCell::new(PathBitsInner { words }),
         }
     }
 
@@ -883,10 +877,7 @@ impl PathBits {
     /// words for the scan to test.
     fn set(&self, runs: Option<&[(u32, u32)]>) -> RefMut<'_, PathBitsInner> {
         let mut inner = self.inner.borrow_mut();
-        let touched = std::mem::take(&mut inner.touched);
-        for word in touched {
-            inner.words[word] = 0;
-        }
+        inner.words.fill(0);
         if let Some(runs) = runs {
             for &(first, last) in runs {
                 let lo = word_of(first);
@@ -898,11 +889,8 @@ impl PathBits {
                 } else {
                     inner.words[lo] |= lo_mask;
                     inner.words[hi] |= hi_mask;
-                    for word in (lo + 1)..hi {
-                        inner.words[word] = u64::MAX;
-                    }
+                    inner.words[lo + 1..hi].fill(u64::MAX);
                 }
-                inner.touched.extend(lo..=hi);
             }
         }
         inner
