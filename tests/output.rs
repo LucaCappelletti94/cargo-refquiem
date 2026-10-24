@@ -530,6 +530,31 @@ fn the_markdown_links_the_places_to_the_environment_repository() {
     );
 }
 
+/// With a base, the removed name links to its declaration at the base commit.
+#[test]
+fn the_markdown_links_the_removed_name_to_its_declaration_at_base() {
+    let (repo, _, _) = committed_fixture();
+    let start = repo.rev("HEAD~1");
+
+    let output = cargo_refquiem_env(
+        repo.path(),
+        &["--markdown", "--base", start.as_str()],
+        None,
+        &[
+            ("GITHUB_SERVER_URL", "https://github.com"),
+            ("GITHUB_REPOSITORY", "o/r"),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let summary = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        summary.contains(&format!(
+            "[`fixture::gone`](https://github.com/o/r/blob/{start}/src/lib.rs#L1)"
+        )),
+        "{summary}"
+    );
+}
+
 /// Without the GitHub environment, every GitHub form of the `origin` remote links the places
 /// to `https://github.com/o/r`.
 #[test]

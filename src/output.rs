@@ -291,3 +291,46 @@ fn span_position(file: &str, line: usize, column: usize) -> String {
 fn cell(text: &str) -> String {
     text.replace('|', "\\|")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Report;
+    use crate::{Context, Group, HashSet, ItemKind, Kind, Mention, Source};
+
+    #[test]
+    fn the_removed_in_cell_is_empty_without_a_removal_commit() {
+        let mention = Mention {
+            file: "docs.md".to_owned(),
+            line: 1,
+            column: 7,
+            text: String::new(),
+            context: Context {
+                source: Source::Comment,
+                kind: Kind::Text,
+            },
+            replacement: None,
+        };
+        let report = Report {
+            base: None,
+            head: None,
+            groups: vec![Group {
+                path: "a::gone".to_owned(),
+                kind: ItemKind::Function,
+                member: None,
+                removed_in: None,
+                declared_at: None,
+                suggestion: None,
+                candidates: vec![],
+                mentions: vec![mention],
+            }],
+            skipped: vec![],
+            unused_markers: vec![],
+            edited: HashSet::new(),
+        };
+        assert!(
+            report
+                .job_summary(None)
+                .contains("| function |  | Removed (no replacement found) |")
+        );
+    }
+}
