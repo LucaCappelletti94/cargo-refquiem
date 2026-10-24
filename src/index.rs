@@ -1056,7 +1056,6 @@ impl Indexer {
         digest.list(1, &contribution.paths);
         digest.list(2, &contribution.hidden);
         digest.list(3, &contribution.exposed);
-        digest.count(4, contribution.uses.len());
         for (module, source, name, public) in &contribution.uses {
             digest.word(4);
             digest.list(5, module);
@@ -1065,19 +1064,17 @@ impl Indexer {
             digest.word(name.unwrap_or(0));
             digest.word(u32::from(*public));
         }
-        digest.count(7, contribution.lends.len());
         for (module, owner, source) in &contribution.lends {
             digest.word(7);
             digest.list(8, module);
             digest.list(9, owner);
             digest.list(10, source);
         }
-        digest.count(11, contribution.declared_traits.len());
         for &(id, public) in &contribution.declared_traits {
+            digest.word(11);
             digest.word(id);
             digest.word(u32::from(public));
         }
-        digest.count(12, contribution.traits.len());
         for implementation in &contribution.traits {
             digest.word(12);
             digest.list(13, &implementation.module);
@@ -1501,17 +1498,7 @@ impl Indexer {
         let found = self
             .aliases
             .iter()
-            .position(|entry| (entry.hash, &entry.key) == (hash, &key))
-            .and_then(|at| {
-                let entry = &self.aliases[at];
-                (entry.contributions.len() == inputs.entries.len()
-                    && entry
-                        .contributions
-                        .iter()
-                        .zip(inputs.entries.iter().map(|entry| &entry.contribution))
-                        .all(|(stored, fresh)| stored.alias_inputs_equal(fresh)))
-                .then_some(at)
-            });
+            .position(|entry| reusable(entry, hash, &key, inputs));
         if let Some(entry) = found.and_then(|at| self.aliases.remove(at)) {
             paths.extend(&entry.added);
             let reexports = entry.reexports.clone();
@@ -1897,6 +1884,18 @@ fn alias_key(inputs: &AliasInputs<'_>) -> Vec<u64> {
     key
 }
 
+/// Whether `entry` is the resolution of `inputs`, whose result it may return.
+fn reusable(entry: &AliasEntry, hash: u64, key: &[u64], inputs: &AliasInputs<'_>) -> bool {
+    entry.hash == hash
+        && entry.key == *key
+        && entry.contributions.len() == inputs.entries.len()
+        && entry
+            .contributions
+            .iter()
+            .zip(inputs.entries.iter().map(|e| &e.contribution))
+            .all(|(stored, fresh)| stored.alias_inputs_equal(fresh))
+}
+
 /// One contribution alias digest, its two 64-bit halves written together.
 struct Digest {
     halves: [DefaultHasher; 2],
@@ -1923,12 +1922,6 @@ impl Digest {
         for &value in items {
             self.word(value);
         }
-    }
-
-    /// The item count of a field under `tag`.
-    fn count(&mut self, tag: u32, count: usize) {
-        self.word(tag);
-        self.word(u32::try_from(count).expect("fewer than 2^32 items"));
     }
 
     /// The finished halves.
@@ -2040,4 +2033,265 @@ fn public_path(
             .ancestors(id)
             .take_while(|&(len, _)| len >= 2)
             .any(|(_, prefix)| private.contains(&prefix) || hidden.contains(&prefix))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AliasEntry, AliasInputs, BuildHasher, Contribution, Entry, FileCache, Implemented, Indexer,
+        LendDecl, PathId, Reexports, Sym, TraitScope, UseDecl, Visit, alias_key, reusable,
+    };
+    use std::rc::Rc;
+
+    /// A contribution with every alias field non-empty.
+    fn contrib(mutate: impl FnOnce(&mut Contribution)) -> Contribution {
+        let mut contribution = Contribution {
+            paths: vec![1, 2],
+            hidden: vec![3],
+            exposed: vec![4],
+            uses: vec![(vec![5], vec![6], Some(7), true)],
+            lends: vec![(vec![8], vec![9], vec![10])],
+            declared_traits: vec![(11, true)],
+            traits: vec![Implemented {
+                module: vec![12],
+                source: vec![13],
+                members: vec![14],
+            }],
+            ..Contribution::default()
+        };
+        mutate(&mut contribution);
+        contribution
+    }
+
+    /// One entry reading `contribution` at depth zero.
+    fn entry(contribution: Contribution) -> Entry {
+        Entry {
+            visit: Rc::new(Visit {
+                file: "lib.rs".into(),
+                mod_rs: false,
+                module: 0,
+                public_only: false,
+            }),
+            contribution: Rc::new(contribution),
+            depth: 0,
+        }
+    }
+
+    /// Runs `f` on the alias inputs of `entries` under `crates` and `roots`.
+    fn with_inputs(
+        crates: &[Sym],
+        roots: &[PathId],
+        entries: &[Entry],
+        f: impl FnOnce(&AliasInputs<'_>),
+    ) {
+        let uses: Vec<&UseDecl> = entries.iter().flat_map(|e| &e.contribution.uses).collect();
+        let lends: Vec<&LendDecl> = entries.iter().flat_map(|e| &e.contribution.lends).collect();
+        let traits = TraitScope::new(
+            entries
+                .iter()
+                .flat_map(|e| e.contribution.declared_traits.iter().copied()),
+            entries.iter().flat_map(|e| &e.contribution.traits),
+        );
+        f(&AliasInputs {
+            roots,
+            entries,
+            uses: &uses,
+            lends: &lends,
+            traits: &traits,
+            crates,
+        });
+    }
+
+    /// The key of the contributions' digests under `crates` and `roots`.
+    fn key_of(crates: [Sym; 2], roots: [PathId; 1], digests: &[(u64, u64)]) -> Vec<u64> {
+        let entries: Vec<Entry> = digests
+            .iter()
+            .map(|&(half, low)| entry(contrib(|c| c.digest = [half, low])))
+            .collect();
+        let mut key = Vec::new();
+        with_inputs(&crates, &roots, &entries, |inputs| {
+            key = alias_key(inputs);
+        });
+        key
+    }
+
+    /// The one-field variants of [`contrib`].
+    fn variants() -> Vec<Contribution> {
+        let mutates: [fn(&mut Contribution); 14] = [
+            |c| {
+                c.paths.pop();
+            },
+            |c| {
+                c.hidden.pop();
+            },
+            |c| {
+                c.exposed.pop();
+            },
+            |c| c.uses[0].2 = None,
+            |c| c.uses[0].2 = Some(99),
+            |c| c.uses[0].3 = false,
+            |c| {
+                c.lends[0].0.pop();
+            },
+            |c| {
+                c.lends[0].1.pop();
+            },
+            |c| {
+                c.lends[0].2.pop();
+            },
+            |c| c.declared_traits[0].0 = 99,
+            |c| c.declared_traits[0].1 = false,
+            |c| {
+                c.traits[0].module.pop();
+            },
+            |c| {
+                c.traits[0].source.pop();
+            },
+            |c| {
+                c.traits[0].members.pop();
+            },
+        ];
+        mutates.into_iter().map(|mutate| contrib(mutate)).collect()
+    }
+
+    /// An indexer over an empty cache in a scratch directory.
+    fn indexer() -> (tempfile::TempDir, Indexer) {
+        let dir = tempfile::tempdir().unwrap();
+        let indexer = Indexer::new(FileCache::load(dir.path()));
+        (dir, indexer)
+    }
+
+    #[test]
+    fn equal_contributions_carry_the_equal_alias_inputs() {
+        assert!(contrib(|_| {}).alias_inputs_equal(&contrib(|_| {})));
+        let base = contrib(|_| {});
+        for variant in variants() {
+            assert!(!base.alias_inputs_equal(&variant), "one field must matter");
+        }
+    }
+
+    #[test]
+    fn equal_contributions_give_the_equal_digest() {
+        let (_dir, indexer) = indexer();
+        assert_eq!(
+            indexer.alias_digest(&contrib(|_| {})),
+            indexer.alias_digest(&contrib(|_| {}))
+        );
+    }
+
+    #[test]
+    fn a_field_variant_gives_the_different_digest() {
+        let (_dir, indexer) = indexer();
+        let base = indexer.alias_digest(&contrib(|_| {}));
+        for variant in variants() {
+            assert_ne!(
+                base,
+                indexer.alias_digest(&variant),
+                "one field must matter"
+            );
+        }
+        let moved = contrib(|c| {
+            c.paths.pop();
+            c.hidden.insert(0, 2);
+        });
+        assert_ne!(
+            base,
+            indexer.alias_digest(&moved),
+            "an item moved between neighbouring lists must matter"
+        );
+    }
+
+    #[test]
+    fn equal_inputs_give_the_equal_key() {
+        assert_eq!(
+            key_of([1, 2], [7], &[(3, 4)]),
+            key_of([1, 2], [7], &[(3, 4)])
+        );
+    }
+
+    #[test]
+    fn a_changed_input_gives_the_different_key() {
+        let base = key_of([1, 2], [7], &[(3, 4)]);
+        assert_ne!(
+            key_of([1, 3], [7], &[(3, 4)]),
+            base,
+            "the crate list must matter"
+        );
+        assert_ne!(
+            key_of([1, 2], [8], &[(3, 4)]),
+            base,
+            "the roots must matter"
+        );
+        assert_ne!(
+            key_of([1, 2], [7], &[(3, 5)]),
+            base,
+            "a contribution digest must matter"
+        );
+        assert_ne!(
+            key_of([1, 2], [7], &[(3, 4), (9, 8)]),
+            key_of([1, 2], [7], &[(9, 8), (3, 4)]),
+            "the contribution order must matter"
+        );
+    }
+
+    #[test]
+    fn reusable_needs_the_same_hash_key_and_contributions() {
+        let (_dir, indexer) = indexer();
+        with_inputs(&[1], &[7], &[entry(contrib(|_| {}))], |inputs| {
+            let key = alias_key(inputs);
+            let hash = indexer.alias_hasher.hash_one(&key);
+            let entry = AliasEntry {
+                hash,
+                key: key.clone(),
+                contributions: inputs
+                    .entries
+                    .iter()
+                    .map(|e| Rc::clone(&e.contribution))
+                    .collect(),
+                added: vec![],
+                reexports: Reexports::new(),
+            };
+            assert!(reusable(&entry, hash, &key, inputs));
+            assert!(
+                !reusable(&entry, hash.wrapping_add(1), &key, inputs),
+                "the hash must matter"
+            );
+            let other_key = {
+                let mut other_key = key.clone();
+                *other_key.last_mut().unwrap() += 1;
+                other_key
+            };
+            assert!(
+                !reusable(&entry, hash, &other_key, inputs),
+                "the key must matter"
+            );
+            let more = AliasEntry {
+                hash,
+                key: key.clone(),
+                contributions: vec![
+                    Rc::clone(&entry.contributions[0]),
+                    Rc::clone(&entry.contributions[0]),
+                ],
+                added: vec![],
+                reexports: Reexports::new(),
+            };
+            assert!(
+                !reusable(&more, hash, &key, inputs),
+                "the contribution count must matter"
+            );
+            let drifted = AliasEntry {
+                hash,
+                key: key.clone(),
+                contributions: vec![Rc::new(contrib(|c| {
+                    c.paths.pop();
+                }))],
+                added: vec![],
+                reexports: Reexports::new(),
+            };
+            assert!(
+                !reusable(&drifted, hash, &key, inputs),
+                "a contribution field must matter"
+            );
+        });
+    }
 }
