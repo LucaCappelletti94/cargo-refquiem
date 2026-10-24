@@ -103,12 +103,26 @@ impl<'r> TreeSnapshot<'r> {
     /// them, as the kernel's limit is.
     fn entry(&self, path: &str) -> Result<Option<(ObjectId, gix::objs::tree::EntryMode)>, Error> {
         const HOPS: usize = 40;
-        let mut trees = vec![self.tree];
-        let mut pending: Vec<String> = path.rsplit('/').map(str::to_owned).collect();
         let mut found = None;
         let mut hops = 0;
-        while let Some(name) = pending.pop() {
-            match name.as_str() {
+        let mut targets: Vec<String> = Vec::new();
+        let mut runs: Vec<(usize, Option<usize>)> = Vec::new();
+        let mut pos: Option<usize> = Some(0);
+        let mut trees: Vec<ObjectId> = Vec::with_capacity(path.split('/').count() + 1);
+        trees.push(self.tree);
+        loop {
+            // Drop symlink targets whose segments are all consumed, newest first.
+            while let Some((_, at)) = runs.last() {
+                if at.is_some() {
+                    break;
+                }
+                runs.pop();
+                targets.pop();
+            }
+            let Some(name) = next_segment(path, &mut pos, &mut runs, &targets) else {
+                break;
+            };
+            match name {
                 "" | "." => continue,
                 ".." => {
                     if trees.len() == 1 {
@@ -121,21 +135,25 @@ impl<'r> TreeSnapshot<'r> {
                 _ => {}
             }
             let dir = *trees.last().expect("the root tree is never popped");
-            let Some((id, mode)) = self.child(dir, &name)? else {
+            let Some((id, mode)) = self.child(dir, name)? else {
                 return Ok(None);
             };
             if mode.is_link() {
                 hops += 1;
-                let target = self.read(&name, id)?;
-                let target = String::from_utf8_lossy(&target);
-                if hops > HOPS || target.starts_with('/') {
+                let target = self.read(name, id)?;
+                if hops > HOPS {
                     return Ok(None);
                 }
-                pending.extend(target.rsplit('/').map(str::to_owned));
+                let target = String::from_utf8_lossy(&target).into_owned();
+                if target.starts_with('/') {
+                    return Ok(None);
+                }
+                targets.push(target);
+                runs.push((targets.len() - 1, Some(0)));
             } else if mode.is_tree() {
                 trees.push(id);
                 found = Some((id, mode));
-            } else if pending.is_empty() {
+            } else if runs.iter().all(|(_, at)| at.is_none()) && pos.is_none() {
                 return Ok(Some((id, mode)));
             } else {
                 return Ok(None);
@@ -199,6 +217,35 @@ fn find_entry(entries: &[TreeEntry], name: &str) -> Option<(ObjectId, gix::objs:
         .iter()
         .find(|(entry, _, _)| *entry == name)
         .map(|(_, id, mode)| (*id, *mode))
+}
+
+/// The next pending segment of `path` or of the newest symlink target in `runs`, a target
+/// before the path it spliced into, advancing `pos` and the run's cursor past it, `None` when
+/// nothing is pending.
+fn next_segment<'s>(
+    path: &'s str,
+    pos: &mut Option<usize>,
+    runs: &mut [(usize, Option<usize>)],
+    targets: &'s [String],
+) -> Option<&'s str> {
+    if let Some((ti, at)) = runs.last_mut() {
+        let p = (*at).expect("a pending run is never exhausted");
+        let rest = &targets[*ti][p..];
+        let (seg, next) = match rest.split_once('/') {
+            Some((seg, _)) => (seg, Some(p + seg.len() + 1)),
+            None => (rest, None),
+        };
+        *at = next;
+        return Some(seg);
+    }
+    let p = (*pos)?;
+    let rest = &path[p..];
+    let (seg, next) = match rest.split_once('/') {
+        Some((seg, _)) => (seg, Some(p + seg.len() + 1)),
+        None => (rest, None),
+    };
+    *pos = next;
+    Some(seg)
 }
 
 impl Snapshot for TreeSnapshot<'_> {

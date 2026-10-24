@@ -1522,6 +1522,49 @@ fn symlinks_resolve_inside_the_snapshot_up_to_forty_hops() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_symlink_to_a_file_resolves_to_the_file() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "#[path = \"inner.rs\"]\npub mod m;\n");
+    repo.write("shared/inner.rs", "pub fn kept() {}\npub fn gone() {}\n");
+    std::os::unix::fs::symlink("../shared/inner.rs", repo.path().join("src/inner.rs")).unwrap();
+    repo.commit("file behind a symlink");
+    repo.write("shared/inner.rs", "pub fn kept() {}\n");
+    repo.write("README.md", "`fixture::m::gone`\n");
+    let removing = repo.commit("drop gone");
+
+    let report = run(&repo);
+    assert_eq!(removed(&report), ["fixture::m::gone"]);
+    assert_eq!(
+        report.groups[0].removed_in,
+        Some(refquiem::RemovedIn::Commit(removing))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinks_that_escape_the_root_or_end_at_a_file_do_not_resolve() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "#[path = \"up/inner.rs\"]\npub mod up_mod;\n#[path = \"past/inner.rs\"]\npub mod past_mod;\n",
+    );
+    // A target that climbs above the repository root, and one that is a file used as a
+    // directory segment.
+    std::os::unix::fs::symlink("../../outside", repo.path().join("src/up")).unwrap();
+    std::os::unix::fs::symlink("lib.rs", repo.path().join("src/past")).unwrap();
+    repo.commit("symlinks that do not resolve");
+    repo.write(
+        "README.md",
+        "`fixture::up_mod::gone` and `fixture::past_mod::gone`\n",
+    );
+    repo.commit("mention the unresolvable items");
+
+    // Neither symlink resolves, so neither module is indexed and nothing is removed.
+    assert_eq!(removed(&run(&repo)), Vec::<String>::new());
+}
+
 #[test]
 fn privately_imported_names_resolve_impls_lends_and_aliases() {
     let repo = Repo::new();
