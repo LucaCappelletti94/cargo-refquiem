@@ -1127,6 +1127,72 @@ fn chained_reexports_keep_their_copies_reportable() {
 }
 
 #[test]
+fn a_glob_copies_what_its_source_gains_from_later_globs() {
+    let repo = Repo::new();
+    let lib = |item| {
+        format!(
+            "pub mod a {{ pub use crate::b::*; }}\npub mod b {{ pub use crate::c::*; }}\npub mod c {{ pub use crate::d::*; }}\npub mod d {{ pub mod inner {{ {item} pub fn kept() {{}} }} }}\n"
+        )
+    };
+    repo.write("src/lib.rs", &lib("pub fn gone() {}"));
+    repo.commit("a chain of globs");
+    repo.write("src/lib.rs", &lib(""));
+    repo.write(
+        "README.md",
+        "`fixture::a::inner::gone`, `fixture::b::inner::gone` and `fixture::a::inner::kept`.\n",
+    );
+    repo.commit("drop gone");
+
+    assert_eq!(
+        removed(&run(&repo)),
+        ["fixture::a::inner::gone", "fixture::b::inner::gone"]
+    );
+}
+
+#[test]
+fn a_glob_through_an_alias_resolved_in_a_later_round_copies_its_items() {
+    let repo = Repo::new();
+    let lib = |item| {
+        format!(
+            "pub mod m {{ pub mod n {{ {item} pub fn kept() {{}} }} }}\npub mod x {{ pub use crate::y::B as A; }}\npub mod y {{ pub use crate::m::n as B; }}\npub mod z {{ pub use crate::x::*; }}\n"
+        )
+    };
+    repo.write("src/lib.rs", &lib("pub fn gone() {}"));
+    repo.commit("a glob over a late alias");
+    repo.write("src/lib.rs", &lib(""));
+    repo.write(
+        "README.md",
+        "`fixture::z::A::gone`, `fixture::x::A::gone` and `fixture::z::A::kept`.\n",
+    );
+    repo.commit("drop gone");
+
+    assert_eq!(
+        removed(&run(&repo)),
+        ["fixture::x::A::gone", "fixture::z::A::gone"]
+    );
+}
+
+#[test]
+fn a_module_that_later_stands_for_a_function_lets_a_glob_follow_its_self_alias() {
+    let repo = Repo::new();
+    let lib = |item| {
+        format!(
+            "pub fn real() {{}}\npub mod a_glob {{ pub use super::p::*; }}\npub mod p {{\n    pub use super::q::real2 as n;\n    pub mod n {{ pub use super::n as again; {item} pub fn kept() {{}} }}\n}}\npub mod q {{ pub use super::real as real2; }}\n"
+        )
+    };
+    repo.write("src/lib.rs", &lib("pub fn gone() {}"));
+    repo.commit("a module sharing its name with a re-exported function");
+    repo.write("src/lib.rs", &lib(""));
+    repo.write(
+        "README.md",
+        "`fixture::a_glob::n::again::gone` and `fixture::a_glob::n::again::kept`.\n",
+    );
+    repo.commit("drop gone");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::a_glob::n::again::gone"]);
+}
+
+#[test]
 fn a_glob_reexport_copies_top_level_items_to_the_crate_root() {
     let repo = Repo::new();
     repo.write(
@@ -1139,6 +1205,61 @@ fn a_glob_reexport_copies_top_level_items_to_the_crate_root() {
     repo.commit("drop S");
 
     assert_eq!(removed(&run(&repo)), ["fixture::S"]);
+}
+
+#[test]
+fn a_glob_copies_the_members_a_type_gains_before_a_glob_declares_the_type() {
+    let repo = Repo::new();
+    let lib = |item| {
+        format!(
+            "pub trait Named {{ fn name(); }}\nimpl Named for Gadget {{ {item} }}\npub mod other {{ pub struct Gadget; }}\npub use other::*;\npub mod g {{ pub use super::*; }}\n"
+        )
+    };
+    repo.write("src/lib.rs", &lib("fn name() {}"));
+    repo.commit("a trait implemented for a type a glob brings in");
+    repo.write("src/lib.rs", &lib(""));
+    repo.write("README.md", "`fixture::g::Gadget::name`.\n");
+    repo.commit("drop the member");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::g::Gadget::name"]);
+}
+
+#[test]
+fn members_declared_under_a_path_no_snapshot_interned_yet_join_it_once_a_glob_creates_it() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "impl Gadget { pub fn name() {} }\npub mod other { pub struct Gadget; }\npub use other::*;\npub mod g { pub use super::*; }\npub mod z { pub use super::other::Gadget as Copied; }\n",
+    );
+    repo.commit("an impl of a type a glob brings in");
+    repo.write(
+        "src/lib.rs",
+        "pub mod other { pub struct Gadget; }\npub mod g { pub use super::*; }\n",
+    );
+    repo.write("README.md", "`fixture::g::Gadget::name`.\n");
+    repo.commit("drop the impl and the glob");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::g::Gadget::name"]);
+}
+
+#[test]
+fn a_glob_into_a_module_that_takes_an_origin_late_follows_an_alias_it_stopped_at() {
+    let repo = Repo::new();
+    let lib = |item| {
+        format!(
+            "pub mod src {{ pub use crate::p::n as d; }}\npub mod p {{\n    pub use super::w::deep as n;\n    pub mod n {{ pub use crate::src::*; {item} pub fn kept() {{}} }}\n}}\npub mod w {{ pub use super::v::*; }}\npub mod v {{ pub use super::u::*; }}\npub mod u {{ pub fn deep() {{}} }}\n"
+        )
+    };
+    repo.write("src/lib.rs", &lib("pub fn inner() {}"));
+    repo.commit("a module named like a function three globs away");
+    repo.write("src/lib.rs", &lib(""));
+    repo.write(
+        "README.md",
+        "`fixture::p::n::d::inner` and `fixture::p::n::d::kept`.\n",
+    );
+    repo.commit("drop inner");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::p::n::d::inner"]);
 }
 
 #[test]

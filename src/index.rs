@@ -289,12 +289,28 @@ pub(crate) struct Indexer {
     manifest_dirs: ManifestDirs,
     /// Recent alias resolutions of snapshots other than head, most recently used first.
     aliases: VecDeque<AliasEntry>,
+    keywords: Keywords,
+}
+
+/// The symbols of the path keywords.
+struct Keywords {
+    krate: Sym,
+    self_value: Sym,
+    self_type: Sym,
+    super_module: Sym,
 }
 
 impl Indexer {
     pub(crate) fn new(cache: FileCache) -> Self {
+        let mut interner = Interner::default();
+        let keywords = Keywords {
+            krate: interner.sym("crate"),
+            self_value: interner.sym("self"),
+            self_type: interner.sym("Self"),
+            super_module: interner.sym("super"),
+        };
         Self {
-            interner: Interner::default(),
+            interner,
             cache,
             memo: HashMap::new(),
             expansions: HashMap::new(),
@@ -305,6 +321,7 @@ impl Indexer {
             crates: HashSet::new(),
             manifest_dirs: ManifestDirs::new(),
             aliases: VecDeque::new(),
+            keywords,
         }
     }
 
@@ -564,7 +581,7 @@ impl Indexer {
             let Some(rest) = segments.strip_prefix(base.as_slice()) else {
                 continue;
             };
-            let Some(mut target) = self.resolve_use(module, written, crates, paths) else {
+            let Some((mut target, _)) = self.resolve_use(module, written, crates, paths) else {
                 continue;
             };
             target.extend_from_slice(rest);
@@ -1164,27 +1181,29 @@ impl Indexer {
     }
 
     /// `segments` as written inside `module`, resolved syntactically.
-    fn resolve(&mut self, module: &[Sym], segments: &[Sym], crate_sym: Sym) -> Option<Vec<Sym>> {
-        let crate_kw = self.interner.sym("crate");
-        let self_kw = self.interner.sym("self");
-        let super_kw = self.interner.sym("super");
-        let self_ty = self.interner.sym("Self");
+    fn resolve(&self, module: &[Sym], segments: &[Sym], crate_sym: Sym) -> Option<Vec<Sym>> {
+        let Keywords {
+            krate,
+            self_value,
+            self_type,
+            super_module,
+        } = self.keywords;
         let first = *segments.first()?;
-        if first == self_ty {
+        if first == self_type {
             return None;
         }
-        if first == crate_kw {
+        if first == krate {
             let mut path = vec![crate_sym];
             path.extend_from_slice(&segments[1..]);
             return Some(path);
         }
         let mut base = module.to_vec();
-        let mut rest = if first == self_kw {
+        let mut rest = if first == self_value {
             &segments[1..]
         } else {
             segments
         };
-        while rest.first() == Some(&super_kw) {
+        while rest.first() == Some(&super_module) {
             if base.len() <= 1 {
                 return None;
             }
@@ -1234,6 +1253,7 @@ impl Indexer {
                     crates,
                     &resolved,
                 )
+                .map(|(source, _)| source)
                 .or_else(|| {
                     self.resolve(
                         &implementation.module,
@@ -1267,78 +1287,82 @@ impl Indexer {
         const ROUNDS: usize = 8;
         let mut origins = HashMap::new();
         let mut tree = self.tree(paths);
+        let mut use_sites: Vec<UseSite> = uses.iter().map(|_| UseSite::default()).collect();
+        let mut lend_sites: Vec<LendSite> = lends
+            .iter()
+            .map(|(module, owner, source)| LendSite {
+                owner: self.resolve(module, owner, module[0]),
+                source: self.resolve(module, source, module[0]),
+                target: None,
+                owner_known: false,
+                made: None,
+            })
+            .collect();
         let mut public_aliases = HashSet::new();
         // One path stands for every namespace, so a public re-export of a name keeps it public.
-        for (module, _, name, public) in uses {
+        for ((module, _, name, public), site) in uses.iter().zip(&mut use_sites) {
             if *public && let Some(name) = name {
-                let mut alias = module.clone();
-                alias.push(*name);
-                let id = self.interner.path(&alias, ItemKind::Reexport);
+                let (id, _) = named(&mut site.alias, &mut self.interner, module, *name);
                 hidden.remove(&id);
                 public_aliases.insert(id);
             }
         }
         for _ in 0..ROUNDS {
             let before = paths.len();
-            let mut fresh = Vec::new();
-            for (module, source, name, public) in uses {
-                let target = self
-                    .resolve_use(module, source, crates, paths)
-                    .and_then(|resolved| self.interner.find_path(&resolved))
-                    .filter(|id| paths.contains(id));
+            for ((module, source, name, public), site) in uses.iter().zip(&mut use_sites) {
+                let UseSite {
+                    alias,
+                    target: settled,
+                    made,
+                } = site;
+                let target = settled.or_else(|| {
+                    let (resolved, fixed) = self.resolve_use(module, source, crates, paths)?;
+                    let target = self
+                        .interner
+                        .find_path(&resolved)
+                        .filter(|id| paths.contains(id));
+                    if fixed {
+                        *settled = target;
+                    }
+                    target
+                });
                 if let Some(name) = name {
-                    let mut alias = module.clone();
-                    alias.push(*name);
-                    let id = self.interner.path(&alias, ItemKind::Reexport);
+                    let (id, alias) = named(alias, &mut self.interner, module, *name);
                     let hide = !public && !public_aliases.contains(&id);
-                    if paths.insert(id) {
-                        fresh.push(id);
+                    let added = paths.insert(id);
+                    if added {
+                        tree.pending.push(id);
                         if hide {
                             hidden.insert(id);
                         }
                     }
                     if let Some(target) = target {
                         let stands_for = origin(&origins, target);
-                        origins.entry(id).or_insert(stands_for);
-                        let copy = (target, alias.as_slice(), hide);
-                        self.copy_below(copy, &tree, paths, &mut origins, hidden, &mut fresh);
+                        let interner = &self.interner;
+                        tree.changes
+                            .stand_for(interner, &mut origins, id, stands_for, added);
+                        let copy = (target, alias, hide);
+                        self.copy_below(copy, made, &mut tree, paths, &mut origins, hidden);
                     }
                 } else if let Some(target) = target {
                     let copy = (target, module.as_slice(), !public);
-                    self.copy_below(copy, &tree, paths, &mut origins, hidden, &mut fresh);
+                    self.copy_below(copy, made, &mut tree, paths, &mut origins, hidden);
                 }
             }
-            for (module, owner, source) in lends {
-                let Some(owner) = self.resolve(module, owner, module[0]) else {
-                    continue;
-                };
-                let target = self
-                    .resolve(module, source, module[0])
-                    .and_then(|resolved| self.interner.find_path(&resolved))
-                    .filter(|id| paths.contains(id));
-                let owner_known = self
-                    .interner
-                    .find_path(&owner)
-                    .is_some_and(|id| paths.contains(&id));
-                if let Some(target) = target
-                    && owner_known
-                {
-                    let copy = (target, owner.as_slice(), false);
-                    self.copy_below(copy, &tree, paths, &mut origins, hidden, &mut fresh);
-                }
-            }
+            self.copy_lent(&mut lend_sites, &mut tree, paths, &mut origins, hidden);
             if paths.len() == before {
                 break;
             }
-            self.grow(&mut tree, &fresh);
+            self.grow(&mut tree);
         }
         // A source among the paths reaches mentions only through the copies above.
         let mut reexports = Reexports::new();
-        for (module, source, name, _) in uses {
-            let inside = self
-                .resolve_use(module, source, crates, paths)
-                .and_then(|resolved| self.interner.find_path(&resolved))
-                .is_some_and(|id| paths.contains(&id));
+        for ((module, source, name, _), site) in uses.iter().zip(&use_sites) {
+            let inside = site.target.is_some()
+                || self
+                    .resolve_use(module, source, crates, paths)
+                    .and_then(|(resolved, _)| self.interner.find_path(&resolved))
+                    .is_some_and(|id| paths.contains(&id));
             if inside {
                 continue;
             }
@@ -1347,6 +1371,44 @@ impl Indexer {
             reexports.entry(alias).or_default().push(source.clone());
         }
         (reexports, origins)
+    }
+
+    /// Copies below each lend's owner the members its source has, once both are among `paths`.
+    fn copy_lent(
+        &mut self,
+        sites: &mut [LendSite],
+        tree: &mut Tree,
+        paths: &mut HashSet<PathId>,
+        origins: &mut HashMap<PathId, PathId>,
+        hidden: &mut HashSet<PathId>,
+    ) {
+        for site in sites {
+            let LendSite {
+                owner: Some(owner),
+                source,
+                target,
+                owner_known,
+                made,
+            } = site
+            else {
+                continue;
+            };
+            *target = target.or_else(|| {
+                let found = self.interner.find_path(source.as_deref()?)?;
+                paths.contains(&found).then_some(found)
+            });
+            *owner_known = *owner_known
+                || self
+                    .interner
+                    .find_path(owner)
+                    .is_some_and(|id| paths.contains(&id));
+            if let Some(target) = *target
+                && *owner_known
+            {
+                let copy = (target, owner.as_slice(), false);
+                self.copy_below(copy, made, tree, paths, origins, hidden);
+            }
+        }
     }
 
     /// [`Self::resolve_aliases`] for a snapshot other than head, reusing the result of a recent
@@ -1395,19 +1457,26 @@ impl Indexer {
         reexports
     }
 
+    /// The path `source` names when used inside `module`, and whether no path joining `paths`
+    /// changes it.
     fn resolve_use(
-        &mut self,
+        &self,
         module: &[Sym],
         source: &[Sym],
         crates: &[Sym],
         paths: &HashSet<PathId>,
-    ) -> Option<Vec<Sym>> {
+    ) -> Option<(Vec<Sym>, bool)> {
         let first = *source.first()?;
-        let keyword = ["crate", "self", "super"]
-            .iter()
-            .any(|kw| self.interner.find_sym(kw) == Some(first));
-        if keyword {
-            return self.resolve(module, source, module[0]);
+        let Keywords {
+            krate,
+            self_value,
+            super_module,
+            ..
+        } = self.keywords;
+        if [krate, self_value, super_module].contains(&first) {
+            return self
+                .resolve(module, source, module[0])
+                .map(|path| (path, true));
         }
         let mut local = module.to_vec();
         local.push(first);
@@ -1417,27 +1486,38 @@ impl Indexer {
             .is_some_and(|id| paths.contains(&id))
         {
             local.extend_from_slice(&source[1..]);
-            return Some(local);
+            return Some((local, true));
         }
-        crates.contains(&first).then(|| source.to_vec())
+        crates.contains(&first).then(|| (source.to_vec(), false))
     }
 
     /// Re-roots every path strictly below `from` under `to`, never through a module the copy
     /// already passes, so that re-exports forming a cycle stay finite.
     ///
-    /// `origins` maps every alias and copied path to the declared path it stands for, and
-    /// `fresh` collects the paths the copy adds. A copy into another crate skips the `hidden`
+    /// `origins` maps every alias and copied path to the declared path it stands for, and the
+    /// paths the copy adds join `tree.pending`. A copy into another crate skips the `hidden`
     /// paths with everything below them, and a new copy of a hidden path, or any new copy when
     /// `hide` is set, joins them.
+    ///
+    /// `last` is the copy the same use or lend made before. Made again with the same chain of
+    /// origins above `to`, the copy skips every path at and below which nothing changed since,
+    /// as the copy made then already holds everything below it.
     fn copy_below(
         &mut self,
         (from, to, hide): (PathId, &[Sym], bool),
-        tree: &Tree,
+        last: &mut Option<Made>,
+        tree: &mut Tree,
         paths: &mut HashSet<PathId>,
         origins: &mut HashMap<PathId, PathId>,
         hidden: &mut HashSet<PathId>,
-        fresh: &mut Vec<PathId>,
     ) {
+        let Tree {
+            children,
+            pending,
+            changes,
+            ..
+        } = tree;
+        changes.clock += 1;
         let across = self.interner.segments(from)[0] != to[0];
         // The origins on each copy's chain, as links to the link before them.
         let mut links: Vec<(PathId, usize)> = Vec::new();
@@ -1448,12 +1528,32 @@ impl Indexer {
                 tip = links.len() - 1;
             }
         }
-        // Each entry is a source, the copy it lands at (`None` for `to` when never interned)
-        // and the tip of its chain.
-        let mut stack = vec![(from, self.interner.find_path(to), tip)];
-        while let Some((source, prefix, tip)) = stack.pop() {
-            for &child in tree.children.get(&source).into_iter().flatten() {
-                if across && hidden.contains(&child) {
+        let since = match last {
+            Some(made)
+                if (made.from, made.to.as_ref(), made.hide, &made.links)
+                    == (from, to, hide, &links) =>
+            {
+                Some(std::mem::replace(&mut made.tick, changes.clock))
+            }
+            _ => {
+                *last = Some(Made {
+                    from,
+                    to: to.into(),
+                    hide,
+                    links: links.clone(),
+                    tick: changes.clock,
+                });
+                None
+            }
+        };
+        // Each entry is a source, the copy it lands at (`None` for `to` when never interned),
+        // the tip of its chain and, while the chain is the one of the last copy, its tick.
+        let mut stack = vec![(from, self.interner.find_path(to), tip, since)];
+        while let Some((source, prefix, tip, since)) = stack.pop() {
+            for &child in children.get(&source).into_iter().flatten() {
+                if since.is_some_and(|tick| changes.below(child) < tick)
+                    || across && hidden.contains(&child)
+                {
                     continue;
                 }
                 let last = *self
@@ -1468,17 +1568,19 @@ impl Indexer {
                     let path: Vec<Sym> = to.iter().copied().chain([last]).collect();
                     self.interner.path(&path, kind)
                 };
-                if paths.insert(id) {
-                    fresh.push(id);
+                let added = paths.insert(id);
+                if added {
+                    pending.push(id);
                     if hide || hidden.contains(&child) {
                         hidden.insert(id);
                     }
                 }
                 let child_origin = origin(origins, child);
-                origins.entry(id).or_insert(child_origin);
+                changes.stand_for(&self.interner, origins, id, child_origin, added);
                 if !on_chain(&links, tip, child_origin) {
                     links.push((child_origin, tip));
-                    stack.push((child, Some(id), links.len() - 1));
+                    let since = since.filter(|&tick| changes.renewed(child) < tick);
+                    stack.push((child, Some(id), links.len() - 1, since));
                 }
             }
         }
@@ -1496,11 +1598,12 @@ impl Indexer {
         tree
     }
 
-    /// Adds the paths `fresh` to `tree`, adopting the paths whose parent one of them is and
+    /// Adds the pending paths to `tree`, adopting the paths whose parent one of them is and
     /// was not interned before.
-    fn grow(&self, tree: &mut Tree, fresh: &[PathId]) {
+    fn grow(&self, tree: &mut Tree) {
         let mut touched = HashSet::new();
-        for &id in fresh {
+        let mut pending = std::mem::take(&mut tree.pending);
+        for &id in &pending {
             if let Some(parent) = self.link(tree, id) {
                 touched.insert(parent);
             }
@@ -1508,12 +1611,15 @@ impl Indexer {
                 tree.children.entry(id).or_default().extend(adopted);
                 touched.insert(id);
             }
+            tree.changes.renew(&self.interner, id);
         }
         for parent in touched {
             if let Some(list) = tree.children.get_mut(&parent) {
                 list.sort_unstable();
             }
         }
+        pending.clear();
+        tree.pending = pending;
     }
 
     /// Files `id` under its parent in `tree`, or among the orphans while the parent is not
@@ -1541,6 +1647,113 @@ struct Tree {
     children: HashMap<PathId, Vec<PathId>>,
     /// The paths whose parent was not interned yet, by the parent's segments.
     orphans: HashMap<Box<[Sym]>, Vec<PathId>>,
+    /// The paths added since the tree last grew.
+    pending: Vec<PathId>,
+    changes: Changes,
+}
+
+/// When the paths of a [`Tree`] last changed, on a clock that ticks once per copy.
+#[derive(Default)]
+struct Changes {
+    clock: u32,
+    /// The last tick each path joined the tree or took an origin, and the last tick that
+    /// happened to it or to a path below it.
+    ticks: HashMap<PathId, (u32, u32)>,
+}
+
+impl Changes {
+    /// The last tick `id` joined the tree or took an origin.
+    fn renewed(&self, id: PathId) -> u32 {
+        self.ticks.get(&id).map_or(0, |&(renewed, _)| renewed)
+    }
+
+    /// The last tick `id` or a path below it was renewed.
+    fn below(&self, id: PathId) -> u32 {
+        self.ticks.get(&id).map_or(0, |&(_, below)| below)
+    }
+
+    /// Marks `id` renewed now, and changed below every path above it.
+    fn renew(&mut self, interner: &Interner, id: PathId) {
+        let tick = self.clock;
+        let segments = interner.segments(id);
+        let ticks = self.ticks.entry(id).or_default();
+        *ticks = (tick, tick);
+        for len in (1..segments.len()).rev() {
+            let Some(above) = interner.find_path(&segments[..len]) else {
+                break;
+            };
+            let below = &mut self.ticks.entry(above).or_default().1;
+            if *below == tick {
+                break;
+            }
+            *below = tick;
+        }
+    }
+
+    /// Records that `id` stands for `declared` unless it already stands for a path. A path
+    /// that was in the tree before is renewed, as copies passing it may now stop elsewhere.
+    fn stand_for(
+        &mut self,
+        interner: &Interner,
+        origins: &mut HashMap<PathId, PathId>,
+        id: PathId,
+        declared: PathId,
+        added: bool,
+    ) {
+        if let std::collections::hash_map::Entry::Vacant(slot) = origins.entry(id) {
+            slot.insert(declared);
+            if !added {
+                self.renew(interner, id);
+            }
+        }
+    }
+}
+
+/// What a use settled on in one resolution, each part kept once no later round can change it.
+#[derive(Default)]
+struct UseSite {
+    /// The alias a named use declares, with its id.
+    alias: Option<(PathId, Box<[Sym]>)>,
+    /// The source among the paths.
+    target: Option<PathId>,
+    made: Option<Made>,
+}
+
+/// What a lend settled on in one resolution, each part kept once no later round can change it.
+struct LendSite {
+    /// The owner, resolved syntactically.
+    owner: Option<Vec<Sym>>,
+    /// The source, resolved syntactically.
+    source: Option<Vec<Sym>>,
+    /// The source among the paths.
+    target: Option<PathId>,
+    /// Whether the owner is among the paths.
+    owner_known: bool,
+    made: Option<Made>,
+}
+
+/// The alias `name` a use declares inside `module`, interned when `slot` first asks for it.
+fn named<'a>(
+    slot: &'a mut Option<(PathId, Box<[Sym]>)>,
+    interner: &mut Interner,
+    module: &[Sym],
+    name: Sym,
+) -> (PathId, &'a [Sym]) {
+    let (id, alias) = slot.get_or_insert_with(|| {
+        let alias: Box<[Sym]> = module.iter().copied().chain([name]).collect();
+        (interner.path(&alias, ItemKind::Reexport), alias)
+    });
+    (*id, alias)
+}
+
+/// The copy a use or lend last made, with the tick it was made at.
+struct Made {
+    from: PathId,
+    to: Box<[Sym]>,
+    hide: bool,
+    /// The chain of origins above `to`.
+    links: Vec<(PathId, usize)>,
+    tick: u32,
 }
 
 /// The number of historical alias inputs retained.
