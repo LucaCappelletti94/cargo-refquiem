@@ -1323,6 +1323,28 @@ fn a_glob_into_a_module_that_takes_an_origin_late_follows_an_alias_it_stopped_at
 }
 
 #[test]
+fn a_glob_whose_source_turns_local_copies_what_was_declared_below_the_new_source() {
+    let repo = Repo::new();
+    // The glob in `m` first reads `fixture::a` as the crate's `a`, then as `m::fixture::a` once
+    // a glob brings `fixture` into `m`, below which the impl declared `method` all along.
+    let lib = |item| {
+        format!(
+            "pub mod a {{ pub fn from_a() {{}} }}\npub mod outer {{ pub mod fixture {{ pub mod a {{}} }} }}\npub mod m {{\n    pub use fixture::a::*;\n    pub use crate::outer::*;\n    {item}\n}}\n"
+        )
+    };
+    repo.write(
+        "src/lib.rs",
+        &lib("impl self::fixture::a { pub fn method() {} }"),
+    );
+    repo.commit("an impl below a path a later alias creates");
+    repo.write("src/lib.rs", &lib(""));
+    repo.write("README.md", "`fixture::m::method`.\n");
+    repo.commit("drop the impl");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::m::method"]);
+}
+
+#[test]
 fn a_glob_copies_the_members_it_sees_only_after_the_first_round() {
     let repo = Repo::new();
     repo.write(

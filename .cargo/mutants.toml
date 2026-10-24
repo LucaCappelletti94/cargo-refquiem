@@ -52,4 +52,10 @@ exclude_re = [
     'src/index\.rs:\d+:23: replace \+= with \*= in Indexer::copy_below$',
     # Never reusing the last copy, or its chain, only walks every subtree or prefix again.
     'replace match guard made\.from == from .* with false in Indexer::copy_below$',
+    # Every prefix of a copy's destination is interned before the copy, so a changed path count
+    # never adds a prefix to the reused chain.
+    'src/index\.rs:\d+:35: replace == with != in Indexer::copy_below$',
+    # The crate root heads every chain and never takes an origin, so requiring every prefix to
+    # stand for another origin never reuses a chain.
+    'src/index\.rs:\d+:62: replace == with != in Indexer::copy_below$',
 ]
