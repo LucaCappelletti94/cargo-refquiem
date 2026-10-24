@@ -29,12 +29,6 @@ pub(crate) type ManifestDirs = HashMap<ObjectId, Rc<[String]>>;
 /// The entries of each committed tree, by tree id.
 pub(crate) type Trees = HashMap<ObjectId, Rc<Vec<TreeEntry>>>;
 
-// The trees an `entry` walk descends into, the current directory last, reused across the
-// calls of one thread so a walk allocates none of them.
-thread_local! {
-    static TREES: RefCell<Vec<ObjectId>> = const { RefCell::new(Vec::new()) };
-}
-
 /// The directories holding a `Cargo.toml` below tree `id` of `repo`, relative to it.
 fn manifests_below(
     repo: &gix::Repository,
@@ -109,66 +103,63 @@ impl<'r> TreeSnapshot<'r> {
     /// them, as the kernel's limit is.
     fn entry(&self, path: &str) -> Result<Option<(ObjectId, gix::objs::tree::EntryMode)>, Error> {
         const HOPS: usize = 40;
-        TREES.with(|t| {
-            let mut found = None;
-            let mut hops = 0;
-            let mut targets: Vec<String> = Vec::new();
-            let mut runs: Vec<(usize, Option<usize>)> = Vec::new();
-            let mut pos: Option<usize> = Some(0);
-            let mut trees = t.borrow_mut();
-            trees.clear();
-            trees.push(self.tree);
-            loop {
-                // Drop symlink targets whose segments are all consumed, newest first.
-                while let Some((_, at)) = runs.last() {
-                    if at.is_some() {
-                        break;
-                    }
-                    runs.pop();
-                    targets.pop();
-                }
-                let Some(name) = next_segment(path, &mut pos, &mut runs, &targets) else {
+        let mut found = None;
+        let mut hops = 0;
+        let mut targets: Vec<String> = Vec::new();
+        let mut runs: Vec<(usize, Option<usize>)> = Vec::new();
+        let mut pos: Option<usize> = Some(0);
+        let mut trees: Vec<ObjectId> = Vec::with_capacity(path.split('/').count() + 1);
+        trees.push(self.tree);
+        loop {
+            // Drop symlink targets whose segments are all consumed, newest first.
+            while let Some((_, at)) = runs.last() {
+                if at.is_some() {
                     break;
-                };
-                match name {
-                    "" | "." => continue,
-                    ".." => {
-                        if trees.len() == 1 {
-                            return Ok(None);
-                        }
-                        trees.pop();
-                        found = None;
-                        continue;
-                    }
-                    _ => {}
                 }
-                let dir = *trees.last().expect("the root tree is never popped");
-                let Some((id, mode)) = self.child(dir, name)? else {
-                    return Ok(None);
-                };
-                if mode.is_link() {
-                    hops += 1;
-                    let target = self.read(name, id)?;
-                    if hops > HOPS {
-                        return Ok(None);
-                    }
-                    let target = String::from_utf8_lossy(&target).into_owned();
-                    if target.starts_with('/') {
-                        return Ok(None);
-                    }
-                    targets.push(target);
-                    runs.push((targets.len() - 1, Some(0)));
-                } else if mode.is_tree() {
-                    trees.push(id);
-                    found = Some((id, mode));
-                } else if runs.iter().all(|(_, at)| at.is_none()) && pos.is_none() {
-                    return Ok(Some((id, mode)));
-                } else {
-                    return Ok(None);
-                }
+                runs.pop();
+                targets.pop();
             }
-            Ok(found)
-        })
+            let Some(name) = next_segment(path, &mut pos, &mut runs, &targets) else {
+                break;
+            };
+            match name {
+                "" | "." => continue,
+                ".." => {
+                    if trees.len() == 1 {
+                        return Ok(None);
+                    }
+                    trees.pop();
+                    found = None;
+                    continue;
+                }
+                _ => {}
+            }
+            let dir = *trees.last().expect("the root tree is never popped");
+            let Some((id, mode)) = self.child(dir, name)? else {
+                return Ok(None);
+            };
+            if mode.is_link() {
+                hops += 1;
+                let target = self.read(name, id)?;
+                if hops > HOPS {
+                    return Ok(None);
+                }
+                let target = String::from_utf8_lossy(&target).into_owned();
+                if target.starts_with('/') {
+                    return Ok(None);
+                }
+                targets.push(target);
+                runs.push((targets.len() - 1, Some(0)));
+            } else if mode.is_tree() {
+                trees.push(id);
+                found = Some((id, mode));
+            } else if runs.iter().all(|(_, at)| at.is_none()) && pos.is_none() {
+                return Ok(Some((id, mode)));
+            } else {
+                return Ok(None);
+            }
+        }
+        Ok(found)
     }
 
     /// The entry called `name` in tree `dir`, from the run's memo of the tree's parsed entries.
