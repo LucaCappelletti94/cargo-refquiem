@@ -1420,10 +1420,14 @@ impl Indexer {
                         let interner = &self.interner;
                         tree.changes
                             .stand_for(interner, &mut origins, id, stands_for, added);
-                        let copy = (target, alias, hide);
-                        self.copy_below(copy, made, &mut tree, paths, &mut origins, hidden);
+                        if !self.self_named_copy(target, alias) {
+                            let copy = (target, alias, hide);
+                            self.copy_below(copy, made, &mut tree, paths, &mut origins, hidden);
+                        }
                     }
-                } else if let Some(target) = target {
+                } else if let Some(target) = target
+                    && !self.self_named_copy(target, module.as_slice())
+                {
                     let copy = (target, module.as_slice(), !public);
                     self.copy_below(copy, made, &mut tree, paths, &mut origins, hidden);
                 }
@@ -1608,6 +1612,13 @@ impl Indexer {
             self.copy_links.len().checked_sub(1).unwrap_or(NO_LINK),
             prefixes,
         )
+    }
+
+    /// Whether the copy of `from` at `to` would stand a crate's own root below the crate's
+    /// own name, where the root already stands, adding no spelling a reader writes.
+    fn self_named_copy(&self, from: PathId, to: &[Sym]) -> bool {
+        let segments = self.interner.segments(from);
+        to.len() == 2 && to[0] == to[1] && segments.len() == 1 && segments[0] == to[0]
     }
 
     /// Re-roots every path strictly below `from` under `to`, never through a module the copy
