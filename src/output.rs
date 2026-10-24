@@ -333,4 +333,43 @@ mod tests {
                 .contains("| function |  | Removed (no replacement found) |")
         );
     }
+
+    #[test]
+    fn the_job_summary_lists_one_row_per_group() {
+        let mention = Mention {
+            file: "docs.md".to_owned(),
+            line: 1,
+            column: 7,
+            text: String::new(),
+            context: Context {
+                source: Source::Comment,
+                kind: Kind::Text,
+            },
+            replacement: None,
+        };
+        let group = |path: &str| Group {
+            path: path.to_owned(),
+            kind: ItemKind::Function,
+            member: None,
+            removed_in: None,
+            declared_at: None,
+            suggestion: None,
+            candidates: vec![],
+            mentions: vec![mention.clone()],
+        };
+        let report = Report {
+            base: None,
+            head: None,
+            groups: vec![group("a::one"), group("a::two")],
+            skipped: vec![],
+            unused_markers: vec![],
+            edited: HashSet::new(),
+        };
+        let mut expected = report.prefix();
+        expected.push_str(&report.row(&report.groups[0], None));
+        expected.push('\n');
+        expected.push_str(&report.row(&report.groups[1], None));
+        expected.push('\n');
+        assert_eq!(report.job_summary(None), expected);
+    }
 }
