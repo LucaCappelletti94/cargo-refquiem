@@ -723,10 +723,7 @@ impl Indexer {
     /// enclosing module that has any, else all of them, as `#[macro_use]` lends them anywhere.
     fn visible(&self, all: &[(PathId, Definition)], module: PathId) -> Vec<Definition> {
         let segments = self.interner.segments(module);
-        for len in (1..=segments.len()).rev() {
-            let Some(enclosing) = self.interner.find_path(&segments[..len]) else {
-                continue;
-            };
+        for (_, enclosing) in self.interner.prefixes(segments) {
             let found: Vec<Definition> = all
                 .iter()
                 .filter(|(defined_in, _)| *defined_in == enclosing)
@@ -1522,12 +1519,15 @@ impl Indexer {
         // The origins on each copy's chain, as links to the link before them.
         let mut links: Vec<(PathId, usize)> = Vec::new();
         let mut tip = NO_LINK;
-        for len in 1..=to.len() {
-            if let Some(id) = self.interner.find_path(&to[..len]) {
-                links.push((origin(origins, id), tip));
-                tip = links.len() - 1;
-            }
+        let prefixes: Vec<(usize, PathId)> = self.interner.prefixes(to).collect();
+        for &(_, id) in prefixes.iter().rev() {
+            links.push((origin(origins, id), tip));
+            tip = links.len() - 1;
         }
+        let whole = prefixes
+            .first()
+            .filter(|&&(len, _)| len == to.len())
+            .map(|&(_, id)| id);
         let since = match last {
             Some(made)
                 if (made.from, made.to.as_ref(), made.hide, &made.links)
@@ -1548,7 +1548,7 @@ impl Indexer {
         };
         // Each entry is a source, the copy it lands at (`None` for `to` when never interned),
         // the tip of its chain and, while the chain is the one of the last copy, its tick.
-        let mut stack = vec![(from, self.interner.find_path(to), tip, since)];
+        let mut stack = vec![(from, whole, tip, since)];
         while let Some((source, prefix, tip, since)) = stack.pop() {
             for &child in children.get(&source).into_iter().flatten() {
                 if since.is_some_and(|tick| changes.below(child) < tick)
@@ -1626,16 +1626,15 @@ impl Indexer {
     /// interned. A parent outside the set keeps its children unused until it joins. Returns
     /// the parent it was filed under.
     fn link(&self, tree: &mut Tree, id: PathId) -> Option<PathId> {
-        let segments = self.interner.segments(id);
-        let (_, parent) = segments.split_last()?;
-        if parent.is_empty() {
-            return None;
-        }
-        if let Some(found) = self.interner.find_path(parent) {
+        if let Some(found) = self.interner.parent(id) {
             tree.children.entry(found).or_default().push(id);
             return Some(found);
         }
-        tree.orphans.entry(parent.into()).or_default().push(id);
+        let segments = self.interner.segments(id);
+        let (_, parent) = segments.split_last()?;
+        if !parent.is_empty() {
+            tree.orphans.entry(parent.into()).or_default().push(id);
+        }
         None
     }
 }
@@ -1675,13 +1674,9 @@ impl Changes {
     /// Marks `id` renewed now, and changed below every path above it.
     fn renew(&mut self, interner: &Interner, id: PathId) {
         let tick = self.clock;
-        let segments = interner.segments(id);
         let ticks = self.ticks.entry(id).or_default();
         *ticks = (tick, tick);
-        for len in (1..segments.len()).rev() {
-            let Some(above) = interner.find_path(&segments[..len]) else {
-                break;
-            };
+        for (_, above) in interner.ancestors(id) {
             let below = &mut self.ticks.entry(above).or_default().1;
             if *below == tick {
                 break;
@@ -1926,11 +1921,9 @@ fn public_path(
     private: &HashSet<PathId>,
     hidden: &HashSet<PathId>,
 ) -> bool {
-    let segments = interner.segments(id);
     !hidden.contains(&id)
-        && !(2..segments.len()).any(|len| {
-            interner
-                .find_path(&segments[..len])
-                .is_some_and(|prefix| private.contains(&prefix) || hidden.contains(&prefix))
-        })
+        && !interner
+            .ancestors(id)
+            .take_while(|&(len, _)| len >= 2)
+            .any(|(_, prefix)| private.contains(&prefix) || hidden.contains(&prefix))
 }
