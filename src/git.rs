@@ -28,7 +28,7 @@ pub(crate) trait Snapshot {
 pub(crate) type ManifestDirs = HashMap<ObjectId, Rc<[String]>>;
 
 /// The entries of each committed tree, by tree id.
-pub(crate) type Trees = HashMap<ObjectId, Rc<Vec<(String, ObjectId, gix::objs::tree::EntryMode)>>>;
+pub(crate) type Trees = HashMap<ObjectId, Rc<Vec<TreeEntry>>>;
 
 /// The directories holding a `Cargo.toml` below tree `id` of `repo`, relative to it.
 fn manifests_below(
@@ -153,61 +153,53 @@ impl<'r> TreeSnapshot<'r> {
     ) -> Result<Option<(ObjectId, gix::objs::tree::EntryMode)>, Error> {
         let mut memo = self.trees.borrow_mut();
         if let std::collections::hash_map::Entry::Vacant(slot) = memo.entry(dir) {
-            let entries = match self.entries(dir) {
-                Ok(entries) => entries,
-                Err(Error::TreeList { .. }) => return self.first_match(dir, name),
-                Err(error) => return Err(error),
-            };
-            slot.insert(entries.into());
+            match self.entries(dir) {
+                Ok(entries) => {
+                    slot.insert(entries.into());
+                }
+                // A tree that fails to decode answers the names before the failure, as reading
+                // it up to the first match would.
+                Err((entries, error)) => {
+                    return find_entry(&entries, name).map_or(Err(error), |found| Ok(Some(found)));
+                }
+            }
         }
         let entries = memo.get(&dir).expect("the missing tree was just inserted");
-        Ok(entries
-            .iter()
-            .find(|(entry, _, _)| *entry == name)
-            .map(|(_, id, mode)| (*id, *mode)))
+        Ok(find_entry(entries, name))
     }
 
-    /// The parsed entries of tree `dir`.
-    fn entries(
-        &self,
-        dir: ObjectId,
-    ) -> Result<Vec<(String, ObjectId, gix::objs::tree::EntryMode)>, Error> {
+    /// The parsed entries of tree `dir`, else those parsed before the first that fails, with
+    /// the error.
+    fn entries(&self, dir: ObjectId) -> Result<Vec<TreeEntry>, (Vec<TreeEntry>, Error)> {
         let tree = self
             .repo
             .find_object(dir)
             .map(gix::Object::into_tree)
-            .map_err(|source| Error::Object { id: dir, source })?;
+            .map_err(|source| (Vec::new(), Error::Object { id: dir, source }))?;
         let mut entries = Vec::new();
         for entry in tree.iter() {
-            let entry = entry.map_err(|source| Error::TreeList { id: dir, source })?;
-            entries.push((
-                entry.filename().to_string(),
-                entry.object_id(),
-                entry.mode(),
-            ));
+            match entry {
+                Ok(entry) => entries.push((
+                    entry.filename().to_string(),
+                    entry.object_id(),
+                    entry.mode(),
+                )),
+                Err(source) => return Err((entries, Error::TreeList { id: dir, source })),
+            }
         }
         Ok(entries)
     }
+}
 
-    /// The first entry of tree `dir` called `name`, re-reading the tree.
-    fn first_match(
-        &self,
-        dir: ObjectId,
-        name: &str,
-    ) -> Result<Option<(ObjectId, gix::objs::tree::EntryMode)>, Error> {
-        let tree = self
-            .repo
-            .find_object(dir)
-            .map(gix::Object::into_tree)
-            .map_err(|source| Error::Object { id: dir, source })?;
-        for entry in tree.iter() {
-            let entry = entry.map_err(|source| Error::TreeList { id: dir, source })?;
-            if entry.filename() == name {
-                return Ok(Some((entry.object_id(), entry.mode())));
-            }
-        }
-        Ok(None)
-    }
+/// One entry of a committed tree, its name, object and mode.
+type TreeEntry = (String, ObjectId, gix::objs::tree::EntryMode);
+
+/// The object and mode of the first of `entries` called `name`.
+fn find_entry(entries: &[TreeEntry], name: &str) -> Option<(ObjectId, gix::objs::tree::EntryMode)> {
+    entries
+        .iter()
+        .find(|(entry, _, _)| *entry == name)
+        .map(|(_, id, mode)| (*id, *mode))
 }
 
 impl Snapshot for TreeSnapshot<'_> {
