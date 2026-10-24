@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use crate::{Change, RemovedIn, Report};
+use crate::{Change, Group, Position, RemovedIn, Report, web};
 
 impl Report {
     /// The report as JSON, with `snake_case` keys and kinds.
@@ -58,77 +58,141 @@ impl Report {
         out
     }
 
-    /// The report as a Markdown job summary, every mention listed.
+    /// The report as a Markdown job summary, every mention listed, the places linked to the
+    /// repository at `root` when the report names a head commit.
     #[must_use]
-    pub fn job_summary(&self) -> String {
-        let mut out = String::from("## refquiem\n\n");
-        if self.groups.is_empty() {
-            out.push_str("No stale mentions\n");
-        } else {
-            let _ = writeln!(out, "{}\n", self.tally());
-            out.push_str(
-                "Findings and replacement suggestions require verification before editing.\n\n",
-            );
-            out.push_str(
-                "| Removed name | Kind | Removed in | Status | Suggested action | Mentions |\n|---|---|---|---|---|---|\n",
-            );
-            for group in &self.groups {
-                let mut name = String::new();
-                span(&mut name, &group.path);
-                if let Some(member) = &group.member {
-                    name.push_str(" of ");
-                    span(&mut name, member);
-                }
-                let removed_in = match &group.removed_in {
-                    Some(RemovedIn::Commit(id)) => id.get(..7).unwrap_or(id),
-                    Some(RemovedIn::WorkingTree) => "working tree",
-                    None => "",
-                };
-                let status = match group
-                    .suggestion
-                    .as_ref()
-                    .map(|suggestion| suggestion.change)
-                {
-                    Some(Change::Moved) => "Possible move",
-                    Some(Change::Renamed) => "Possible rename",
-                    Some(Change::Replaced) => "Possible replacement",
-                    None if group.candidates.is_empty() => "Removed (no replacement found)",
-                    None => "Ambiguous replacement",
-                };
-                let mut mentions = String::new();
-                for (i, mention) in group.mentions.iter().enumerate() {
-                    if i > 0 {
-                        mentions.push_str("<br>");
-                    }
-                    span_position(&mut mentions, &mention.file, mention.line, mention.column);
-                }
-                let _ = write!(
-                    out,
-                    "| {} | {} | {removed_in} | {status} | ",
-                    cell(&name),
-                    group.kind.describe(),
-                );
-                if let Some(suggestion) = &group.suggestion {
-                    let mut path = String::new();
-                    span(&mut path, &suggestion.path);
-                    let _ = write!(out, "Verify and update the reference to {}", cell(&path));
-                } else if let Some(candidates) = group.became() {
-                    let _ = write!(
-                        out,
-                        "Review candidates before changing this reference ({})",
-                        cell(&candidates)
-                    );
-                } else {
-                    out.push_str("Review the mention and remove or rewrite it if stale");
-                }
-                let _ = writeln!(out, " | {} |", cell(&mentions));
+    pub fn job_summary(&self, root: Option<&str>) -> String {
+        let mut out = self.prefix();
+        for (i, group) in self.groups.iter().enumerate() {
+            if i > 0 {
+                out.push('\n');
             }
+            out.push_str(&self.row(group, root));
         }
+        if !self.groups.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&self.closing(root));
+        out
+    }
+
+    /// The heading and the table's heading, or the notice when nothing is stale.
+    fn prefix(&self) -> String {
+        if self.groups.is_empty() {
+            return String::from("## refquiem\n\nNo stale mentions\n");
+        }
+        format!(
+            "## refquiem\n\n{}\n\nFindings and replacement suggestions require verification before editing.\n\n| Removed name | Kind | Removed in | Status | Suggested action | Mentions |\n|---|---|---|---|---|---|\n",
+            self.tally()
+        )
+    }
+
+    /// One table row of the job summary.
+    fn row(&self, group: &Group, root: Option<&str>) -> String {
+        let mut name = String::new();
+        span(&mut name, &group.path);
+        if let Some(member) = &group.member {
+            name.push_str(" of ");
+            span(&mut name, member);
+        }
+        let name = if let (Some(root), Some(base), Some(at)) =
+            (root, self.base.as_deref(), group.declared_at.as_ref())
+        {
+            format!("[{name}]({})", web::blob(root, base, &at.file, at.line))
+        } else {
+            name
+        };
+        let removed_in = match &group.removed_in {
+            Some(RemovedIn::Commit(id)) => {
+                let short = id.get(..7).unwrap_or(id);
+                root.map_or_else(
+                    || short.to_owned(),
+                    |root| format!("[{short}]({})", web::commit_page(root, id)),
+                )
+            }
+            Some(RemovedIn::WorkingTree) => "working tree".to_owned(),
+            None => String::new(),
+        };
+        let status = match group
+            .suggestion
+            .as_ref()
+            .map(|suggestion| suggestion.change)
+        {
+            Some(Change::Moved) => "Possible move",
+            Some(Change::Renamed) => "Possible rename",
+            Some(Change::Replaced) => "Possible replacement",
+            None if group.candidates.is_empty() => "Removed (no replacement found)",
+            None => "Ambiguous replacement",
+        };
+        let mut action = String::new();
+        if let Some(suggestion) = &group.suggestion {
+            let mut path = String::new();
+            span(&mut path, &suggestion.path);
+            let path = self.suggested(&path, suggestion.declared_at.as_ref(), root);
+            let _ = write!(action, "Verify and update the reference to {path}");
+        } else if let Some(candidates) = group.became() {
+            let _ = write!(
+                action,
+                "Review candidates before changing this reference ({})",
+                cell(&candidates)
+            );
+        } else {
+            action.push_str("Review the mention and remove or rewrite it if stale");
+        }
+        let mut mentions = String::new();
+        for (i, mention) in group.mentions.iter().enumerate() {
+            if i > 0 {
+                mentions.push_str("<br>");
+            }
+            mentions.push_str(&self.position(&mention.file, mention.line, mention.column, root));
+        }
+        format!(
+            "| {} | {} | {removed_in} | {status} | {action} | {} |",
+            cell(&name),
+            group.kind.describe(),
+            cell(&mentions)
+        )
+    }
+
+    /// The suggested name, linked to its declaration at the head commit when the report places
+    /// it there.
+    fn suggested(&self, path: &str, declared_at: Option<&Position>, root: Option<&str>) -> String {
+        if let (Some(root), Some(head), Some(at)) = (root, self.head.as_deref(), declared_at) {
+            format!("[{path}]({})", web::blob(root, head, &at.file, at.line))
+        } else {
+            path.to_owned()
+        }
+    }
+
+    /// The code span of a mention or marker, linked to its line at the head commit when it can
+    /// be.
+    fn position(&self, file: &str, line: usize, column: usize, root: Option<&str>) -> String {
+        let text = span_position(file, line, column);
+        match self.head_link(root, file, line) {
+            Some(url) => format!("[{text}]({url})"),
+            None => text,
+        }
+    }
+
+    /// The URL of line `line` of `file` at the head commit, allowed by the web root, the head
+    /// commit and an unedited file.
+    fn head_link(&self, root: Option<&str>, file: &str, line: usize) -> Option<String> {
+        let head = self.head.as_deref()?;
+        if self.edited.contains(file) {
+            return None;
+        }
+        Some(web::blob(root?, head, file, line))
+    }
+
+    /// The sections after the table, the unused suppression markers and the skipped
+    /// dependencies.
+    fn closing(&self, root: Option<&str>) -> String {
+        let mut out = String::new();
         if !self.unused_markers.is_empty() {
             out.push_str("\n### Unused suppression markers\n\n");
             for marker in &self.unused_markers {
                 out.push_str("- ");
-                span_position(&mut out, &marker.file, marker.line, marker.column);
+                out.push_str(&self.position(&marker.file, marker.line, marker.column, root));
                 out.push_str(" `refquiem: allow(");
                 out.push_str(&marker.name);
                 out.push_str(")`\n");
@@ -190,8 +254,10 @@ fn span(out: &mut String, text: &str) {
     }
 }
 
-/// The numeric suffix prevents the location from ending in a backtick.
-fn span_position(out: &mut String, file: &str, line: usize, column: usize) {
+/// The code span of `file:line:column`, whose numeric suffix prevents the location from ending
+/// in a backtick.
+fn span_position(file: &str, line: usize, column: usize) -> String {
+    let mut out = String::new();
     let first = file
         .chars()
         .next()
@@ -218,6 +284,7 @@ fn span_position(out: &mut String, file: &str, line: usize, column: usize) {
     for _ in 0..=run {
         out.push('`');
     }
+    out
 }
 
 /// A Markdown table cell, whose `|` would end it.

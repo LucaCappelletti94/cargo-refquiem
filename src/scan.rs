@@ -143,15 +143,16 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let mut indexer = Indexer::new(FileCache::load(&layout.cache_dir));
     let (commits, head, start) = git::range(&repo, &range)?;
     let head_snapshot = head_snapshot(&repo, &layout, &commits, &head, &indexer.trees);
+    let snap = &*head_snapshot;
     let scratch = Scratch {
         dir: &layout.cache_dir,
         workspace_dir: &workspace_dir,
         workdir: &layout.workdir,
         workspace: &layout.workspace,
     };
-    let dependencies = deps::head(&mut indexer, &*head_snapshot, &scratch)?;
+    let dependencies = deps::head(&mut indexer, snap, &scratch)?;
     indexer.use_dependency_macros(&dependencies.macro_rules);
-    let head_index = indexer.index(&*head_snapshot, &layout.workspace, true)?;
+    let head_index = indexer.index(snap, &layout.workspace, true)?;
     indexer.use_head_macros(&head_index);
 
     let walk = index_range(&mut indexer, &repo, &commits, &layout, &head_index)?;
@@ -166,17 +167,12 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let dependency_removals = deps::removed(&mut indexer, &repo, &removals, alive, &scratch)?;
     let dependency_items = dependency_removals.items;
     let interner = &indexer.interner;
+    let crates = &indexer.crates;
     let rooted = rooted(interner, &dependency_items, &dependencies, &indexer.crates);
     removed.extend(dependency_items.keys().copied());
     removed.sort_by_cached_key(|&id| display(interner, id));
     let history = History::new(&commits, states, &walk.boundary, &head);
-    let ranked = ranked(
-        interner,
-        &history,
-        &removed,
-        &dependency_items,
-        &indexer.crates,
-    );
+    let ranked = ranked(interner, &history, &removed, &dependency_items, crates);
 
     let entries = Entries::new(interner, &head_index, &removed, &indexer.members);
     let mut matcher = Matcher::new(
@@ -185,7 +181,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         &dependencies,
         &ranked,
         &entries,
-        &indexer.crates,
+        crates,
         &rooted,
     );
     matcher.add_vocabulary(&config.allow);
@@ -196,13 +192,8 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         &workspace_dir,
         &layout.workspace,
     )?;
-    let Found { mentions, markers } = find_mentions(
-        &*head_snapshot,
-        &head_index,
-        &matcher,
-        &layout.target_prefix,
-        &filter,
-    )?;
+    let Found { mentions, markers } =
+        find_mentions(snap, &head_index, &matcher, &layout.target_prefix, &filter)?;
     let (mut groups, ids, suggestable) = groups(
         interner,
         &entries,
@@ -216,7 +207,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         repo: &repo,
         workspace: &layout.workspace,
         head: &head_index,
-        head_snapshot: &*head_snapshot,
+        head_snapshot: snap,
     };
     declarations(&mut indexer, &scan, (&commits, start), &ids, &mut groups)?;
     suggestions(
@@ -229,12 +220,56 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     indexer.save();
     let unused_markers = suppress(&mut groups, markers, &config.allow);
     suggest::replacements(&mut groups, |file| scan.head_text(file));
+    let edited = edited(&repo, &head, snap, &indexer.trees, &groups, &unused_markers)?;
     Ok(Report {
         base: start.map(|id| id.to_string()),
+        head: head_id(&head),
         groups,
         skipped: dependency_removals.skipped,
         unused_markers,
+        edited,
     })
+}
+
+/// The scanned head commit as its full id, the `HEAD` commit for a working tree scan, absent
+/// without one.
+fn head_id(head: &Head) -> Option<String> {
+    match head {
+        Head::WorkTree(Some(commit)) | Head::Commit(commit) => Some(commit.to_string()),
+        Head::WorkTree(None) => None,
+    }
+}
+
+/// The mentioned files of a working tree scan whose content differs from the `HEAD` commit,
+/// whose positions therefore cannot link to it.
+fn edited(
+    repo: &gix::Repository,
+    head: &Head,
+    worktree: &dyn Snapshot,
+    trees: &Rc<RefCell<Trees>>,
+    groups: &[Group],
+    markers: &[UnusedMarker],
+) -> Result<HashSet<String>, Error> {
+    let Head::WorkTree(Some(commit)) = head else {
+        return Ok(HashSet::new());
+    };
+    let at_head = TreeSnapshot::new(repo, git::tree(repo, *commit)?, trees);
+    let mut files = HashSet::new();
+    for group in groups {
+        for mention in &group.mentions {
+            files.insert(mention.file.as_str());
+        }
+    }
+    for marker in markers {
+        files.insert(marker.file.as_str());
+    }
+    let mut edited = HashSet::new();
+    for &file in &files {
+        if worktree.blob(file)? != at_head.blob(file)? {
+            edited.insert(file.to_owned());
+        }
+    }
+    Ok(edited)
 }
 
 /// Groups mentions and identifies the historical indexes needed by suggestion rules, returning

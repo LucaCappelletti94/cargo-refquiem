@@ -22,7 +22,7 @@ cargo install refquiem --locked
 cargo refquiem                                 # every commit, against the working tree
 cargo refquiem --base origin/main --head HEAD  # what a branch removed
 cargo refquiem --json                          # the report as JSON
-cargo refquiem --markdown > report.md         # findings with suggested actions
+cargo refquiem --markdown > report.md         # findings with suggested actions, linked when the repository is on GitHub
 ```
 
 The exit status is `0` when nothing is stale, `1` with findings and `2` on errors. A `.refquiem.toml` at the workspace root adds excludes and names never reported, a `refquiem: allow(Name)` comment silences one mention, and `cargo refquiem --help` lists every option.

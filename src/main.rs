@@ -49,13 +49,18 @@ struct Output {
 }
 
 impl Output {
-    fn emit(self, report: &refquiem::Report, no_fail: bool) -> Result<(), refquiem::Error> {
+    fn emit(
+        self,
+        report: &refquiem::Report,
+        no_fail: bool,
+        web_root: Option<&str>,
+    ) -> Result<(), refquiem::Error> {
         if self.json {
             println!("{}", report.json());
             return Ok(());
         }
         if self.markdown {
-            print!("{}", report.job_summary());
+            print!("{}", report.job_summary(web_root));
             return Ok(());
         }
         print!("{}", report.human());
@@ -72,7 +77,7 @@ impl Output {
                     .append(true)
                     .open(&path)
                     .map_err(io)?;
-                std::io::Write::write_all(&mut file, report.job_summary().as_bytes())
+                std::io::Write::write_all(&mut file, report.job_summary(web_root).as_bytes())
                     .map_err(io)?;
             }
         }
@@ -88,7 +93,14 @@ fn main() -> ExitCode {
     let args = Args::parse_from(args);
     let output = args.output;
     let no_fail = args.no_fail;
-    match run(args).and_then(|report| output.emit(&report, no_fail).map(|()| report)) {
+    let web_root = std::env::current_dir()
+        .ok()
+        .and_then(|root| web_root(&root));
+    match run(args).and_then(|report| {
+        output
+            .emit(&report, no_fail, web_root.as_deref())
+            .map(|()| report)
+    }) {
         Ok(report) if report.is_clean() || no_fail => ExitCode::SUCCESS,
         Ok(_) => ExitCode::FAILURE,
         Err(error) => {
@@ -96,6 +108,22 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// The web root for the Markdown links. `GITHUB_SERVER_URL` and `GITHUB_REPOSITORY` when both
+/// are set and non-empty, else the `origin` remote when it names a GitHub repository.
+fn web_root(root: &std::path::Path) -> Option<String> {
+    let repo = gix::discover(root).ok()?;
+    let origin = repo.find_remote("origin").ok().and_then(|remote| {
+        remote
+            .url(gix::remote::Direction::Fetch)
+            .map(std::string::ToString::to_string)
+    });
+    refquiem::web::root(
+        std::env::var("GITHUB_SERVER_URL").ok().as_deref(),
+        std::env::var("GITHUB_REPOSITORY").ok().as_deref(),
+        origin.as_deref(),
+    )
 }
 
 fn run(args: Args) -> Result<refquiem::Report, refquiem::Error> {
