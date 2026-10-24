@@ -10,7 +10,7 @@ exclude_re = [
     # `registry-index` set to crates.io's own index resolves to the same source.
     'src/deps\.rs:\d+:53: delete ! in fetched',
     # At head `deps::head` reads the same manifests and fails on the same error.
-    'replace match guard !head with true in Indexer::roots',
+    'replace match guard !head with true in Indexer::index',
     # Which module a file reached twice keeps is arbitrary.
     'src/index\.rs:\d+:25: replace && with \|\| in Indexer::reach',
     # rustc rejects a `$` before a brace or bracket group in a `macro_rules!` matcher.
@@ -21,14 +21,20 @@ exclude_re = [
     'src/manifest\.rs:\d+:64: replace && with \|\| in expand',
     # The git object cache size only changes speed.
     'src/scan\.rs:\d+:(40|47): replace \* with [+/] in run',
+    # The token after the last doc line is the newline the outer loop skips anyway.
+    'src/text\.rs:\d+:38: replace - with / in rust',
     # The shrunk or shifted `{...}` span still covers every word between the braces.
     'src/text\.rs:\d+:48: replace \+ with [-*] in spelled',
     'src/text\.rs:\d+:40: replace \+ with \* in spelled',
     # The extra span is empty, and an empty word names nothing.
     'src/text\.rs:\d+:25: replace < with <= in runs',
     'src/text\.rs:\d+:18: replace > with >= in split_list',
+    # A one-character shift never crosses the newline that bounds the `cfg` check.
+    'src/text\.rs:\d+:65: replace \+ with [-*] in cfg_features',
     # For a well-formed header the quotient and the difference are both one.
     'src/text\.rs:\d+:54: replace - with / in toml',
+    # The character before `[` is never a quote.
+    'src/text\.rs:\d+:27: replace \+ with [-*] in requested_features',
     # Dependency-entry memoization only avoids repeated history lookups.
     'src/scan\.rs:\d+:33: replace match guard !workspace with false in ranked',
     # Extra code-span padding is stripped by CommonMark without changing its content.
@@ -44,13 +50,6 @@ exclude_re = [
     'src/index\.rs:\d+:5: replace expansion_key -> Option<ObjectId> with None$',
     # A clock that never advances only turns every repeated copy into a full walk.
     'src/index\.rs:\d+:23: replace \+= with \*= in Indexer::copy_below$',
-    # Never reusing the last copy only walks every subtree again.
-    'replace match guard made\.from == from.* with false in Indexer::copy_below$',
-    # Inverting the redundant `from`/`to`/`hide`/`count` guards still leaves the `origin` or `links` check gating the reuse.
-    'src/index\.rs:\d+:(30|34|35|38|41|42|49): replace == with != in Indexer::copy_below$',
-    # The `origin` negation never holds, as the containing module is an interned real-module prefix.
-    'src/index\.rs:\d+:62: replace == with != in Indexer::copy_below$',
-    # A destination of two or more segments is always interned, and one of a single segment
-    # gets the same ids either way.
-    'src/index\.rs:\d+:30: replace == with != in Indexer::prefix_chain$',
+    # Never reusing the last copy, or its chain, only walks every subtree or prefix again.
+    'replace match guard made\.from == from .* with false in Indexer::copy_below$',
 ]

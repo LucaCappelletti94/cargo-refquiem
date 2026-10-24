@@ -1533,11 +1533,12 @@ impl Indexer {
     /// paths with everything below them, and a new copy of a hidden path, or any new copy when
     /// `hide` is set, joins them.
     ///
-    /// `last` is the copy the same use or lend made before. Made again with the same chain of
-    /// origins above `to`, the copy skips every path at and below which nothing changed since,
-    /// as the copy made then already holds everything below it. The stored chain is reused
-    /// without re-walking the prefixes while no path was interned and every prefix still
-    /// stands for the origin it held when the copy was made.
+    /// `last` is the copy the same use or lend made before, whose destination and hiding are
+    /// this copy's, as both follow from the declaration alone. Made again from the same source
+    /// with the same chain of origins above `to`, the copy skips every path at and below which
+    /// nothing changed since, as the copy made then already holds everything below it. The
+    /// stored chain is reused without re-walking the prefixes while no path was interned and
+    /// every prefix still stands for the origin it held when the copy was made.
     fn copy_below(
         &mut self,
         (from, to, hide): (PathId, &[Sym], bool),
@@ -1559,8 +1560,6 @@ impl Indexer {
         let (whole, tip, since) = match last {
             Some(made)
                 if made.from == from
-                    && made.to.as_ref() == to
-                    && made.hide == hide
                     && made.count == self.interner.path_count()
                     && made
                         .prefixes
@@ -1580,12 +1579,7 @@ impl Indexer {
             _ => {
                 let (whole, tip, prefixes) = self.prefix_chain(to, origins);
                 let since = match last {
-                    Some(made)
-                        if made.from == from
-                            && made.to.as_ref() == to
-                            && made.hide == hide
-                            && made.links == self.copy_links[..] =>
-                    {
+                    Some(made) if made.from == from && made.links == self.copy_links[..] => {
                         made.prefixes = prefixes;
                         made.count = self.interner.path_count();
                         Some(std::mem::replace(&mut made.tick, changes.clock))
@@ -1593,8 +1587,6 @@ impl Indexer {
                     _ => {
                         *last = Some(Made {
                             from,
-                            to: to.into(),
-                            hide,
                             links: self.copy_links[..].to_vec(),
                             prefixes,
                             whole,
@@ -1805,15 +1797,13 @@ fn named<'a>(
 /// The copy a use or lend last made, with the tick it was made at.
 struct Made {
     from: PathId,
-    to: Box<[Sym]>,
-    hide: bool,
-    /// The chain of origins above `to`, longest prefix first, as links to the link before
-    /// them.
+    /// The chain of origins above the destination, longest prefix first, as links to the link
+    /// before them.
     links: Vec<(PathId, usize)>,
-    /// The ids of the interned prefixes of `to`, longest first, checked for renewals before
-    /// the chain is reused.
+    /// The ids of the interned prefixes of the destination, longest first, whose origins are
+    /// checked against `links` before the chain is reused.
     prefixes: Vec<PathId>,
-    /// The id of `to` itself when interned.
+    /// The id of the destination itself when interned.
     whole: Option<PathId>,
     /// The number of interned paths when the copy was made.
     count: usize,
