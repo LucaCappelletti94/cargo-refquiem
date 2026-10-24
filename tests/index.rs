@@ -1324,6 +1324,126 @@ fn a_glob_reexport_copies_top_level_items_to_the_crate_root() {
 }
 
 #[test]
+fn a_reexport_of_the_crate_root_under_its_own_name_keeps_no_copy() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub(crate) mod fixture {\n    pub(crate) use super::*;\n}\npub mod m {\n    pub struct Gone;\n}\n",
+    );
+    repo.commit("a self-named module reexporting the root");
+    repo.write(
+        "src/lib.rs",
+        "pub(crate) mod fixture {\n    pub(crate) use super::*;\n}\npub mod m {\n}\n",
+    );
+    repo.write("README.md", "`fixture::m::Gone`.\n");
+    repo.commit("drop Gone");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::m::Gone"]);
+}
+
+#[test]
+fn a_self_alias_named_for_the_crate_keeps_no_copy() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "extern crate self as fixture;\npub mod m {\n    pub struct Gone;\n}\n",
+    );
+    repo.commit("a self alias");
+    repo.write(
+        "src/lib.rs",
+        "extern crate self as fixture;\npub mod m {\n}\n",
+    );
+    repo.write("README.md", "`fixture::m::Gone`.\n");
+    repo.commit("drop Gone");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::m::Gone"]);
+}
+
+#[test]
+fn an_import_of_the_crate_root_named_for_the_crate_keeps_no_copy() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "use crate as fixture;\npub mod m {\n    pub struct Gone;\n}\n",
+    );
+    repo.commit("an import of the root under the crate's name");
+    repo.write("src/lib.rs", "use crate as fixture;\npub mod m {\n}\n");
+    repo.write("README.md", "`fixture::m::Gone`.\n");
+    repo.commit("drop Gone");
+
+    assert_eq!(removed(&run(&repo)), ["fixture::m::Gone"]);
+}
+
+#[test]
+fn a_reexport_of_the_crate_root_under_another_name_keeps_its_copy() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub(crate) mod other {\n    pub(crate) use super::*;\n}\npub mod m {\n    pub struct Gone;\n}\n",
+    );
+    repo.commit("a reexport under another name");
+    repo.write(
+        "src/lib.rs",
+        "pub(crate) mod other {\n    pub(crate) use super::*;\n}\npub mod m {\n}\n",
+    );
+    repo.write("README.md", "`fixture::m::Gone` and `other::m::Gone`.\n");
+    repo.commit("drop Gone");
+
+    assert_eq!(
+        removed(&run(&repo)),
+        ["fixture::m::Gone", "fixture::other::m::Gone"]
+    );
+}
+
+#[test]
+fn an_item_mentioned_under_a_gone_self_name_copy_is_found_by_its_plain_spelling() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub(crate) mod fixture {\n    pub(crate) use super::*;\n}\npub mod m {\n    pub struct Gone;\n}\n",
+    );
+    repo.commit("a self-named module reexporting the root");
+    repo.write(
+        "src/lib.rs",
+        "extern crate self as fixture;\npub mod m {\n}\n",
+    );
+    repo.write(
+        "README.md",
+        "`fixture::m::Gone` and `fixture::fixture::m::Gone`.\n",
+    );
+    repo.commit("drop the module and Gone");
+
+    let report = run(&repo);
+    assert_eq!(removed(&report), ["fixture::fixture", "fixture::m::Gone"]);
+    assert_eq!(kind_of(&report, "fixture::fixture"), ItemKind::Module);
+    let plain = report
+        .groups
+        .iter()
+        .find(|g| g.path == "fixture::m::Gone")
+        .unwrap();
+    assert_eq!(
+        plain
+            .mentions
+            .iter()
+            .map(|m| m.text.as_str())
+            .collect::<Vec<_>>(),
+        ["fixture::m::Gone"]
+    );
+    let copy = report
+        .groups
+        .iter()
+        .find(|g| g.path == "fixture::fixture")
+        .unwrap();
+    assert_eq!(
+        copy.mentions
+            .iter()
+            .map(|m| m.text.as_str())
+            .collect::<Vec<_>>(),
+        ["fixture::fixture::m::Gone"]
+    );
+}
+
+#[test]
 fn a_glob_copies_the_members_a_type_gains_before_a_glob_declares_the_type() {
     let repo = Repo::new();
     let lib = |item| {
