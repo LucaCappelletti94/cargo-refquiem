@@ -49,18 +49,16 @@ struct Output {
 }
 
 impl Output {
-    fn emit(
-        self,
-        report: &refquiem::Report,
-        no_fail: bool,
-        web_root: Option<&str>,
-    ) -> Result<(), refquiem::Error> {
+    fn emit(self, report: &refquiem::Report, no_fail: bool) -> Result<(), refquiem::Error> {
         if self.json {
             println!("{}", report.json());
             return Ok(());
         }
         if self.markdown {
-            print!("{}", report.job_summary(web_root));
+            let web_root = std::env::current_dir()
+                .ok()
+                .and_then(|root| web_root(&root));
+            print!("{}", report.job_summary(web_root.as_deref()));
             return Ok(());
         }
         print!("{}", report.human());
@@ -72,13 +70,19 @@ impl Output {
                     path: path.clone(),
                     source,
                 };
+                let web_root = std::env::current_dir()
+                    .ok()
+                    .and_then(|root| web_root(&root));
                 let mut file = std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)
                     .open(&path)
                     .map_err(io)?;
-                std::io::Write::write_all(&mut file, report.job_summary(web_root).as_bytes())
-                    .map_err(io)?;
+                std::io::Write::write_all(
+                    &mut file,
+                    report.job_summary(web_root.as_deref()).as_bytes(),
+                )
+                .map_err(io)?;
             }
         }
         Ok(())
@@ -93,14 +97,7 @@ fn main() -> ExitCode {
     let args = Args::parse_from(args);
     let output = args.output;
     let no_fail = args.no_fail;
-    let web_root = std::env::current_dir()
-        .ok()
-        .and_then(|root| web_root(&root));
-    match run(args).and_then(|report| {
-        output
-            .emit(&report, no_fail, web_root.as_deref())
-            .map(|()| report)
-    }) {
+    match run(args).and_then(|report| output.emit(&report, no_fail).map(|()| report)) {
         Ok(report) if report.is_clean() || no_fail => ExitCode::SUCCESS,
         Ok(_) => ExitCode::FAILURE,
         Err(error) => {
