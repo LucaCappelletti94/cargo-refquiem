@@ -132,7 +132,7 @@ fn head_snapshot<'r>(
 
 #[expect(
     clippy::too_many_lines,
-    reason = "the scan driver is one step per line and exceeds the threshold by ten lines"
+    reason = "the scan driver lists its steps one per line, splitting it would hide their order"
 )]
 pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let mut repo = gix::discover(&options.root).map_err(|source| Error::Discover {
