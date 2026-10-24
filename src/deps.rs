@@ -11,7 +11,7 @@ use toml::{Table, Value};
 use crate::git::{Snapshot, TreeSnapshot, WorkTreeSnapshot, relative};
 use crate::index::{Definition, Indexer};
 use crate::intern::{PathId, Sym};
-use crate::manifest::{self, Dependency, Member, TargetKind, join};
+use crate::manifest::{self, Dependency, Manifests, Member, TargetKind, join};
 use crate::{Error, Skipped};
 
 /// The dependency tables of a manifest, each also under `[target.<cfg>]`.
@@ -77,12 +77,12 @@ pub(crate) fn head(
     snapshot: &dyn Snapshot,
     scratch: &Scratch<'_>,
 ) -> Result<Layer, Error> {
-    let members = manifest::workspace(snapshot, scratch.workspace)?;
+    let members = manifest::workspace(snapshot, scratch.workspace, &mut indexer.manifests)?;
     if members.iter().all(|member| member.dependencies.is_empty()) {
         return Ok(Layer::default());
     }
     let export = scratch.dir.join("metadata");
-    export_workspace(snapshot, &members, &export, scratch)?;
+    export_workspace(snapshot, &members, &export, scratch, &mut indexer.manifests)?;
     let metadata = metadata(&export.join("Cargo.toml"), scratch.workspace_dir)?;
     let mut roots = Vec::new();
     for node in metadata.resolve.iter().flat_map(|resolve| &resolve.nodes) {
@@ -131,8 +131,9 @@ pub(crate) fn removed(
         skipped: Vec::new(),
     };
     for removal in removals {
-        let tree = TreeSnapshot::new(repo, removal.tree);
-        let Ok(members) = manifest::workspace(&tree, scratch.workspace) else {
+        let tree = TreeSnapshot::new(repo, removal.tree, &indexer.trees);
+        let Ok(members) = manifest::workspace(&tree, scratch.workspace, &mut indexer.manifests)
+        else {
             continue;
         };
         let Some(member) = members.iter().find(|m| m.dir == removal.member_dir) else {
@@ -173,7 +174,7 @@ fn path_library(
     dir: &str,
     dependency: &Dependency,
 ) -> Result<HashSet<PathId>, Error> {
-    let lib = manifest::workspace(tree, dir)?
+    let lib = manifest::workspace(tree, dir, &mut indexer.manifests)?
         .into_iter()
         .flat_map(|member| member.targets)
         .find(|target| target.kind == TargetKind::Lib)
@@ -394,6 +395,7 @@ fn export_workspace(
     members: &[Member],
     export: &Path,
     scratch: &Scratch<'_>,
+    manifests: &mut Manifests,
 ) -> Result<(), Error> {
     if export.exists() {
         std::fs::remove_dir_all(export).map_err(|source| Error::Io {
@@ -408,7 +410,7 @@ fn export_workspace(
         if i > 0 && *dir == workspace {
             continue;
         }
-        let Some(mut table) = manifest::read_manifest(snapshot, dir)? else {
+        let Some(mut table) = manifest::read_manifest(snapshot, dir, manifests)? else {
             continue;
         };
         each_dependency_table(&mut table, &mut |specs| {

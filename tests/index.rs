@@ -1068,6 +1068,66 @@ fn an_unreadable_manifest_in_history_does_not_break_the_scan() {
 }
 
 #[test]
+fn an_unreadable_manifest_in_a_tree_that_ends_in_garbage_does_not_break_the_scan() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub struct Thing;\n");
+    repo.commit("thing");
+    repo.write("Cargo.toml", "not [valid toml\n");
+    let raw = |object: &str| {
+        let hex = repo.git(&["rev-parse", object]);
+        (0..40)
+            .step_by(2)
+            .map(|at| u8::from_str_radix(&hex[at..at + 2], 16).unwrap())
+            .collect::<Vec<u8>>()
+    };
+    let manifest = repo.git(&["hash-object", "-w", "Cargo.toml"]);
+    // The manifest entry decodes, the bytes after the last entry do not.
+    let mut tree = Vec::new();
+    for (mode, name, object) in [
+        ("100644", ".gitignore", "HEAD:.gitignore"),
+        ("100644", "Cargo.toml", manifest.trim()),
+        ("40000", "src", "HEAD:src"),
+    ] {
+        tree.extend(format!("{mode} {name}\0").bytes());
+        tree.extend(raw(object));
+    }
+    tree.extend(b"100644 trailing");
+    std::fs::write(repo.path().join(".git/broken-tree"), tree).unwrap();
+    let tree = repo.git(&[
+        "hash-object",
+        "-t",
+        "tree",
+        "--literally",
+        "-w",
+        ".git/broken-tree",
+    ]);
+    let broken = repo.git(&[
+        "commit-tree",
+        tree.trim(),
+        "-p",
+        "HEAD",
+        "-m",
+        "break the manifest and the tree",
+    ]);
+    repo.write("Cargo.toml", BARE);
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "`Thing`.\n");
+    repo.git(&["add", "-A"]);
+    let restored = repo.git(&["write-tree"]);
+    let head = repo.git(&[
+        "commit-tree",
+        restored.trim(),
+        "-p",
+        broken.trim(),
+        "-m",
+        "restore the manifest",
+    ]);
+    repo.git(&["update-ref", "refs/heads/main", head.trim()]);
+
+    assert_eq!(removed(&run(&repo)), ["fixture::Thing"]);
+}
+
+#[test]
 fn a_file_reached_twice_resolves_super_against_its_first_module() {
     let repo = Repo::new();
     repo.write(

@@ -138,6 +138,11 @@ impl Interner {
             .copied()
     }
 
+    /// The number of paths interned so far.
+    pub(crate) fn path_count(&self) -> usize {
+        self.ends.len()
+    }
+
     /// The id of `parent`'s segments followed by `last`, interning it with `kind` when new as
     /// [`Self::path`] does, without hashing the whole segment list again for a pair seen before.
     pub(crate) fn child(&mut self, parent: PathId, last: Sym, kind: ItemKind) -> PathId {

@@ -1,6 +1,7 @@
 //! Every item path and manifest entry a snapshot declares, assembled from its crates' module
 //! trees and manifests.
 
+use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
@@ -9,9 +10,9 @@ use std::rc::Rc;
 use gix::ObjectId;
 
 use crate::cache::{Expanded, FileCache};
-use crate::git::{ManifestDirs, Snapshot};
+use crate::git::{ManifestDirs, Snapshot, Trees};
 use crate::intern::{Interner, PathId, Sym};
-use crate::manifest::{self, Member, TargetKind, join};
+use crate::manifest::{self, Manifests, Member, TargetKind, join};
 use crate::parse::{self, FileItems};
 use crate::{Error, ItemKind, entry, expand};
 
@@ -287,6 +288,10 @@ pub(crate) struct Indexer {
     /// The crate names of every workspace target in any indexed snapshot.
     pub(crate) crates: HashSet<Sym>,
     manifest_dirs: ManifestDirs,
+    /// The manifests parsed so far, by the blob id of their `Cargo.toml`.
+    pub(crate) manifests: Manifests,
+    /// The entries of each committed tree parsed so far, by tree id, shared by every snapshot.
+    pub(crate) trees: Rc<RefCell<Trees>>,
     /// Recent alias resolutions of snapshots other than head, most recently used first.
     aliases: VecDeque<AliasEntry>,
     keywords: Keywords,
@@ -320,6 +325,8 @@ impl Indexer {
             members: BTreeMap::new(),
             crates: HashSet::new(),
             manifest_dirs: ManifestDirs::new(),
+            manifests: Manifests::new(),
+            trees: Rc::new(RefCell::new(Trees::new())),
             aliases: VecDeque::new(),
             keywords,
         }
@@ -446,7 +453,7 @@ impl Indexer {
         head: bool,
         index: &mut Index,
     ) -> Result<Option<Roots>, Error> {
-        let members = match manifest::workspace(snapshot, workspace) {
+        let members = match manifest::workspace(snapshot, workspace, &mut self.manifests) {
             Ok(members) => members,
             Err(Error::Manifest { .. }) if !head => {
                 index.complete = false;
@@ -455,7 +462,7 @@ impl Indexer {
             Err(error) => return Err(error),
         };
         let dirs = snapshot.manifest_dirs(&mut self.manifest_dirs)?;
-        let outside_members = manifest::packages(snapshot, &dirs, &members);
+        let outside_members = manifest::packages(snapshot, &dirs, &members, &mut self.manifests);
         let mut workspace_crates = HashSet::new();
         let mut outside = HashSet::new();
         let mut crates = Vec::new();

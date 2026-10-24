@@ -1,14 +1,16 @@
 //! A scan: index the range, subtract head, find mentions, attribute removals.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use gix::ObjectId;
 
 use crate::cache::FileCache;
 use crate::config::{self, Config, Filter};
 use crate::deps::{self, Removal, Scratch};
-use crate::git::{self, Head, Snapshot, TreeSnapshot, WorkTreeSnapshot};
+use crate::git::{self, Head, Snapshot, TreeSnapshot, Trees, WorkTreeSnapshot};
 use crate::index::{Index, Indexer, Reexports};
 use crate::intern::{Interner, PathId, Sym};
 use crate::parse::SERDE_MARKER;
@@ -110,6 +112,7 @@ fn head_snapshot<'r>(
     layout: &Layout,
     commits: &[git::Commit],
     head: &Head,
+    trees: &Rc<RefCell<Trees>>,
 ) -> Box<dyn Snapshot + 'r> {
     match head {
         Head::WorkTree(_) => Box::new(WorkTreeSnapshot::new(
@@ -122,7 +125,7 @@ fn head_snapshot<'r>(
                 .find(|c| c.id == *id)
                 .map(|c| c.tree)
                 .expect("the head commit is part of its own range");
-            Box::new(TreeSnapshot::new(repo, tree))
+            Box::new(TreeSnapshot::new(repo, tree, trees))
         }
     }
 }
@@ -139,7 +142,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let (config, range) = settings(options, &workspace_dir)?;
     let mut indexer = Indexer::new(FileCache::load(&layout.cache_dir));
     let (commits, head, start) = git::range(&repo, &range)?;
-    let head_snapshot = head_snapshot(&repo, &layout, &commits, &head);
+    let head_snapshot = head_snapshot(&repo, &layout, &commits, &head, &indexer.trees);
     let scratch = Scratch {
         dir: &layout.cache_dir,
         workspace_dir: &workspace_dir,
@@ -319,7 +322,7 @@ fn declarations(
     else {
         return Ok(());
     };
-    let snapshot = TreeSnapshot::new(scan.repo, start.tree);
+    let snapshot = TreeSnapshot::new(scan.repo, start.tree, &indexer.trees);
     let found = positions(indexer, &snapshot, scan.workspace, ids, |source| {
         !scan.head.paths.contains(&source)
     })?;
@@ -389,7 +392,7 @@ fn suggestions(
     let mut befores: HashMap<ObjectId, Index> = HashMap::new();
     for input in suggestable {
         if let std::collections::hash_map::Entry::Vacant(slot) = befores.entry(input.tree) {
-            let before = TreeSnapshot::new(scan.repo, input.tree);
+            let before = TreeSnapshot::new(scan.repo, input.tree, &indexer.trees);
             slot.insert(indexer.index(&before, scan.workspace, false)?);
         }
     }
@@ -486,6 +489,13 @@ fn index_range(
 ) -> Result<IndexedRange, Error> {
     let mut states = States::default();
     let mut first_seen: HashMap<PathId, usize> = HashMap::new();
+    // Head's paths by table position, an id interned after head reading as absent.
+    let head_at =
+        |id: PathId| usize::try_from(id).expect("u32 ids fit in usize on supported targets");
+    let mut in_head = vec![false; indexer.interner.path_count()];
+    for &id in &head_index.paths {
+        in_head[head_at(id)] = true;
+    }
     let mut by_tree: HashMap<ObjectId, (Option<usize>, usize)> = commits
         .iter()
         .enumerate()
@@ -500,10 +510,10 @@ fn index_range(
             continue;
         }
         let oldest = *oldest;
-        let snapshot = TreeSnapshot::new(repo, commit.tree);
+        let snapshot = TreeSnapshot::new(repo, commit.tree, &indexer.trees);
         let index = indexer.index(&snapshot, &layout.workspace, false)?;
         let missing = index.paths.iter().filter_map(|&path| {
-            if head_index.paths.contains(&path) {
+            if in_head.get(head_at(path)) == Some(&true) {
                 first_seen
                     .entry(path)
                     .and_modify(|first| *first = (*first).max(oldest))
@@ -530,13 +540,13 @@ fn index_range(
             boundary.insert(parent, None);
             continue;
         }
-        let snapshot = TreeSnapshot::new(repo, git::tree(repo, parent)?);
+        let snapshot = TreeSnapshot::new(repo, git::tree(repo, parent)?, &indexer.trees);
         let index = indexer.index(&snapshot, &layout.workspace, false)?;
         let missing = index.complete.then(|| {
             index
                 .paths
                 .into_iter()
-                .filter(|path| !head_index.paths.contains(path))
+                .filter(|path| in_head.get(head_at(*path)) != Some(&true))
                 .collect()
         });
         boundary.insert(parent, missing);
