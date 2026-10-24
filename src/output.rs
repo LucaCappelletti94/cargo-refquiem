@@ -554,4 +554,51 @@ mod tests {
         expected.push('\n');
         assert_eq!(report.job_summary(None), expected);
     }
+
+    fn the_cap_keeps_exactly_the_rows_the_limit_covers() {
+        let report = report(vec![
+            group("a::one", 1),
+            group("b::two", 2),
+            group("c::three", 3),
+        ]);
+        let prefix = report.prefix();
+        let tail = report.closing(None).len().max(notice(3).len());
+        let rows = [
+            report.row(&report.groups[0], None),
+            report.row(&report.groups[1], None),
+            report.row(&report.groups[2], None),
+        ];
+        let both = prefix.len() + rows[0].len() + 1 + rows[1].len() + 1 + tail;
+        assert_eq!(
+            report.github_summary(None, both),
+            format!("{}{}\n{}\n{}", prefix, rows[0], rows[1], notice(1))
+        );
+        assert_eq!(
+            report.github_summary(None, both - 1),
+            format!("{}{}\n{}", prefix, rows[0], notice(2))
+        );
+        let first = prefix.len() + rows[0].len() + 1 + tail;
+        assert_eq!(
+            report.github_summary(None, first),
+            format!("{}{}\n{}", prefix, rows[0], notice(2))
+        );
+        assert_eq!(
+            report.github_summary(None, first - 1),
+            format!("{}{}", prefix, notice(3))
+        );
+    }
+
+    #[test]
+    fn the_candidates_prose_lists_exactly_three_without_folding() {
+        let mut group = group("a::gone", 1);
+        group.candidates = ["a::one", "a::two", "a::three"].map(str::to_owned).to_vec();
+        let report = report(vec![group]);
+        let row = report.row(&report.groups[0], None);
+        assert!(
+            row.contains(
+                "Review candidates before changing this reference (perhaps `a::one`, `a::two` or `a::three`)"
+            ),
+            "{row}"
+        );
+    }
 }
