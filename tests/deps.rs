@@ -1,34 +1,16 @@
 //! The dependency layer, removed dependencies at their locked version, and what a mention names.
 
 mod common;
+#[path = "common/found.rs"]
+mod found;
+#[path = "common/found_by_path.rs"]
+mod found_by_path;
 #[path = "common/vendor.rs"]
 mod vendor;
 
 use common::Repo;
+use found_by_path::found_by_path;
 use refquiem::{Context, ItemKind, Kind, Source};
-
-/// `(removed path, file, line, column, context, text)` for every mention, sorted.
-fn found(repo: &Repo) -> Vec<(String, String, usize, usize, Context, String)> {
-    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
-    let mut out: Vec<_> = report
-        .groups
-        .iter()
-        .flat_map(|group| {
-            group.mentions.iter().map(|m| {
-                (
-                    group.path.clone(),
-                    m.file.clone(),
-                    m.line,
-                    m.column,
-                    m.context,
-                    m.text.clone(),
-                )
-            })
-        })
-        .collect();
-    out.sort_by(|a, b| (&a.0, &a.1, a.2, a.3).cmp(&(&b.0, &b.1, b.2, b.3)));
-    out
-}
 
 fn context(source: Source, kind: Kind) -> Context {
     Context { source, kind }
@@ -115,7 +97,10 @@ fn a_removed_dependency_is_pinned_to_the_version_its_member_locked() {
     repo.write("README.md", "`helper::OldThing` and `helper::NewThing`.\n");
     repo.commit("drop helper");
 
-    let rows: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
+    let rows: Vec<(String, String)> = found_by_path(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.5))
+        .collect();
     assert_eq!(
         rows,
         [
@@ -150,7 +135,10 @@ fn a_removed_dependency_is_read_at_the_version_locked_by_its_member_not_siblings
     repo.write("README.md", "The `NewThing` and `OldThing` items.\n");
     repo.commit("drop the widget helper");
 
-    let rows: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
+    let rows: Vec<(String, String)> = found_by_path(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.5))
+        .collect();
     assert_eq!(
         rows,
         [("helper::NewThing".to_owned(), "NewThing".to_owned())]
@@ -193,7 +181,10 @@ fn two_removed_members_read_their_own_locked_versions_of_a_shared_dependency() {
     );
     repo.commit("both drop helper");
 
-    let rows: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
+    let rows: Vec<(String, String)> = found_by_path(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.5))
+        .collect();
     assert_eq!(
         rows,
         [
@@ -236,7 +227,10 @@ fn items_of_a_dependency_head_no_longer_has_match_only_from_its_crate_root() {
     );
     repo.commit("app drops both");
 
-    let rows: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
+    let rows: Vec<(String, String)> = found_by_path(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.5))
+        .collect();
     assert_eq!(
         rows,
         [
@@ -275,7 +269,7 @@ fn a_live_dependency_built_as_an_rlib_or_dylib_keeps_its_names_alive() {
         repo.write("README.md", "`frame_tag`\n");
         repo.commit("drop Frame");
 
-        assert_eq!(found(&repo), [], "{crate_type}");
+        assert_eq!(found_by_path(&repo), [], "{crate_type}");
     }
 }
 
@@ -288,7 +282,7 @@ fn a_bare_name_in_a_data_example_names_only_serialized_spellings() {
     repo.write("README.md", "```json\n{\"gone\": 1}\n```\n");
     repo.commit("drop gone");
 
-    assert_eq!(found(&repo), []);
+    assert_eq!(found_by_path(&repo), []);
 }
 
 #[test]
@@ -318,8 +312,10 @@ fn a_removed_entry_is_named_by_its_toml_key_not_its_bare_name() {
     );
     repo.commit("drop helper");
 
-    let rows: Vec<(String, String, usize)> =
-        found(&repo).into_iter().map(|m| (m.0, m.1, m.2)).collect();
+    let rows: Vec<(String, String, usize)> = found_by_path(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.1, m.2))
+        .collect();
     assert_eq!(rows, [("helper".to_owned(), "README.md".to_owned(), 9)]);
 }
 
@@ -342,7 +338,7 @@ fn a_rustdoc_page_link_to_a_single_item_names_nothing() {
     repo.write("README.md", "[Tool](struct.Tool.html)\n");
     repo.commit("drop Tool");
 
-    assert_eq!(found(&repo), []);
+    assert_eq!(found_by_path(&repo), []);
 }
 
 #[test]
@@ -372,7 +368,7 @@ fn a_path_spelled_from_a_live_crate_name_names_nothing_removed() {
     lock(&repo);
     repo.commit("drop the widget dep");
 
-    assert_eq!(found(&repo), []);
+    assert_eq!(found_by_path(&repo), []);
 }
 
 #[test]
@@ -405,7 +401,10 @@ fn a_toml_dependency_key_naming_a_head_package_is_alive() {
     );
     repo.commit("app drops widget");
 
-    let rows: Vec<(String, usize)> = found(&repo).into_iter().map(|m| (m.0, m.2)).collect();
+    let rows: Vec<(String, usize)> = found_by_path(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.2))
+        .collect();
     assert_eq!(rows, [("widget".to_owned(), 6)]);
 }
 
@@ -421,7 +420,7 @@ fn a_rustdoc_url_is_read_from_its_item_not_its_directory() {
     repo.write("README.md", "[m](something/struct.Thing.html#method.old)\n");
     repo.commit("drop Thing");
 
-    let rows: Vec<(String, String, usize, usize, Context)> = found(&repo)
+    let rows: Vec<(String, String, usize, usize, Context)> = found_by_path(&repo)
         .into_iter()
         .map(|m| (m.0, m.1, m.2, m.3, m.4))
         .collect();
@@ -454,7 +453,7 @@ fn a_crate_relative_path_reads_only_from_its_own_crate() {
     repo.write("src/lib.rs", "/// Was `crate::gone`.\npub fn kept() {}\n");
     repo.commit("drop the fixture gone");
 
-    let rows: Vec<(String, String, usize, usize)> = found(&repo)
+    let rows: Vec<(String, String, usize, usize)> = found_by_path(&repo)
         .into_iter()
         .map(|m| (m.0, m.1, m.2, m.3))
         .collect();
@@ -477,7 +476,7 @@ fn an_item_a_head_macro_still_generates_is_not_reported() {
     );
     repo.commit("drop Bar");
 
-    assert_eq!(found(&repo), []);
+    assert_eq!(found_by_path(&repo), []);
 }
 
 #[test]
@@ -491,7 +490,7 @@ fn a_field_of_a_struct_an_unknown_head_macro_may_generate_is_not_reported() {
     );
     repo.commit("drop B");
 
-    assert_eq!(found(&repo), []);
+    assert_eq!(found_by_path(&repo), []);
 }
 
 #[test]
@@ -518,7 +517,7 @@ fn a_module_a_dependency_macro_declares_is_indexed() {
     repo.write("README.md", "`Mutex` and `fixture::sync::Gone`\n");
     repo.commit("drop old and Gone");
 
-    let paths: Vec<String> = found(&repo).into_iter().map(|row| row.0).collect();
+    let paths: Vec<String> = found_by_path(&repo).into_iter().map(|row| row.0).collect();
     assert_eq!(paths, ["fixture::sync::Gone"]);
 }
 
@@ -655,7 +654,7 @@ fn a_module_public_on_one_cfg_branch_stays_public() {
     repo.write("README.md", "`Runtime` and `Deep`.\n");
     repo.commit("drop both");
 
-    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.0).collect();
+    let rows: Vec<String> = found_by_path(&repo).into_iter().map(|m| m.0).collect();
     assert_eq!(rows, ["fixture::Deep"]);
 }
 
@@ -678,7 +677,10 @@ fn a_hyphenated_spelling_matches_a_name_with_underscores() {
     repo.write("README.md", "Run `cargo add helper-lib`.\n");
     repo.commit("drop helper_lib");
 
-    let rows: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
+    let rows: Vec<(String, String)> = found_by_path(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.5))
+        .collect();
     assert_eq!(rows, [("helper_lib".to_owned(), "helper-lib".to_owned())]);
 }
 
@@ -704,7 +706,7 @@ fn a_public_reexport_keeps_the_path_it_shares_with_a_private_module() {
     repo.write("README.md", "`blank_out` and `hidden_fn`.\n");
     repo.commit("drop both");
 
-    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.0).collect();
+    let rows: Vec<String> = found_by_path(&repo).into_iter().map(|m| m.0).collect();
     assert_eq!(rows, ["fixture::hidden_fn"]);
 }
 
@@ -743,7 +745,7 @@ fn a_renamed_dependency_also_reads_under_its_crate_name() {
     repo.write("README.md", "`helper::OldThing` and `helper::NewThing`.\n");
     repo.commit("the root renames the old helper");
 
-    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.0).collect();
+    let rows: Vec<String> = found_by_path(&repo).into_iter().map(|m| m.0).collect();
     assert_eq!(rows, ["helper::NewThing"]);
 }
 
@@ -778,7 +780,7 @@ fn a_renamed_old_version_of_a_workspace_crate_keeps_nothing_of_it_alive() {
     repo.write("README.md", "`helper::Gone`.\n");
     repo.commit("Gone goes, an old helper stays");
 
-    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.0).collect();
+    let rows: Vec<String> = found_by_path(&repo).into_iter().map(|m| m.0).collect();
     assert_eq!(rows, ["helper::Gone"]);
 }
 
@@ -791,7 +793,7 @@ fn a_scan_succeeds_when_a_default_target_directory_is_a_file() {
     repo.write("src/lib.rs", "/// Was `fixture::gone`.\npub fn kept() {}\n");
     repo.commit("drop gone");
 
-    let rows: Vec<(String, String, usize, usize)> = found(&repo)
+    let rows: Vec<(String, String, usize, usize)> = found_by_path(&repo)
         .into_iter()
         .map(|m| (m.0, m.1, m.2, m.3))
         .collect();
@@ -811,7 +813,7 @@ fn files_under_the_target_directory_of_the_working_tree_are_not_scanned() {
     repo.write("target/debug/note.rs", "// `fixture::gone`.\n");
     repo.commit("drop gone");
 
-    let rows: Vec<(String, String, usize, usize)> = found(&repo)
+    let rows: Vec<(String, String, usize, usize)> = found_by_path(&repo)
         .into_iter()
         .map(|m| (m.0, m.1, m.2, m.3))
         .collect();
@@ -862,8 +864,10 @@ fn a_vocabulary_word_in_prose_is_not_reported_as_removed() {
     repo.write("README.md", "The Config was dropped. See `Config`.\n");
     repo.commit("drop Config");
 
-    let rows: Vec<(String, String, String)> =
-        found(&repo).into_iter().map(|m| (m.0, m.1, m.5)).collect();
+    let rows: Vec<(String, String, String)> = found_by_path(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.1, m.5))
+        .collect();
     assert_eq!(
         rows,
         [(
@@ -939,7 +943,7 @@ fn a_removed_crate_name_counts_only_where_it_acts_as_a_dependency() {
     );
     repo.commit("drop tower");
 
-    let rows: Vec<(String, usize, usize, String)> = found(&repo)
+    let rows: Vec<(String, usize, usize, String)> = found_by_path(&repo)
         .into_iter()
         .map(|m| (m.0, m.2, m.3, m.5))
         .collect();
@@ -976,7 +980,10 @@ fn cargo_add_names_every_crate_up_to_its_first_flag_or_punctuation() {
     );
     repo.commit("drop tower");
 
-    let rows: Vec<(usize, usize)> = found(&repo).into_iter().map(|m| (m.2, m.3)).collect();
+    let rows: Vec<(usize, usize)> = found_by_path(&repo)
+        .into_iter()
+        .map(|m| (m.2, m.3))
+        .collect();
     assert_eq!(rows, [(1, 12), (1, 22), (3, 15)]);
 }
 
@@ -1006,7 +1013,7 @@ fn a_reexported_dependency_item_keeps_its_members_alive_under_the_alias() {
     );
     repo.commit("re-export the helper's");
 
-    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.5).collect();
+    let rows: Vec<String> = found_by_path(&repo).into_iter().map(|m| m.5).collect();
     assert_eq!(rows, ["fixture::Request::gone"]);
 }
 
@@ -1035,7 +1042,7 @@ fn a_bare_name_goes_to_a_workspace_item_before_a_dependency_item() {
     repo.write("app/README.md", "`Gadget`\n");
     repo.commit("app drops the old able");
 
-    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.0).collect();
+    let rows: Vec<String> = found_by_path(&repo).into_iter().map(|m| m.0).collect();
     assert_eq!(rows, ["fixture::Gadget"]);
 }
 
@@ -1139,7 +1146,7 @@ fn dependency_trait_members_follow_the_traits_public_reachability() {
         repo.write("README.md", "`retired_probe_842`\n");
         repo.commit("remove method");
 
-        let rows: Vec<String> = found(&repo).into_iter().map(|row| row.0).collect();
+        let rows: Vec<String> = found_by_path(&repo).into_iter().map(|row| row.0).collect();
         let expected = if stale {
             vec!["fixture::Local::retired_probe_842".to_owned()]
         } else {

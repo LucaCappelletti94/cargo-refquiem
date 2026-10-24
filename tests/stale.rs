@@ -1,6 +1,8 @@
 //! End-to-end behaviour of the stale reference scan over real git histories.
 
 mod common;
+#[path = "common/removed.rs"]
+mod removed;
 #[path = "common/vendor.rs"]
 mod vendor;
 
@@ -8,6 +10,7 @@ use std::path::PathBuf;
 
 use common::Repo;
 use refquiem::{Context, ItemKind, Kind, Range, RemovedIn, Source};
+use removed::removed;
 
 /// Scanning a fixture repository.
 trait Scan {
@@ -50,13 +53,6 @@ fn mentions(report: &refquiem::Report) -> Vec<(String, String, String, usize, us
             })
         })
         .collect();
-    out.sort();
-    out
-}
-
-/// The removed paths that still have mentions, sorted.
-fn removed(report: &refquiem::Report) -> Vec<String> {
-    let mut out: Vec<String> = report.groups.iter().map(|g| g.path.clone()).collect();
     out.sort();
     out
 }
