@@ -294,6 +294,8 @@ pub(crate) struct Indexer {
     pub(crate) trees: Rc<RefCell<Trees>>,
     /// Recent alias resolutions of snapshots other than head, most recently used first.
     aliases: VecDeque<AliasEntry>,
+    /// The hasher of alias keys, one seed for the whole run so equal keys hash equal.
+    alias_hasher: DefaultHashBuilder,
     keywords: Keywords,
 }
 
@@ -328,6 +330,7 @@ impl Indexer {
             manifests: Manifests::new(),
             trees: Rc::new(RefCell::new(Trees::new())),
             aliases: VecDeque::new(),
+            alias_hasher: DefaultHashBuilder::default(),
             keywords,
         }
     }
@@ -1428,7 +1431,7 @@ impl Indexer {
         crates: &[Sym],
     ) -> Reexports {
         let (key, base) = alias_key(paths, &hidden, uses, lends, traits, crates);
-        let hash = DefaultHashBuilder::default().hash_one(&key);
+        let hash = self.alias_hasher.hash_one(&key);
         let found = self
             .aliases
             .iter()
