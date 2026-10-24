@@ -1,6 +1,6 @@
 //! A scan: index the range, subtract head, find mentions, attribute removals.
 
-use std::cell::RefCell;
+use std::cell::{RefCell, RefMut};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -846,6 +846,57 @@ enum Parent {
     OutOfRange(ObjectId),
 }
 
+/// The word index of tree slot `slot`, one bit per slot. A lossless widening, `usize`
+/// holding at least 32 bits.
+fn word_of(slot: u32) -> usize {
+    (slot >> 6) as usize
+}
+
+/// The tree slots holding one path, one bit per distinct slot, so a removal scan tests
+/// membership without searching the path's runs at every commit. The buffer is reused, and
+/// the words are cleared before each path is set.
+struct PathBits {
+    inner: RefCell<PathBitsInner>,
+}
+
+struct PathBitsInner {
+    /// One bit per distinct tree slot.
+    words: Vec<u64>,
+}
+
+impl PathBits {
+    /// Sizes the words for `slots` distinct tree slots.
+    fn with_slots(slots: usize) -> Self {
+        let words = vec![0; slots.div_ceil(64)];
+        Self {
+            inner: RefCell::new(PathBitsInner { words }),
+        }
+    }
+
+    /// Clears the bits set for the previous path and sets the slots of `runs`, returning the
+    /// words for the scan to test.
+    fn set(&self, runs: Option<&[(u32, u32)]>) -> RefMut<'_, PathBitsInner> {
+        let mut inner = self.inner.borrow_mut();
+        inner.words.fill(0);
+        if let Some(runs) = runs {
+            for &(first, last) in runs {
+                let lo = word_of(first);
+                let hi = word_of(last);
+                let lo_mask = u64::MAX << (first & 63);
+                let hi_mask = u64::MAX >> (63 - (last & 63));
+                if lo == hi {
+                    inner.words[lo] |= lo_mask & hi_mask;
+                } else {
+                    inner.words[lo] |= lo_mask;
+                    inner.words[hi] |= hi_mask;
+                    inner.words[lo + 1..hi].fill(u64::MAX);
+                }
+            }
+        }
+        inner
+    }
+}
+
 /// The walked commits and their states, children first.
 struct History<'a> {
     commits: &'a [git::Commit],
@@ -862,6 +913,8 @@ struct History<'a> {
     parent_at: Vec<usize>,
     /// The paths of each parent outside the range, `None` when unreadable.
     boundary: &'a HashMap<ObjectId, Option<HashSet<PathId>>>,
+    /// The bits `removal` reuses to test which tree slots hold a path.
+    bits: PathBits,
 }
 
 impl<'a> History<'a> {
@@ -903,6 +956,7 @@ impl<'a> History<'a> {
             Head::WorkTree(Some(commit)) => position.get(commit).copied(),
             _ => None,
         };
+        let bits = PathBits::with_slots(states.complete.len());
         Self {
             commits,
             states,
@@ -912,6 +966,7 @@ impl<'a> History<'a> {
             parents,
             parent_at,
             boundary,
+            bits,
         }
     }
 }
@@ -936,7 +991,8 @@ impl History<'_> {
     /// has it.
     fn removal(&self, id: PathId) -> Option<RemovedAt> {
         let runs = self.states.missing.get(&id);
-        let has = |slot: u32| runs.is_some_and(|runs| in_runs(runs, slot));
+        let bits = self.bits.set(runs.map(Vec::as_slice));
+        let has = |slot: u32| bits.words[word_of(slot)] >> (slot & 63) & 1 != 0;
         if let Some(head) = self.head_at
             && self.complete[head]
             && has(self.slots[head])
@@ -1518,7 +1574,7 @@ fn suffixes(segments: &[Sym]) -> impl Iterator<Item = &[Sym]> {
 
 #[cfg(test)]
 mod tests {
-    use super::States;
+    use super::{PathBits, States, in_runs, word_of};
 
     /// The states of one commit per tree, each tree read entirely and missing `trees[i]`.
     fn states(trees: &[&[u32]]) -> States {
@@ -1555,5 +1611,27 @@ mod tests {
         states.slot_of.push(slot);
         assert!(states.missing(0, 7));
         assert!(!states.has(0, 7));
+    }
+
+    #[test]
+    fn the_slot_bitset_marks_exactly_the_slots_of_the_runs() {
+        let runs: [(u32, u32); 3] = [(0, 40), (100, 250), (280, 290)];
+        let bits = PathBits::with_slots(300);
+        {
+            let words = bits.set(Some(&runs));
+            for slot in 0..300u32 {
+                let marked = words.words[word_of(slot)] >> (slot & 63) & 1 != 0;
+                assert_eq!(marked, in_runs(&runs, slot), "slot {slot}");
+            }
+        }
+        {
+            let words = bits.set(Some(&[(63, 64)]));
+            for slot in 0..300u32 {
+                let marked = words.words[word_of(slot)] >> (slot & 63) & 1 != 0;
+                assert_eq!(marked, in_runs(&[(63, 64)], slot), "slot {slot}");
+            }
+        }
+        let words = bits.set(None);
+        assert!(words.words.iter().all(|&word| word == 0));
     }
 }
