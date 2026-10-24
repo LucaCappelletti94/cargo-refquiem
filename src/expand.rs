@@ -1,11 +1,12 @@
 //! Expansion of `macro_rules!` invocations at item position, enough to see the items they
 //! declare.
 
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use proc_macro2::{Delimiter, Group, Ident, Spacing, TokenStream, TokenTree};
 use syn::parse::{ParseStream, Parser};
+
+use crate::HashMap;
 
 /// The longest expansion kept, in characters.
 const MAX_LEN: usize = 1 << 22;

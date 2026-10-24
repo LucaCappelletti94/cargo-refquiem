@@ -1,14 +1,12 @@
 //! Workspace members, their compilation targets and their manifest entries, read from the
 //! `Cargo.toml` files of a snapshot.
 
-use std::collections::HashMap;
-
 use gix::ObjectId;
 use toml::Table;
 use toml::de::{DeTable, DeValue};
 
 use crate::git::Snapshot;
-use crate::{Error, ItemKind};
+use crate::{Error, HashMap, ItemKind};
 
 /// What a compilation target builds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,14 +1,11 @@
 //! What one Rust source file declares, independent of where it sits in a crate.
 
-use std::collections::HashSet;
-
 use proc_macro2::{TokenStream, TokenTree};
 use serde::{Deserialize, Serialize};
 use syn::parse::{ParseStream, Parser};
 use syn::{Attribute, Fields, ImplItem, Item, TraitItem, Type, UseTree, Visibility};
 
-use crate::ItemKind;
-use crate::serde_names::Container;
+use crate::{HashSet, ItemKind, serde_names::Container};
 
 /// The segment before a serialized spelling in a path, which no identifier can spell.
 pub(crate) const SERDE_MARKER: &str = "<serde>";

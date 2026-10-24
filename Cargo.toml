@@ -25,7 +25,7 @@ fuzzing = []
 [dependencies]
 clap = { version = "4.6.6", features = ["derive"], optional = true }
 gix = { version = "0.89.0", default-features = false, features = ["revision", "sha1"] }
-hashbrown = { version = "0.17.1", default-features = false }
+hashbrown = { version = "0.17.1", default-features = false, features = ["default-hasher"] }
 proc-macro2 = { version = "1.0.107", default-features = false, features = ["span-locations"] }
 ignore = "0.4.33"
 fst = "0.4.7"

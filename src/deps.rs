@@ -1,7 +1,6 @@
 //! The public items of head's dependencies and of the dependencies the range removed, located
 //! through `cargo metadata` on manifests refquiem writes, so the user's tree is never touched.
 
-use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use cargo_metadata::{CargoOpt, Metadata, MetadataCommand, PackageId};
@@ -12,7 +11,7 @@ use crate::git::{Snapshot, TreeSnapshot, WorkTreeSnapshot, relative};
 use crate::index::{Definition, Indexer};
 use crate::intern::{PathId, Sym};
 use crate::manifest::{self, Dependency, Manifests, Member, TargetKind, join};
-use crate::{Error, Skipped};
+use crate::{Error, HashMap, HashSet, Skipped};
 
 /// The dependency tables of a manifest, each also under `[target.<cfg>]`.
 const KINDS: [&str; 5] = [

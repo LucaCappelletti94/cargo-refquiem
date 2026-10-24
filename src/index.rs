@@ -2,19 +2,19 @@
 //! trees and manifests.
 
 use std::cell::RefCell;
-use std::collections::hash_map::DefaultHasher;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
-use std::hash::{Hash, Hasher};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::hash::BuildHasher;
 use std::rc::Rc;
 
 use gix::ObjectId;
+use hashbrown::DefaultHashBuilder;
 
 use crate::cache::{Expanded, FileCache};
 use crate::git::{ManifestDirs, Snapshot, Trees};
 use crate::intern::{Interner, PathId, Sym};
 use crate::manifest::{self, Manifests, Member, TargetKind, join};
 use crate::parse::{self, FileItems};
-use crate::{Error, ItemKind, entry, expand};
+use crate::{Error, HashMap, HashSet, ItemKind, entry, expand};
 
 /// The paths of one snapshot.
 #[derive(Default)]
@@ -294,6 +294,8 @@ pub(crate) struct Indexer {
     pub(crate) trees: Rc<RefCell<Trees>>,
     /// Recent alias resolutions of snapshots other than head, most recently used first.
     aliases: VecDeque<AliasEntry>,
+    /// The hasher of alias keys, one seed for the whole run so equal keys hash equal.
+    alias_hasher: DefaultHashBuilder,
     keywords: Keywords,
 }
 
@@ -328,6 +330,7 @@ impl Indexer {
             manifests: Manifests::new(),
             trees: Rc::new(RefCell::new(Trees::new())),
             aliases: VecDeque::new(),
+            alias_hasher: DefaultHashBuilder::default(),
             keywords,
         }
     }
@@ -1428,9 +1431,7 @@ impl Indexer {
         crates: &[Sym],
     ) -> Reexports {
         let (key, base) = alias_key(paths, &hidden, uses, lends, traits, crates);
-        let mut hasher = DefaultHasher::new();
-        key.hash(&mut hasher);
-        let hash = hasher.finish();
+        let hash = self.alias_hasher.hash_one(&key);
         let found = self
             .aliases
             .iter()
@@ -1702,7 +1703,7 @@ impl Changes {
         declared: PathId,
         added: bool,
     ) {
-        if let std::collections::hash_map::Entry::Vacant(slot) = origins.entry(id) {
+        if let hashbrown::hash_map::Entry::Vacant(slot) = origins.entry(id) {
             slot.insert(declared);
             if !added {
                 self.renew(interner, id);
