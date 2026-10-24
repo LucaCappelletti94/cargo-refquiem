@@ -1536,8 +1536,8 @@ impl Indexer {
     /// `last` is the copy the same use or lend made before. Made again with the same chain of
     /// origins above `to`, the copy skips every path at and below which nothing changed since,
     /// as the copy made then already holds everything below it. The stored chain is reused
-    /// without re-walking the prefixes while no path was interned and none of the prefixes
-    /// renewed.
+    /// without re-walking the prefixes while no path was interned and every prefix still
+    /// stands for the origin it held when the copy was made.
     fn copy_below(
         &mut self,
         (from, to, hide): (PathId, &[Sym], bool),
@@ -1565,7 +1565,8 @@ impl Indexer {
                     && made
                         .prefixes
                         .iter()
-                        .all(|p| changes.renewed(*p) <= made.tick) =>
+                        .zip(&made.links)
+                        .all(|(p, link)| origin(origins, *p) == link.0) =>
             {
                 let since = std::mem::replace(&mut made.tick, changes.clock);
                 self.copy_links.clear();
