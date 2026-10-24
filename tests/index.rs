@@ -310,6 +310,62 @@ fn trees_with_the_same_items_but_another_glob_source_reexport_differently() {
 }
 
 #[test]
+fn twin_trees_differing_only_in_a_use_do_not_share_a_resolution() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "mod inner {\n    pub struct Thing;\n}\npub use inner::Thing;\n",
+    );
+    repo.commit("re-export");
+    repo.write("src/lib.rs", "mod inner {\n    pub struct Thing;\n}\n");
+    let deleting = repo.commit("drop the re-export");
+    repo.write("README.md", "`fixture::Thing`.\n");
+    repo.commit("mention the re-export");
+
+    let report = run(&repo);
+    assert_eq!(removed(&report), ["fixture::Thing"]);
+    assert_eq!(
+        report.groups[0].removed_in,
+        Some(RemovedIn::Commit(deleting))
+    );
+}
+
+#[test]
+fn twin_trees_differing_only_in_visibility_do_not_share_a_resolution() {
+    let repo = Repo::new();
+    let member = |name: &str| {
+        format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
+    };
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"a\", \"b\"]\nresolver = \"2\"\n",
+    );
+    repo.write("a/Cargo.toml", &member("a"));
+    repo.write("b/Cargo.toml", &member("b"));
+    repo.write("a/src/lib.rs", "pub use b::Thing;\n");
+    repo.write(
+        "b/src/lib.rs",
+        "pub struct Thing;\n\nimpl Thing {\n    pub fn method() {}\n}\n",
+    );
+    lock(&repo);
+    repo.commit("public method");
+    repo.write(
+        "b/src/lib.rs",
+        "pub struct Thing;\n\nimpl Thing {\n    fn method() {}\n}\n",
+    );
+    let deleting = repo.commit("private method");
+    repo.write("README.md", "`a::Thing::method`.\n");
+    repo.commit("mention the method");
+
+    let report = run(&repo);
+    assert_eq!(removed(&report), ["a::Thing::method"]);
+    assert_eq!(
+        report.groups[0].removed_in,
+        Some(RemovedIn::Commit(deleting))
+    );
+}
+
+#[test]
 fn successive_globs_keep_each_destinations_nested_items() {
     let repo = Repo::new();
     let lib = |left, right| {

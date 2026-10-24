@@ -3,11 +3,11 @@
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::hash::BuildHasher;
+use std::hash::{BuildHasher, Hasher};
 use std::rc::Rc;
 
 use gix::ObjectId;
-use hashbrown::DefaultHashBuilder;
+use hashbrown::{DefaultHashBuilder, DefaultHasher};
 
 use crate::cache::{Expanded, FileCache};
 use crate::git::{ManifestDirs, Snapshot, Trees};
@@ -77,9 +77,24 @@ struct Contribution {
     params: Vec<Sym>,
     signatures: Vec<(PathId, Rc<str>)>,
     failure: Option<String>,
+    /// The digest of the fields an alias resolution reads from this contribution.
+    digest: [u64; 2],
 }
 
-#[derive(Clone)]
+impl Contribution {
+    /// Whether `other` carries the same alias inputs, field by field.
+    fn alias_inputs_equal(&self, other: &Contribution) -> bool {
+        self.paths == other.paths
+            && self.hidden == other.hidden
+            && self.exposed == other.exposed
+            && self.uses == other.uses
+            && self.lends == other.lends
+            && self.declared_traits == other.declared_traits
+            && self.traits == other.traits
+    }
+}
+
+#[derive(Clone, PartialEq)]
 struct Implemented {
     module: Vec<Sym>,
     source: Vec<Sym>,
@@ -296,6 +311,8 @@ pub(crate) struct Indexer {
     aliases: VecDeque<AliasEntry>,
     /// The hasher of alias keys, one seed for the whole run so equal keys hash equal.
     alias_hasher: DefaultHashBuilder,
+    /// The two seeds of a contribution alias digest, one per 64-bit half.
+    digest_seeds: [DefaultHashBuilder; 2],
     keywords: Keywords,
 }
 
@@ -331,6 +348,7 @@ impl Indexer {
             trees: Rc::new(RefCell::new(Trees::new())),
             aliases: VecDeque::new(),
             alias_hasher: DefaultHashBuilder::default(),
+            digest_seeds: [DefaultHashBuilder::default(), DefaultHashBuilder::default()],
             keywords,
         }
     }
@@ -410,6 +428,8 @@ impl Indexer {
         else {
             return Ok(index);
         };
+        // The paths `roots` interned, before `reach` adds what the contributions declare.
+        let roots = (!head).then(|| index.paths.iter().copied().collect::<Vec<_>>());
         let reached = self.reach(snapshot, stack, head, &outside, &mut index)?;
         let uses: Vec<&UseDecl> = reached.contributions().flat_map(|c| &c.uses).collect();
         let lends: Vec<&LendDecl> = reached.contributions().flat_map(|c| &c.lends).collect();
@@ -419,17 +439,27 @@ impl Indexer {
                 .flat_map(|c| c.declared_traits.iter().copied()),
             reached.contributions().flat_map(|c| &c.traits),
         );
-        let mut hidden = hidden_paths(
-            reached
-                .contributions()
-                .map(|c| (c.hidden.as_slice(), c.exposed.as_slice())),
-        );
         index.reexports = if head {
+            let mut hidden = hidden_paths(
+                reached
+                    .contributions()
+                    .map(|c| (c.hidden.as_slice(), c.exposed.as_slice())),
+            );
             self.expose_traits(&index.paths, &mut hidden, &uses, &lends, &traits, &crates);
             self.resolve_aliases(&mut index.paths, &mut hidden, &uses, &lends, &crates)
                 .0
         } else {
-            self.recalled_aliases(&mut index.paths, hidden, &uses, &lends, &traits, &crates)
+            let inputs = AliasInputs {
+                roots: roots
+                    .as_deref()
+                    .expect("a non-head snapshot carries its roots"),
+                entries: &reached.entries,
+                uses: &uses,
+                lends: &lends,
+                traits: &traits,
+                crates: &crates,
+            };
+            self.recalled_aliases(&mut index.paths, &inputs)
         };
         if head {
             index.alive = macro_idents(&mut self.interner, &reached);
@@ -1016,7 +1046,45 @@ impl Indexer {
             })
             .collect();
         out.params = self.syms(&items.params);
+        out.digest = self.alias_digest(&out);
         out
+    }
+
+    /// The digest of `contribution`'s alias inputs, each field framed by a tag and a length.
+    fn alias_digest(&self, contribution: &Contribution) -> [u64; 2] {
+        let mut digest = Digest::new(&self.digest_seeds);
+        digest.list(1, &contribution.paths);
+        digest.list(2, &contribution.hidden);
+        digest.list(3, &contribution.exposed);
+        digest.count(4, contribution.uses.len());
+        for (module, source, name, public) in &contribution.uses {
+            digest.word(4);
+            digest.list(5, module);
+            digest.list(6, source);
+            digest.word(u32::from(name.is_some()));
+            digest.word(name.unwrap_or(0));
+            digest.word(u32::from(*public));
+        }
+        digest.count(7, contribution.lends.len());
+        for (module, owner, source) in &contribution.lends {
+            digest.word(7);
+            digest.list(8, module);
+            digest.list(9, owner);
+            digest.list(10, source);
+        }
+        digest.count(11, contribution.declared_traits.len());
+        for &(id, public) in &contribution.declared_traits {
+            digest.word(id);
+            digest.word(u32::from(public));
+        }
+        digest.count(12, contribution.traits.len());
+        for implementation in &contribution.traits {
+            digest.word(12);
+            digest.list(13, &implementation.module);
+            digest.list(14, &implementation.source);
+            digest.list(15, &implementation.members);
+        }
+        digest.finish()
     }
 
     fn implementations(
@@ -1419,34 +1487,56 @@ impl Indexer {
     }
 
     /// [`Self::resolve_aliases`] for a snapshot other than head, reusing the result of a recent
-    /// snapshot whose inputs were identical. A resolution reads nothing but its inputs and the
-    /// paths it interns, which stay interned, so the reused result is the one it would compute.
+    /// snapshot whose inputs were identical. A digest match is only a candidate, verified
+    /// field by field, so a collision costs a comparison, never a wrong result. A resolution
+    /// reads nothing but its inputs and the paths it interns, which stay interned, so the
+    /// reused result is the one it would compute.
     fn recalled_aliases(
         &mut self,
         paths: &mut HashSet<PathId>,
-        mut hidden: HashSet<PathId>,
-        uses: &[&UseDecl],
-        lends: &[&LendDecl],
-        traits: &TraitScope<'_>,
-        crates: &[Sym],
+        inputs: &AliasInputs<'_>,
     ) -> Reexports {
-        let (key, base) = alias_key(paths, &hidden, uses, lends, traits, crates);
+        let key = alias_key(inputs);
         let hash = self.alias_hasher.hash_one(&key);
         let found = self
             .aliases
             .iter()
-            .position(|entry| (entry.hash, &entry.key) == (hash, &key));
+            .position(|entry| (entry.hash, &entry.key) == (hash, &key))
+            .and_then(|at| {
+                let entry = &self.aliases[at];
+                (entry.contributions.len() == inputs.entries.len()
+                    && entry
+                        .contributions
+                        .iter()
+                        .zip(inputs.entries.iter().map(|entry| &entry.contribution))
+                        .all(|(stored, fresh)| stored.alias_inputs_equal(fresh)))
+                .then_some(at)
+            });
         if let Some(entry) = found.and_then(|at| self.aliases.remove(at)) {
             paths.extend(&entry.added);
             let reexports = entry.reexports.clone();
             self.aliases.push_front(entry);
             return reexports;
         }
-        self.expose_traits(paths, &mut hidden, uses, lends, traits, crates);
+        let mut hidden = hidden_paths(inputs.entries.iter().map(|entry| {
+            (
+                entry.contribution.hidden.as_slice(),
+                entry.contribution.exposed.as_slice(),
+            )
+        }));
+        let mut before: Vec<PathId> = paths.iter().copied().collect();
+        before.sort_unstable();
+        self.expose_traits(
+            paths,
+            &mut hidden,
+            inputs.uses,
+            inputs.lends,
+            inputs.traits,
+            inputs.crates,
+        );
         let reexports = self
-            .resolve_aliases(paths, &mut hidden, uses, lends, crates)
+            .resolve_aliases(paths, &mut hidden, inputs.uses, inputs.lends, inputs.crates)
             .0;
-        let before = &key[1..=base];
         let added = paths
             .iter()
             .copied()
@@ -1456,6 +1546,11 @@ impl Indexer {
         self.aliases.push_front(AliasEntry {
             hash,
             key,
+            contributions: inputs
+                .entries
+                .iter()
+                .map(|entry| Rc::clone(&entry.contribution))
+                .collect(),
             added,
             reexports: reexports.clone(),
         });
@@ -1765,70 +1860,81 @@ const RECALLED_ALIASES: usize = 64;
 /// One alias resolution with the exact inputs it ran on.
 struct AliasEntry {
     hash: u64,
-    /// The inputs as [`alias_key`] encodes them.
-    key: Vec<u32>,
+    key: Vec<u64>,
+    /// The contributions the resolution ran on, in reach order.
+    contributions: Vec<Rc<Contribution>>,
     /// The paths the resolution added.
     added: Vec<PathId>,
     reexports: Reexports,
 }
 
-/// Length-prefixed resolution inputs with sorted sets and the initial paths beginning at index `1`.
-fn alias_key(
-    paths: &HashSet<PathId>,
-    hidden: &HashSet<PathId>,
-    uses: &[&UseDecl],
-    lends: &[&LendDecl],
-    traits: &TraitScope<'_>,
-    crates: &[Sym],
-) -> (Vec<u32>, usize) {
-    fn count(key: &mut Vec<u32>, len: usize) {
-        key.push(u32::try_from(len).expect("fewer than 2^32 entries"));
-    }
-    fn list(key: &mut Vec<u32>, items: &[u32]) {
-        count(key, items.len());
-        key.extend_from_slice(items);
-    }
-    fn set(key: &mut Vec<u32>, items: &HashSet<u32>) {
-        count(key, items.len());
-        let start = key.len();
-        key.extend(items);
-        key[start..].sort_unstable();
-    }
+/// The inputs of one alias resolution.
+struct AliasInputs<'a> {
+    /// The paths the roots interned.
+    roots: &'a [PathId],
+    /// The contributions in reach order.
+    entries: &'a [Entry],
+    uses: &'a [&'a UseDecl],
+    lends: &'a [&'a LendDecl],
+    traits: &'a TraitScope<'a>,
+    crates: &'a [Sym],
+}
+
+/// The key of a resolution's inputs: the crate list, the roots' paths sorted and the
+/// contributions' digests in reach order.
+fn alias_key(inputs: &AliasInputs<'_>) -> Vec<u64> {
     let mut key = Vec::new();
-    set(&mut key, paths);
-    set(&mut key, hidden);
-    count(&mut key, uses.len());
-    for (module, source, name, public) in uses {
-        list(&mut key, module);
-        list(&mut key, source);
-        key.extend([
-            u32::from(name.is_some()),
-            name.unwrap_or(0),
-            u32::from(*public),
-        ]);
+    key.push(u64::try_from(inputs.crates.len()).expect("fewer than 2^64 crates"));
+    key.extend(inputs.crates.iter().copied().map(u64::from));
+    let mut sorted: Vec<u64> = inputs.roots.iter().copied().map(u64::from).collect();
+    sorted.sort_unstable();
+    key.push(u64::try_from(sorted.len()).expect("fewer than 2^64 roots"));
+    key.extend(sorted);
+    key.push(u64::try_from(inputs.entries.len()).expect("fewer than 2^64 entries"));
+    for entry in inputs.entries {
+        key.extend(entry.contribution.digest);
     }
-    count(&mut key, lends.len());
-    for (module, owner, source) in lends {
-        list(&mut key, module);
-        list(&mut key, owner);
-        list(&mut key, source);
+    key
+}
+
+/// One contribution alias digest, its two 64-bit halves written together.
+struct Digest {
+    halves: [DefaultHasher; 2],
+}
+
+impl Digest {
+    fn new(seeds: &[DefaultHashBuilder; 2]) -> Self {
+        Self {
+            halves: [seeds[0].build_hasher(), seeds[1].build_hasher()],
+        }
     }
-    count(&mut key, traits.declarations.len());
-    let start = key.len();
-    key.extend(traits.declarations.keys());
-    key[start..].sort_unstable();
-    let end = key.len();
-    for at in start..end {
-        key.push(u32::from(traits.declarations[&key[at]]));
+
+    /// One word to both halves.
+    fn word(&mut self, value: u32) {
+        for half in &mut self.halves {
+            half.write_u32(value);
+        }
     }
-    count(&mut key, traits.implementations.len());
-    for implementation in &traits.implementations {
-        list(&mut key, &implementation.module);
-        list(&mut key, &implementation.source);
-        list(&mut key, &implementation.members);
+
+    /// A length-prefixed list under `tag`.
+    fn list(&mut self, tag: u32, items: &[u32]) {
+        self.word(tag);
+        self.word(u32::try_from(items.len()).expect("fewer than 2^32 items"));
+        for &value in items {
+            self.word(value);
+        }
     }
-    list(&mut key, crates);
-    (key, paths.len())
+
+    /// The item count of a field under `tag`.
+    fn count(&mut self, tag: u32, count: usize) {
+        self.word(tag);
+        self.word(u32::try_from(count).expect("fewer than 2^32 items"));
+    }
+
+    /// The finished halves.
+    fn finish(self) -> [u64; 2] {
+        [self.halves[0].finish(), self.halves[1].finish()]
+    }
 }
 
 /// The key an expansion's items are stored under, the SHA-1 of its macro body, home crate name,
