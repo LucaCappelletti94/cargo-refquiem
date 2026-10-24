@@ -23,6 +23,7 @@ mod serde_names;
 mod stdlib;
 mod suggest;
 mod text;
+pub mod web;
 
 pub use error::Error;
 
@@ -362,6 +363,9 @@ pub struct Report {
     /// The commit the range starts from, whose files the `declared_at` positions refer to,
     /// absent for a full-history scan.
     pub base: Option<String>,
+    /// The scanned head commit, the `HEAD` commit when the working tree is scanned, absent
+    /// without one.
+    pub head: Option<String>,
     /// One group per removed name.
     pub groups: Vec<Group>,
     /// Removed dependencies whose sources cargo could not resolve, so their items went
@@ -369,6 +373,10 @@ pub struct Report {
     pub skipped: Vec<Skipped>,
     /// Names in `refquiem: allow(...)` markers that suppressed no mention.
     pub unused_markers: Vec<UnusedMarker>,
+    /// The mentioned files of a working tree scan whose content differs from the `HEAD`
+    /// commit, whose positions therefore cannot link to it.
+    #[serde(skip)]
+    edited: HashSet<String>,
 }
 
 /// A name in a suppression marker that suppressed no mention.

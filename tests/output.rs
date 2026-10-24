@@ -12,6 +12,17 @@ fn cargo_refquiem(
     args: &[&str],
     summary: Option<&std::path::Path>,
 ) -> Output {
+    cargo_refquiem_env(dir, args, summary, &[])
+}
+
+/// The scan with the GitHub environment cleared and `env` set, so the link tests see only
+/// the variables they set.
+fn cargo_refquiem_env(
+    dir: &std::path::Path,
+    args: &[&str],
+    summary: Option<&std::path::Path>,
+    env: &[(&str, &str)],
+) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_cargo-refquiem"));
     command
         .arg("refquiem")
@@ -19,10 +30,15 @@ fn cargo_refquiem(
         .current_dir(dir)
         .env_remove("CARGO_TARGET_DIR")
         .env_remove("GITHUB_STEP_SUMMARY")
+        .env_remove("GITHUB_SERVER_URL")
+        .env_remove("GITHUB_REPOSITORY")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_SYSTEM", "/dev/null");
     if let Some(summary) = summary {
         command.env("GITHUB_STEP_SUMMARY", summary);
+    }
+    for (key, value) in env {
+        command.env(key, value);
     }
     command.output().unwrap()
 }
@@ -47,6 +63,41 @@ fn fixture() -> (Repo, String) {
 fn fixture_summary(deleting: &str) -> String {
     format!(
         "## refquiem\n\n1 removed name still mentioned, 2 mentions\n\nFindings and replacement suggestions require verification before editing.\n\n| Removed name | Kind | Removed in | Status | Suggested action | Mentions |\n|---|---|---|---|---|---|\n| `fixture::gone` | function | {deleting} | Possible replacement | Verify and update the reference to `fixture::kept` | `README.md:1:7`<br>`a,b.md:1:2` |\n\n### Unused suppression markers\n\n- `src/lib.rs:1:20` `refquiem: allow(Nothing)`\n"
+    )
+}
+
+/// A repository whose `fixture::gone` was removed and mentioned in a committed file, with one
+/// unused marker and a clean working tree. Returns the repository, the deleting commit and its
+/// short id.
+fn committed_fixture() -> (Repo, String, String) {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "// refquiem: allow(Nothing)\npub fn kept() {}\n",
+    );
+    repo.write("README.md", "Call `fixture::gone`.\n");
+    let deleting = repo.commit("drop gone");
+    let deleting7 = deleting[..7].to_owned();
+    (repo, deleting, deleting7)
+}
+
+/// The job summary the committed fixture produces, linked to `root` when it has one.
+fn committed_summary(root: Option<&str>, deleting: &str, deleting7: &str) -> String {
+    let at = |text: &str, path: &str| match root {
+        None => text.to_owned(),
+        Some(root) => format!("[{text}]({root}/{path})"),
+    };
+    let removed_in = at(deleting7, &format!("commit/{deleting}"));
+    let suggested = at("`fixture::kept`", &format!("blob/{deleting}/src/lib.rs#L2"));
+    let mention = at("`README.md:1:7`", &format!("blob/{deleting}/README.md#L1"));
+    let marker = at(
+        "`src/lib.rs:1:20`",
+        &format!("blob/{deleting}/src/lib.rs#L1"),
+    );
+    format!(
+        "## refquiem\n\n1 removed name still mentioned, 1 mention\n\nFindings and replacement suggestions require verification before editing.\n\n| Removed name | Kind | Removed in | Status | Suggested action | Mentions |\n|---|---|---|---|---|---|\n| `fixture::gone` | function | {removed_in} | Possible replacement | Verify and update the reference to {suggested} | {mention} |\n\n### Unused suppression markers\n\n- {marker} `refquiem: allow(Nothing)`\n"
     )
 }
 
@@ -104,6 +155,50 @@ fn markdown_names_a_move_a_rename_and_an_ambiguous_replacement() {
 }
 
 #[test]
+fn the_markdown_folds_more_than_three_mentions() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    repo.commit("drop gone");
+    repo.write(
+        "README.md",
+        "Call `fixture::gone` once.\nCall `fixture::gone` twice.\nCall `fixture::gone` three times.\nCall `fixture::gone` four times.\nCall `fixture::gone` five times.\n",
+    );
+
+    let output = cargo_refquiem(repo.path(), &["--markdown"], None);
+    let summary = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        summary.contains(
+            "`README.md:1:7`<br>`README.md:2:7`<br>`README.md:3:7`<br>and <details><summary>2 more</summary>`README.md:4:7`<br>`README.md:5:7`</details>"
+        ),
+        "{summary}"
+    );
+}
+
+#[test]
+fn the_markdown_folds_more_than_three_candidates() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone(x: u32) {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "pub fn alpha(x: u32) {}\npub fn beta(x: u32) {}\npub fn gamma(x: u32) {}\npub fn delta(x: u32) {}\n",
+    );
+    repo.write("README.md", "`fixture::gone`\n");
+    repo.commit("rework");
+
+    let output = cargo_refquiem(repo.path(), &["--markdown"], None);
+    let summary = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        summary.contains(
+            "(perhaps `fixture::alpha`, `fixture::beta`, `fixture::delta` and <details><summary>1 more</summary>`fixture::gamma`</details>)"
+        ),
+        "{summary}"
+    );
+}
+
+#[test]
 fn json_prints_the_report_with_snake_case_keys() {
     let (repo, deleting) = fixture();
     let output = cargo_refquiem(repo.path(), &["--json"], None);
@@ -115,8 +210,10 @@ fn json_prints_the_report_with_snake_case_keys() {
     };
     assert_eq!(
         keys(&report),
-        ["base", "groups", "skipped", "unused_markers"]
+        ["base", "groups", "head", "skipped", "unused_markers"]
     );
+    assert_eq!(report["head"], repo.rev("HEAD"));
+    assert_eq!(report["base"], serde_json::Value::Null);
     let group = &report["groups"][0];
     assert_eq!(
         keys(group),
@@ -455,6 +552,175 @@ fn the_job_summary_renders_edge_backtick_and_space_keys() {
     let mut codes = codes;
     codes.sort();
     assert_eq!(codes, expected, "{summary:?}");
+}
+
+/// With `GITHUB_SERVER_URL` and `GITHUB_REPOSITORY` the Markdown links the places to them.
+#[test]
+fn the_markdown_links_the_places_to_the_environment_repository() {
+    let (repo, deleting, deleting7) = committed_fixture();
+    let output = cargo_refquiem_env(
+        repo.path(),
+        &["--markdown"],
+        None,
+        &[
+            ("GITHUB_SERVER_URL", "https://github.com"),
+            ("GITHUB_REPOSITORY", "o/r"),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        committed_summary(Some("https://github.com/o/r"), &deleting, &deleting7)
+    );
+}
+
+/// With a base, the removed name links to its declaration at the base commit.
+#[test]
+fn the_markdown_links_the_removed_name_to_its_declaration_at_base() {
+    let (repo, _, _) = committed_fixture();
+    let start = repo.rev("HEAD~1");
+
+    let output = cargo_refquiem_env(
+        repo.path(),
+        &["--markdown", "--base", start.as_str()],
+        None,
+        &[
+            ("GITHUB_SERVER_URL", "https://github.com"),
+            ("GITHUB_REPOSITORY", "o/r"),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let summary = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        summary.contains(&format!(
+            "[`fixture::gone`](https://github.com/o/r/blob/{start}/src/lib.rs#L1)"
+        )),
+        "{summary}"
+    );
+}
+
+/// Without the GitHub environment, every GitHub form of the `origin` remote links the places
+/// to `https://github.com/o/r`.
+#[test]
+fn the_markdown_links_the_places_to_a_github_origin_remote() {
+    for origin in [
+        "https://github.com/o/r",
+        "https://github.com/o/r.git",
+        "https://github.com/o/r/",
+        "https://user:pass@github.com/o/r.git",
+        "ssh://git@github.com/o/r",
+        "ssh://git@github.com/o/r.git",
+        "git@github.com:o/r",
+        "git@github.com:o/r.git",
+    ] {
+        let (repo, deleting, deleting7) = committed_fixture();
+        repo.git(&["remote", "add", "origin", origin]);
+        let output = cargo_refquiem(repo.path(), &["--markdown"], None);
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            committed_summary(Some("https://github.com/o/r"), &deleting, &deleting7),
+            "{origin}"
+        );
+    }
+}
+
+/// A non-GitHub `origin` remote, or none, leaves the Markdown as it is without links.
+#[test]
+fn the_markdown_is_plain_without_a_github_web_root() {
+    for origin in [
+        None,
+        Some("https://gitlab.com/o/r.git"),
+        Some("git@gitlab.com:o/r.git"),
+        Some("ssh://git@gitlab.com/o/r"),
+        Some("https://example.com/o/r"),
+    ] {
+        let (repo, deleting, deleting7) = committed_fixture();
+        if let Some(origin) = origin {
+            repo.git(&["remote", "add", "origin", origin]);
+        }
+        let output = cargo_refquiem(repo.path(), &["--markdown"], None);
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            committed_summary(None, &deleting, &deleting7),
+            "{origin:?}"
+        );
+    }
+}
+
+/// A mention in a file whose working tree content differs from `HEAD` stays plain, a mention
+/// in an unchanged file is linked.
+#[test]
+fn a_mention_in_an_edited_file_stays_plain() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "// refquiem: allow(Nothing)\npub fn kept() {}\n",
+    );
+    repo.write("README.md", "Call `fixture::gone`.\n");
+    repo.write("doc.md", "See `fixture::gone`.\n");
+    let deleting = repo.commit("drop gone");
+    repo.write("README.md", "Call `fixture::gone` again.\n");
+    repo.git(&["remote", "add", "origin", "https://github.com/o/r"]);
+
+    let output = cargo_refquiem(repo.path(), &["--markdown"], None);
+    let summary = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        summary.contains(&format!(
+            " | `README.md:1:7`<br>[`doc.md:1:6`](https://github.com/o/r/blob/{deleting}/doc.md#L1) |"
+        )),
+        "{summary}"
+    );
+    assert!(
+        summary.contains(&format!(
+            "- [`src/lib.rs:1:20`](https://github.com/o/r/blob/{deleting}/src/lib.rs#L1) `refquiem: allow(Nothing)`"
+        )),
+        "{summary}"
+    );
+}
+
+/// Link paths percent-encode a space and a `#`, so the line anchor stays the fragment.
+#[test]
+fn the_markdown_encodes_spaces_and_hashes_in_link_paths() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn gone() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "// refquiem: allow(Nothing)\npub fn kept() {}\n",
+    );
+    repo.write("my file.md", "`fixture::gone`\n");
+    repo.write("a#b.md", "`fixture::gone`\n");
+    let deleting = repo.commit("drop gone");
+    repo.git(&["remote", "add", "origin", "https://github.com/o/r"]);
+
+    let output = cargo_refquiem(repo.path(), &["--markdown"], None);
+    let summary = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        summary.contains(&format!(
+            "[`my file.md:1:2`](https://github.com/o/r/blob/{deleting}/my%20file.md#L1)"
+        )),
+        "{summary}"
+    );
+    assert!(
+        summary.contains(&format!(
+            "[`a#b.md:1:2`](https://github.com/o/r/blob/{deleting}/a%23b.md#L1)"
+        )),
+        "{summary}"
+    );
+}
+
+/// Without a `HEAD` commit the report's `head` is null.
+#[test]
+fn the_json_head_is_null_without_a_head_commit() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+
+    let output = cargo_refquiem(repo.path(), &["--json"], None);
+    assert_eq!(output.status.code(), Some(0));
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["head"], serde_json::Value::Null);
 }
 
 fn rendered_summary(summary: &str) -> (usize, Vec<String>) {

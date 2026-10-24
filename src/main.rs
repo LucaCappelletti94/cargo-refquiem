@@ -4,6 +4,9 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
+/// The largest step summary GitHub displays, in bytes.
+const GITHUB_SUMMARY_LIMIT: usize = 1_048_576;
+
 #[derive(clap::Parser)]
 #[command(
     name = "refquiem",
@@ -55,7 +58,10 @@ impl Output {
             return Ok(());
         }
         if self.markdown {
-            print!("{}", report.job_summary());
+            let web_root = std::env::current_dir()
+                .ok()
+                .and_then(|root| web_root(&root));
+            print!("{}", report.job_summary(web_root.as_deref()));
             return Ok(());
         }
         print!("{}", report.human());
@@ -67,13 +73,21 @@ impl Output {
                     path: path.clone(),
                     source,
                 };
+                let web_root = std::env::current_dir()
+                    .ok()
+                    .and_then(|root| web_root(&root));
                 let mut file = std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)
                     .open(&path)
                     .map_err(io)?;
-                std::io::Write::write_all(&mut file, report.job_summary().as_bytes())
-                    .map_err(io)?;
+                std::io::Write::write_all(
+                    &mut file,
+                    report
+                        .github_summary(web_root.as_deref(), GITHUB_SUMMARY_LIMIT)
+                        .as_bytes(),
+                )
+                .map_err(io)?;
             }
         }
         Ok(())
@@ -96,6 +110,22 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// The web root for the Markdown links. `GITHUB_SERVER_URL` and `GITHUB_REPOSITORY` when both
+/// are set and non-empty, else the `origin` remote when it names a GitHub repository.
+fn web_root(root: &std::path::Path) -> Option<String> {
+    let repo = gix::discover(root).ok()?;
+    let origin = repo.find_remote("origin").ok().and_then(|remote| {
+        remote
+            .url(gix::remote::Direction::Fetch)
+            .map(std::string::ToString::to_string)
+    });
+    refquiem::web::root(
+        std::env::var("GITHUB_SERVER_URL").ok().as_deref(),
+        std::env::var("GITHUB_REPOSITORY").ok().as_deref(),
+        origin.as_deref(),
+    )
 }
 
 fn run(args: Args) -> Result<refquiem::Report, refquiem::Error> {

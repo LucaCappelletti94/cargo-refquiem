@@ -26,7 +26,7 @@ cargo refquiem --since HEAD~50     # the commits since fifty commits ago
 cargo refquiem --base main --head feature
 cargo refquiem --json              # the report as one JSON object
 cargo refquiem --github --no-fail  # CI annotations at warning level
-cargo refquiem --markdown          # a table with each finding's status and suggested action
+cargo refquiem --markdown          # a table with each finding's status and suggested action, linked when the repository is on GitHub
 ```
 
 `--config PATH` reads a different config file. `--package NAME` reads mentions only from the files of one workspace member.

@@ -130,6 +130,10 @@ fn head_snapshot<'r>(
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the scan driver lists its steps one per line, splitting it would hide their order"
+)]
 pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let mut repo = gix::discover(&options.root).map_err(|source| Error::Discover {
         path: options.root.clone(),
@@ -229,12 +233,57 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     indexer.save();
     let unused_markers = suppress(&mut groups, markers, &config.allow);
     suggest::replacements(&mut groups, |file| scan.head_text(file));
-    Ok(Report {
+    let mut report = Report {
         base: start.map(|id| id.to_string()),
+        head: head_id(&head),
         groups,
         skipped: dependency_removals.skipped,
         unused_markers,
-    })
+        edited: HashSet::new(),
+    };
+    report.fill_edited(&repo, &head, &*head_snapshot, &indexer.trees)?;
+    Ok(report)
+}
+
+/// The scanned head commit as its full id, the `HEAD` commit for a working tree scan, absent
+/// without one.
+fn head_id(head: &Head) -> Option<String> {
+    match head {
+        Head::WorkTree(Some(commit)) | Head::Commit(commit) => Some(commit.to_string()),
+        Head::WorkTree(None) => None,
+    }
+}
+
+impl Report {
+    /// Fill `edited`, the mentioned files whose working tree content differs from the `HEAD`
+    /// commit, whose positions therefore cannot link to it.
+    fn fill_edited(
+        &mut self,
+        repo: &gix::Repository,
+        head: &Head,
+        worktree: &dyn Snapshot,
+        trees: &Rc<RefCell<Trees>>,
+    ) -> Result<(), Error> {
+        let Head::WorkTree(Some(commit)) = head else {
+            return Ok(());
+        };
+        let at_head = TreeSnapshot::new(repo, git::tree(repo, *commit)?, trees);
+        let mut files = HashSet::new();
+        for group in &self.groups {
+            for mention in &group.mentions {
+                files.insert(mention.file.as_str());
+            }
+        }
+        for marker in &self.unused_markers {
+            files.insert(marker.file.as_str());
+        }
+        for &file in &files {
+            if worktree.blob(file)? != at_head.blob(file)? {
+                self.edited.insert(file.to_owned());
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Groups mentions and identifies the historical indexes needed by suggestion rules, returning
