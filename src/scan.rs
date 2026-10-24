@@ -55,10 +55,9 @@ impl States {
     /// Whether the tree of commit `i` has `id` where head lacks it.
     fn missing(&self, i: usize, id: PathId) -> bool {
         let slot = u32::try_from(self.slot_of[i]).expect("fewer than 2^32 trees");
-        self.missing.get(&id).is_some_and(|runs| {
-            let at = runs.partition_point(|&(_, last)| last < slot);
-            runs.get(at).is_some_and(|&(first, _)| first <= slot)
-        })
+        self.missing
+            .get(&id)
+            .is_some_and(|runs| in_runs(runs, slot))
     }
 
     /// Whether commit `i` has `id` where head lacks it, read from a tree read entirely.
@@ -70,6 +69,13 @@ impl States {
     fn paths(&self) -> impl Iterator<Item = PathId> + '_ {
         self.missing.keys().copied()
     }
+}
+
+/// Whether `slot` lies in the runs of consecutive slots holding a path, first and last slot
+/// included.
+fn in_runs(runs: &[(u32, u32)], slot: u32) -> bool {
+    let at = runs.partition_point(|&(_, last)| last < slot);
+    runs.get(at).is_some_and(|&(first, _)| first <= slot)
 }
 
 struct IndexedRange {
@@ -820,14 +826,31 @@ enum RemovedAt {
     Commit(usize),
 }
 
+/// A parent of a range commit, its walk index when in the range, its id just below it.
+#[derive(Clone, Copy)]
+enum Parent {
+    /// In the range, at this walk index.
+    InRange(usize),
+    /// Just below the range, looked up in `History::boundary` by this id.
+    OutOfRange(ObjectId),
+}
+
 /// The walked commits and their states, children first.
 struct History<'a> {
     commits: &'a [git::Commit],
     states: &'a States,
-    position: HashMap<ObjectId, usize>,
+    /// The tree slot of each commit, in walk order.
+    slots: Vec<u32>,
+    /// Whether the tree of each commit could be read entirely, in walk order.
+    complete: Vec<bool>,
+    /// The walk index of the HEAD commit, when head is the working tree and the range holds it.
+    head_at: Option<usize>,
+    /// Every commit's parents, commit-major, in-range ones by walk index.
+    parents: Vec<Parent>,
+    /// The first parent of each commit in `parents`, the final entry closing the last.
+    parent_at: Vec<usize>,
     /// The paths of each parent outside the range, `None` when unreadable.
     boundary: &'a HashMap<ObjectId, Option<HashSet<PathId>>>,
-    head: &'a Head,
 }
 
 impl<'a> History<'a> {
@@ -837,13 +860,47 @@ impl<'a> History<'a> {
         boundary: &'a HashMap<ObjectId, Option<HashSet<PathId>>>,
         head: &'a Head,
     ) -> Self {
-        let position = commits.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
+        let slots = states
+            .slot_of
+            .iter()
+            .map(|&slot| u32::try_from(slot).expect("fewer than 2^32 trees"))
+            .collect();
+        let complete = states
+            .slot_of
+            .iter()
+            .map(|&slot| states.complete[slot])
+            .collect();
+        let position: HashMap<ObjectId, usize> = commits
+            .iter()
+            .enumerate()
+            .map(|(i, commit)| (commit.id, i))
+            .collect();
+        let mut parents =
+            Vec::with_capacity(commits.iter().map(|commit| commit.parents.len()).sum());
+        let mut parent_at = Vec::with_capacity(commits.len() + 1);
+        parent_at.push(0);
+        for commit in commits {
+            for &parent in &commit.parents {
+                parents.push(match position.get(&parent) {
+                    Some(&i) => Parent::InRange(i),
+                    None => Parent::OutOfRange(parent),
+                });
+            }
+            parent_at.push(parents.len());
+        }
+        let head_at = match head {
+            Head::WorkTree(Some(commit)) => position.get(commit).copied(),
+            _ => None,
+        };
         Self {
             commits,
             states,
-            position,
+            slots,
+            complete,
+            head_at,
+            parents,
+            parent_at,
             boundary,
-            head,
         }
     }
 }
@@ -867,26 +924,30 @@ impl History<'_> {
     /// commit closest to head that lacks it while every parent, in the range or just below it,
     /// has it.
     fn removal(&self, id: PathId) -> Option<RemovedAt> {
-        let has = |i: usize| self.states.has(i, id);
-        if let Head::WorkTree(Some(head_commit)) = self.head
-            && self.position.get(head_commit).is_some_and(|&i| has(i))
+        let runs = self.states.missing.get(&id);
+        let has = |slot: u32| runs.is_some_and(|runs| in_runs(runs, slot));
+        if let Some(head) = self.head_at
+            && self.complete[head]
+            && has(self.slots[head])
         {
             return Some(RemovedAt::WorkingTree);
         }
-        let parent_has = |parent: &ObjectId| match self.position.get(parent) {
-            Some(&p) => has(p),
-            None => self
-                .boundary
-                .get(parent)
-                .and_then(Option::as_ref)
-                .is_some_and(|paths| paths.contains(&id)),
-        };
-        self.commits
-            .iter()
-            .enumerate()
-            .position(|(i, commit)| {
-                let lacks = self.states.complete(i) && !self.states.missing(i, id);
-                lacks && !commit.parents.is_empty() && commit.parents.iter().all(parent_has)
+        (0..self.commits.len())
+            .position(|i| {
+                let slot = self.slots[i];
+                if !self.complete[i] || has(slot) {
+                    return false;
+                }
+                let parents = &self.parents[self.parent_at[i]..self.parent_at[i + 1]];
+                !parents.is_empty()
+                    && parents.iter().all(|parent| match parent {
+                        Parent::InRange(p) => self.complete[*p] && has(self.slots[*p]),
+                        Parent::OutOfRange(below) => self
+                            .boundary
+                            .get(below)
+                            .and_then(Option::as_ref)
+                            .is_some_and(|paths| paths.contains(&id)),
+                    })
             })
             .map(RemovedAt::Commit)
     }
