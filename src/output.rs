@@ -62,54 +62,42 @@ impl Report {
     /// repository at `root` when the report names a head commit.
     #[must_use]
     pub fn job_summary(&self, root: Option<&str>) -> String {
-        let mut out = self.prefix();
-        for (i, group) in self.groups.iter().enumerate() {
-            if i > 0 {
-                out.push('\n');
-            }
-            out.push_str(&self.row(group, root));
-        }
-        if !self.groups.is_empty() {
-            out.push('\n');
-        }
-        out.push_str(&self.closing(root));
-        out
+        self.summary(root, None)
     }
 
     /// The job summary for a GitHub step, which hides a summary that passes `limit` bytes, so
     /// the table stops before it and a closing line names the left-out rows.
     #[must_use]
     pub fn github_summary(&self, root: Option<&str>, limit: usize) -> String {
+        self.summary(root, Some(limit))
+    }
+
+    /// The table with one row per group, the closing when every row fits, the notice when
+    /// `limit` stops the table earlier.
+    fn summary(&self, root: Option<&str>, limit: Option<usize>) -> String {
         let mut out = self.prefix();
         let mut kept = 0;
-        let mut capped = false;
-        for group in &self.groups {
+        let closing = self.closing(root);
+        let tail = closing.len().max(notice(self.groups.len()).len());
+        for (i, group) in self.groups.iter().enumerate() {
             let row = self.row(group, root);
-            let separator = usize::from(kept > 0);
-            let tail = self
-                .closing(root)
-                .len()
-                .max(notice(self.groups.len() - kept).len());
-            if out.len() + separator + row.len() + 1 + tail > limit {
-                capped = true;
+            let separator = usize::from(i > 0);
+            if limit.is_some_and(|limit| out.len() + separator + row.len() + 1 + tail > limit) {
                 break;
             }
-            if separator == 1 {
+            if i > 0 {
                 out.push('\n');
             }
             out.push_str(&row);
             kept += 1;
         }
-        if capped {
-            if kept > 0 {
-                out.push('\n');
-            }
-            out.push_str(&notice(self.groups.len() - kept));
+        if kept > 0 {
+            out.push('\n');
+        }
+        if kept == self.groups.len() {
+            out.push_str(&closing);
         } else {
-            if kept > 0 {
-                out.push('\n');
-            }
-            out.push_str(&self.closing(root));
+            out.push_str(&notice(self.groups.len() - kept));
         }
         out
     }
