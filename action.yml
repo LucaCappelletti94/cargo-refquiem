@@ -1,7 +1,7 @@
 name: refquiem
 description: >-
-  Reports comments, docs, strings and Markdown that still mention the Rust items,
-  dependencies, features, binaries and examples your history removed.
+  Reports comments, docs, strings and Markdown that still mention Rust items, dependencies or
+  features your history removed.
 
 branding:
   icon: 'book-open'
