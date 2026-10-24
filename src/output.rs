@@ -555,6 +555,7 @@ mod tests {
         assert_eq!(report.job_summary(None), expected);
     }
 
+    #[test]
     fn the_cap_keeps_exactly_the_rows_the_limit_covers() {
         let report = report(vec![
             group("a::one", 1),
