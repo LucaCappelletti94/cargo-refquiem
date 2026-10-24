@@ -48,4 +48,8 @@ exclude_re = [
     'src/cache\.rs:\d+:9: replace FileCache::expansion -> Option<Expanded> with None$',
     'src/cache\.rs:\d+:9: replace FileCache::store_expansion with \(\)$',
     'src/index\.rs:\d+:5: replace expansion_key -> Option<ObjectId> with None$',
+    # A clock that never advances only turns every repeated copy into a full walk.
+    'src/index\.rs:\d+:23: replace \+= with \*= in Indexer::copy_below$',
+    # Never reusing the last copy only walks every subtree again.
+    'replace match guard \(made\.from, .* with false in Indexer::copy_below$',
 ]
