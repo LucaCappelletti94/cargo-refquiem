@@ -1252,9 +1252,12 @@ impl Indexer {
         let visible: HashSet<PathId> = resolved
             .iter()
             .copied()
-            .filter(|&id| public_path(id, &self.interner, hidden, &visibility))
-            .map(|id| origin(&origins, id))
-            .filter(|id| traits.declarations.get(id) == Some(&true))
+            .filter_map(|id| {
+                let stands_for = origin(&origins, id);
+                (traits.declarations.get(&stands_for) == Some(&true)
+                    && public_path(id, &self.interner, hidden, &visibility))
+                .then_some(stands_for)
+            })
             .collect();
         for implementation in &traits.implementations {
             let source = self
