@@ -52,4 +52,7 @@ exclude_re = [
     'src/index\.rs:\d+:23: replace \+= with \*= in Indexer::copy_below$',
     # Never reusing the last copy only walks every subtree again.
     'replace match guard \(made\.from, .* with false in Indexer::copy_below$',
+    # A destination of two or more segments is always interned, and one of a single segment
+    # gets the same ids either way.
+    'src/index\.rs:\d+:38: replace == with != in Indexer::copy_below$',
 ]
