@@ -1323,6 +1323,30 @@ fn a_glob_into_a_module_that_takes_an_origin_late_follows_an_alias_it_stopped_at
 }
 
 #[test]
+fn a_glob_copies_the_members_it_sees_only_after_the_first_round() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod a { pub fn alpha() {} pub fn beta() {} }\npub mod m { pub use crate::a as beta; }\npub mod z { pub use crate::m::beta::*; }\n",
+    );
+    repo.commit("a glob two hops through an alias");
+    repo.write(
+        "src/lib.rs",
+        "pub mod a { pub fn beta() {} }\npub mod m { pub use crate::a as beta; }\npub mod z { pub use crate::m::beta::*; }\n",
+    );
+    repo.write(
+        "README.md",
+        "`fixture::m::beta::alpha` and `fixture::z::alpha`.\n",
+    );
+    repo.commit("drop alpha");
+
+    assert_eq!(
+        removed(&run(&repo)),
+        ["fixture::m::beta::alpha", "fixture::z::alpha"]
+    );
+}
+
+#[test]
 fn members_read_before_their_type_are_copied_with_the_type() {
     let repo = Repo::new();
     let lib = "pub mod a;\npub mod b;\npub mod g { pub use crate::a::*; pub use crate::b::*; }\n";

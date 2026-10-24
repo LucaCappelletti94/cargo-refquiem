@@ -48,11 +48,14 @@ exclude_re = [
     'src/cache\.rs:\d+:9: replace FileCache::expansion -> Option<Expanded> with None$',
     'src/cache\.rs:\d+:9: replace FileCache::store_expansion with \(\)$',
     'src/index\.rs:\d+:5: replace expansion_key -> Option<ObjectId> with None$',
-    # A clock that never advances only turns every repeated copy into a full walk.
-    'src/index\.rs:\d+:23: replace \+= with \*= in Indexer::copy_below$',
-    # Never reusing the last copy only walks every subtree again.
-    'replace match guard \(made\.from, .* with false in Indexer::copy_below$',
     # A destination of two or more segments is always interned, and one of a single segment
     # gets the same ids either way.
-    'src/index\.rs:\d+:38: replace == with != in Indexer::copy_below$',
+    'src/index\.rs:\d+:30: replace == with != in Indexer::prefix_chain$',
+    # The fast path skips only the re-walk the slow path would do with the same chain, and
+    # never reusing the last copy only walks every subtree again.
+    'replace match guard made\.from == from.* with false in Indexer::copy_below$',
+    # A `<=` or `==` at the tick test only skips paths the last copy already holds, as a path
+    # renewed at the tick itself is on the chain and skipped either way.
+    'src/index\.rs:\d+:66: replace < with (<=|=+) in Indexer::copy_below$',
+    'src/index\.rs:\d+:77: replace < with (<=|=+) in Indexer::copy_below$',
 ]

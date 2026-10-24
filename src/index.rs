@@ -297,6 +297,9 @@ pub(crate) struct Indexer {
     /// The hasher of alias keys, one seed for the whole run so equal keys hash equal.
     alias_hasher: DefaultHashBuilder,
     keywords: Keywords,
+    /// The link chain [`Indexer::copy_below`] fills, kept longest prefix first and reused
+    /// between its calls.
+    copy_links: Vec<(PathId, usize)>,
 }
 
 /// The symbols of the path keywords.
@@ -332,6 +335,7 @@ impl Indexer {
             aliases: VecDeque::new(),
             alias_hasher: DefaultHashBuilder::default(),
             keywords,
+            copy_links: Vec::new(),
         }
     }
 
@@ -1496,6 +1500,31 @@ impl Indexer {
         crates.contains(&first).then(|| (source.to_vec(), false))
     }
 
+    /// The interned prefixes of `to`, longest first, as links in `self.copy_links` with the
+    /// origin each stands for, plus their ids and the id of `to` itself when interned.
+    fn prefix_chain(
+        &mut self,
+        to: &[Sym],
+        origins: &HashMap<PathId, PathId>,
+    ) -> (Option<PathId>, usize, Vec<PathId>) {
+        let mut prefixes = Vec::new();
+        let mut whole = None;
+        self.copy_links.clear();
+        for (len, id) in self.interner.prefixes(to) {
+            if whole.is_none() {
+                whole = (len == to.len()).then_some(id);
+            }
+            prefixes.push(id);
+            let before = self.copy_links.len().checked_sub(1).unwrap_or(NO_LINK);
+            self.copy_links.push((origin(origins, id), before));
+        }
+        (
+            whole,
+            self.copy_links.len().checked_sub(1).unwrap_or(NO_LINK),
+            prefixes,
+        )
+    }
+
     /// Re-roots every path strictly below `from` under `to`, never through a module the copy
     /// already passes, so that re-exports forming a cycle stay finite.
     ///
@@ -1506,7 +1535,9 @@ impl Indexer {
     ///
     /// `last` is the copy the same use or lend made before. Made again with the same chain of
     /// origins above `to`, the copy skips every path at and below which nothing changed since,
-    /// as the copy made then already holds everything below it.
+    /// as the copy made then already holds everything below it. The stored chain is reused
+    /// without re-walking the prefixes while no path was interned and none of the prefixes
+    /// renewed.
     fn copy_below(
         &mut self,
         (from, to, hide): (PathId, &[Sym], bool),
@@ -1525,33 +1556,54 @@ impl Indexer {
         changes.clock += 1;
         let across = self.interner.segments(from)[0] != to[0];
         // The origins on each copy's chain, as links to the link before them.
-        let mut links: Vec<(PathId, usize)> = Vec::new();
-        let mut tip = NO_LINK;
-        let prefixes: Vec<(usize, PathId)> = self.interner.prefixes(to).collect();
-        for &(_, id) in prefixes.iter().rev() {
-            links.push((origin(origins, id), tip));
-            tip = links.len() - 1;
-        }
-        let whole = prefixes
-            .first()
-            .filter(|&&(len, _)| len == to.len())
-            .map(|&(_, id)| id);
-        let since = match last {
+        let (whole, tip, since) = match last {
             Some(made)
-                if (made.from, made.to.as_ref(), made.hide, &made.links)
-                    == (from, to, hide, &links) =>
+                if made.from == from
+                    && made.to.as_ref() == to
+                    && made.hide == hide
+                    && made.count == self.interner.path_count()
+                    && made
+                        .prefixes
+                        .iter()
+                        .all(|p| changes.renewed(*p) <= made.tick) =>
             {
-                Some(std::mem::replace(&mut made.tick, changes.clock))
+                let since = std::mem::replace(&mut made.tick, changes.clock);
+                self.copy_links.clear();
+                self.copy_links.extend_from_slice(&made.links);
+                (
+                    made.whole,
+                    made.links.len().checked_sub(1).unwrap_or(NO_LINK),
+                    Some(since),
+                )
             }
             _ => {
-                *last = Some(Made {
-                    from,
-                    to: to.into(),
-                    hide,
-                    links: links.clone(),
-                    tick: changes.clock,
-                });
-                None
+                let (whole, tip, prefixes) = self.prefix_chain(to, origins);
+                let since = match last {
+                    Some(made)
+                        if made.from == from
+                            && made.to.as_ref() == to
+                            && made.hide == hide
+                            && made.links == self.copy_links[..] =>
+                    {
+                        made.prefixes = prefixes;
+                        made.count = self.interner.path_count();
+                        Some(std::mem::replace(&mut made.tick, changes.clock))
+                    }
+                    _ => {
+                        *last = Some(Made {
+                            from,
+                            to: to.into(),
+                            hide,
+                            links: self.copy_links[..].to_vec(),
+                            prefixes,
+                            whole,
+                            count: self.interner.path_count(),
+                            tick: changes.clock,
+                        });
+                        None
+                    }
+                };
+                (whole, tip, since)
             }
         };
         // Each entry is a source, the copy it lands at (`None` for `to` when never interned),
@@ -1585,10 +1637,10 @@ impl Indexer {
                 }
                 let child_origin = origin(origins, child);
                 changes.stand_for(&self.interner, origins, id, child_origin, added);
-                if !on_chain(&links, tip, child_origin) {
-                    links.push((child_origin, tip));
+                if !on_chain(&self.copy_links, tip, child_origin) {
+                    self.copy_links.push((child_origin, tip));
                     let since = since.filter(|&tick| changes.renewed(child) < tick);
-                    stack.push((child, Some(id), links.len() - 1, since));
+                    stack.push((child, Some(id), self.copy_links.len() - 1, since));
                 }
             }
         }
@@ -1754,8 +1806,16 @@ struct Made {
     from: PathId,
     to: Box<[Sym]>,
     hide: bool,
-    /// The chain of origins above `to`.
+    /// The chain of origins above `to`, longest prefix first, as links to the link before
+    /// them.
     links: Vec<(PathId, usize)>,
+    /// The ids of the interned prefixes of `to`, longest first, checked for renewals before
+    /// the chain is reused.
+    prefixes: Vec<PathId>,
+    /// The id of `to` itself when interned.
+    whole: Option<PathId>,
+    /// The number of interned paths when the copy was made.
+    count: usize,
     tick: u32,
 }
 
