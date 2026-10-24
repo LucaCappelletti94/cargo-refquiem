@@ -158,6 +158,52 @@ fn a_removed_dependency_is_read_at_the_version_locked_by_its_member_not_siblings
 }
 
 #[test]
+fn two_removed_members_read_their_own_locked_versions_of_a_shared_dependency() {
+    let repo = Repo::new();
+    repo.vendor("helper", "0.1.0", "pub struct OldThing;\n");
+    repo.vendor("helper", "0.2.0", "pub struct NewThing;\n");
+    let member = |name: &str, dependency: &str| {
+        format!(
+            "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n{dependency}"
+        )
+    };
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"a\", \"b\"]\n",
+    );
+    repo.write(
+        "a/Cargo.toml",
+        &member("a", "\n[dependencies]\nhelper = \"0.1\"\n"),
+    );
+    repo.write(
+        "b/Cargo.toml",
+        &member("b", "\n[dependencies]\nhelper = \"0.2\"\n"),
+    );
+    for file in ["src/lib.rs", "a/src/lib.rs", "b/src/lib.rs"] {
+        repo.write(file, "");
+    }
+    lock(&repo);
+    repo.commit("both use their helper");
+    repo.write("a/Cargo.toml", &member("a", ""));
+    repo.write("b/Cargo.toml", &member("b", ""));
+    lock(&repo);
+    repo.write(
+        "README.md",
+        "The `helper::OldThing` and `helper::NewThing` items.\n",
+    );
+    repo.commit("both drop helper");
+
+    let rows: Vec<(String, String)> = found(&repo).into_iter().map(|m| (m.0, m.5)).collect();
+    assert_eq!(
+        rows,
+        [
+            ("helper::NewThing".to_owned(), "helper::NewThing".to_owned()),
+            ("helper::OldThing".to_owned(), "helper::OldThing".to_owned()),
+        ]
+    );
+}
+
+#[test]
 fn items_of_a_dependency_head_no_longer_has_match_only_from_its_crate_root() {
     let repo = Repo::new();
     repo.vendor(

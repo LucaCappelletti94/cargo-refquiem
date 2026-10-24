@@ -118,7 +118,8 @@ pub(crate) fn head(
 }
 
 /// The public paths of the `removals` that neither set of `alive` paths has. A removal whose
-/// sources cargo cannot resolve is skipped.
+/// sources cargo cannot resolve is skipped. Its paths are fetched once per run, for every
+/// removal that resolves to the same manifest.
 pub(crate) fn removed(
     indexer: &mut Indexer,
     repo: &gix::Repository,
@@ -130,6 +131,7 @@ pub(crate) fn removed(
         items: HashMap::new(),
         skipped: Vec::new(),
     };
+    let mut memo: HashMap<ObjectId, HashSet<PathId>> = HashMap::new();
     for removal in removals {
         let tree = TreeSnapshot::new(repo, removal.tree, &indexer.trees);
         let Ok(members) = manifest::workspace(&tree, scratch.workspace, &mut indexer.manifests)
@@ -144,7 +146,7 @@ pub(crate) fn removed(
         };
         let paths = match &dependency.path {
             Some(dir) => path_library(indexer, &tree, dir, dependency),
-            None => fetched(indexer, &tree, member, dependency, scratch).map(|layer| layer.paths),
+            None => fetched(indexer, &tree, member, dependency, scratch, &mut memo),
         };
         let reason = match paths {
             Ok(paths) => {
@@ -191,14 +193,16 @@ fn path_library(
 }
 
 /// The public paths of a registry or git `dependency` of `member`, fetched at the version the
-/// `Cargo.lock` of `tree` records.
+/// `Cargo.lock` of `tree` records. The `memo` keeps the paths of every fetched manifest,
+/// keyed by the hash of its bytes.
 fn fetched(
     indexer: &mut Indexer,
     tree: &TreeSnapshot<'_>,
     member: &Member,
     dependency: &Dependency,
     scratch: &Scratch<'_>,
-) -> Result<Layer, Error> {
+    memo: &mut HashMap<ObjectId, HashSet<PathId>>,
+) -> Result<HashSet<PathId>, Error> {
     let package = dependency.package.as_deref().unwrap_or(&dependency.key);
     let lock = read_lock(tree, scratch.workspace)?;
     let mut spec = dependency.spec.clone();
@@ -238,6 +242,9 @@ fn fetched(
             path: "dependency manifest".to_owned(),
             source,
         })?;
+    if let Some(paths) = memo.get(&id) {
+        return Ok(paths.clone());
+    }
     let dir = scratch.dir.join("deps").join(id.to_string());
     write(&dir.join("Cargo.toml"), &bytes)?;
     write(&dir.join("lib.rs"), b"")?;
@@ -253,11 +260,14 @@ fn fetched(
         .ok_or_else(|| Error::NoLibrary {
             name: dependency.key.clone(),
         })?;
-    libraries(
+    let layer = libraries(
         indexer,
         &metadata,
         vec![(root.pkg.clone(), root.name.clone())],
-    )
+    )?;
+    let paths = layer.paths;
+    memo.insert(id, paths.clone());
+    Ok(paths)
 }
 
 /// The `Cargo.lock` of the workspace in `tree`.
