@@ -1,36 +1,16 @@
 //! Cargo flags, TOML tables, dotted headers and feature arrays, and where each names its item.
 
 mod common;
+#[path = "common/found_kinds.rs"]
+mod found_kinds;
 #[path = "common/vendor.rs"]
 mod vendor;
 
 use common::Repo;
+use found_kinds::found;
 use refquiem::ItemKind;
 
 const PACKAGE: &str = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
-
-/// `(removed name, kind, file, line, column, text)` for every mention, sorted.
-fn found(repo: &Repo) -> Vec<(String, ItemKind, String, usize, usize, String)> {
-    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
-    let mut out: Vec<_> = report
-        .groups
-        .iter()
-        .flat_map(|group| {
-            group.mentions.iter().map(|m| {
-                (
-                    group.path.clone(),
-                    group.kind,
-                    m.file.clone(),
-                    m.line,
-                    m.column,
-                    m.text.clone(),
-                )
-            })
-        })
-        .collect();
-    out.sort_by(|a, b| (&a.2, a.3, a.4).cmp(&(&b.2, b.3, b.4)));
-    out
-}
 
 fn mention(
     name: &str,

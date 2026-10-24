@@ -1,22 +1,18 @@
 //! Indexing of every declaration kind, of re-exports, serde spellings and manifests.
 
 mod common;
+#[path = "common/removed.rs"]
+mod removed;
 #[path = "common/vendor.rs"]
 mod vendor;
 
 use common::Repo;
 use refquiem::{ItemKind, Range, RemovedIn};
+use removed::removed;
 
 /// Runs refquiem over the full history against the working tree.
 fn run(repo: &Repo) -> refquiem::Report {
     refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap()
-}
-
-/// The removed paths that still have mentions, sorted.
-fn removed(report: &refquiem::Report) -> Vec<String> {
-    let mut out: Vec<String> = report.groups.iter().map(|g| g.path.clone()).collect();
-    out.sort();
-    out
 }
 
 /// The kind of the group `path`.

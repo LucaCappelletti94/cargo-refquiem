@@ -2,10 +2,15 @@
 //! standard library paths that keep a spelling alive.
 
 mod common;
+#[path = "common/found.rs"]
+mod found;
+#[path = "common/found_by_path.rs"]
+mod found_by_path;
 #[path = "common/vendor.rs"]
 mod vendor;
 
 use common::Repo;
+use found_by_path::found_by_path;
 use refquiem::{Context, Kind, Source};
 
 const BEFORE: &str =
@@ -55,31 +60,11 @@ fn unicode_blank_doc_lines_preserve_reference_offsets() {
         "src/lib.rs",
         "///\u{2003}\n///  `fixture::gone`\npub fn kept() {}\n",
     );
-    let rows: Vec<_> = found(&repo).into_iter().map(|m| (m.0, m.2, m.3)).collect();
-    assert_eq!(rows, [("fixture::gone".to_owned(), 2, 7)]);
-}
-
-/// `(removed path, file, line, column, context, text)` for every mention, sorted.
-fn found(repo: &Repo) -> Vec<(String, String, usize, usize, Context, String)> {
-    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
-    let mut out: Vec<_> = report
-        .groups
-        .iter()
-        .flat_map(|group| {
-            group.mentions.iter().map(|m| {
-                (
-                    group.path.clone(),
-                    m.file.clone(),
-                    m.line,
-                    m.column,
-                    m.context,
-                    m.text.clone(),
-                )
-            })
-        })
+    let rows: Vec<_> = found_by_path(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.2, m.3))
         .collect();
-    out.sort_by(|a, b| (&a.0, &a.1, a.2, a.3).cmp(&(&b.0, &b.1, b.2, b.3)));
-    out
+    assert_eq!(rows, [("fixture::gone".to_owned(), 2, 7)]);
 }
 
 fn fixture() -> Repo {
@@ -106,7 +91,7 @@ fn in_file<'a>(
 
 #[test]
 fn doc_comment_mentions_carry_their_markdown_structure() {
-    let found = found(&fixture());
+    let found = found_by_path(&fixture());
     let doc = |kind| context(Source::DocComment, kind);
     let gone = "fixture::gone";
 
@@ -133,7 +118,7 @@ fn doc_comment_mentions_carry_their_markdown_structure() {
 
 #[test]
 fn markdown_mentions_carry_their_structure_and_rustdoc_page_links() {
-    let found = found(&fixture());
+    let found = found_by_path(&fixture());
     let md = |kind| context(Source::Markdown, kind);
     let gone = "fixture::gone";
 
@@ -173,7 +158,10 @@ fn intra_doc_disambiguators_and_call_suffixes_are_stripped() {
     );
     repo.commit("drop gone");
 
-    let texts: Vec<(usize, String)> = found(&repo).into_iter().map(|m| (m.3, m.5)).collect();
+    let texts: Vec<(usize, String)> = found_by_path(&repo)
+        .into_iter()
+        .map(|m| (m.3, m.5))
+        .collect();
     assert_eq!(
         texts,
         [
@@ -195,7 +183,7 @@ fn a_standard_library_path_keeps_its_spelling_alive() {
     );
     repo.commit("drop local io");
 
-    let paths: Vec<String> = found(&repo).into_iter().map(|m| m.5).collect();
+    let paths: Vec<String> = found_by_path(&repo).into_iter().map(|m| m.5).collect();
     assert_eq!(paths, ["fixture::io::Error"]);
 }
 
@@ -233,7 +221,7 @@ fn compile_fail_and_commented_fences_are_compiled_code_blocks() {
     );
     repo.commit("drop gone");
 
-    let got: Vec<Context> = found(&repo).into_iter().map(|m| m.4).collect();
+    let got: Vec<Context> = found_by_path(&repo).into_iter().map(|m| m.4).collect();
     let compiled = context(Source::DocComment, Kind::CodeBlock { compiled: true });
     let uncompiled = context(Source::DocComment, Kind::CodeBlock { compiled: false });
     assert_eq!(got, [compiled, compiled, uncompiled]);
@@ -274,8 +262,10 @@ let q = fixture::images::postgres::Postgres::default();
     );
     repo.commit("images moved to another crate");
 
-    let found: Vec<(usize, usize, String)> =
-        found(&repo).into_iter().map(|m| (m.2, m.3, m.5)).collect();
+    let found: Vec<(usize, usize, String)> = found_by_path(&repo)
+        .into_iter()
+        .map(|m| (m.2, m.3, m.5))
+        .collect();
     assert_eq!(
         found,
         [
@@ -304,7 +294,7 @@ fn inner_docs_followed_by_outer_docs_do_not_share_a_code_fence() {
 
     let text = context(Source::DocComment, Kind::Text);
     assert_eq!(
-        found(&repo),
+        found_by_path(&repo),
         [
             (
                 "fixture::gone".to_owned(),
@@ -348,7 +338,7 @@ fn a_doc_comment_run_stops_at_the_next_attribute() {
 
     let text = context(Source::DocComment, Kind::Text);
     assert_eq!(
-        found(&repo),
+        found_by_path(&repo),
         [(
             "fixture::gone".to_owned(),
             "src/lib.rs".to_owned(),
@@ -384,7 +374,7 @@ fn string_literals_inside_hash_attributes_are_macro_arguments() {
 
     let literal = context(Source::StringLiteral, Kind::Text);
     assert_eq!(
-        found(&repo),
+        found_by_path(&repo),
         [
             (
                 "fixture::gone_b".to_owned(),
@@ -419,7 +409,7 @@ fn a_decorated_block_doc_fences_its_content_as_a_code_block() {
 
     let block = context(Source::DocComment, Kind::CodeBlock { compiled: true });
     assert_eq!(
-        found(&repo),
+        found_by_path(&repo),
         [(
             "fixture::gone".to_owned(),
             "src/lib.rs".to_owned(),
@@ -444,7 +434,7 @@ fn an_indented_block_doc_line_keeps_its_indent() {
 
     let text = context(Source::DocComment, Kind::Text);
     assert_eq!(
-        found(&repo),
+        found_by_path(&repo),
         [(
             "fixture::gone".to_owned(),
             "src/lib.rs".to_owned(),
@@ -469,7 +459,7 @@ fn the_doc_indent_is_the_shortest_line_indent() {
 
     let block = context(Source::DocComment, Kind::CodeBlock { compiled: true });
     assert_eq!(
-        found(&repo),
+        found_by_path(&repo),
         [(
             "fixture::gone".to_owned(),
             "src/lib.rs".to_owned(),
@@ -494,7 +484,7 @@ fn an_uneven_doc_line_keeps_the_mention_out_of_code() {
 
     let text = context(Source::DocComment, Kind::Text);
     assert_eq!(
-        found(&repo),
+        found_by_path(&repo),
         [(
             "fixture::gone".to_owned(),
             "src/lib.rs".to_owned(),
@@ -520,7 +510,7 @@ fn rustdoc_fence_attributes_mark_the_block_compiled() {
     let compiled = context(Source::DocComment, Kind::CodeBlock { compiled: true });
     let uncompiled = context(Source::DocComment, Kind::CodeBlock { compiled: false });
     assert_eq!(
-        found(&repo),
+        found_by_path(&repo),
         [
             (
                 "fixture::gone".to_owned(),
@@ -569,7 +559,7 @@ fn commented_out_code_is_skipped_unless_the_config_asks_for_it() {
     );
     repo.commit("drop gone_fn");
     let rows = |repo: &Repo| -> Vec<(usize, usize, Source, String)> {
-        found(repo)
+        found_by_path(repo)
             .into_iter()
             .map(|m| (m.2, m.3, m.4.source, m.5))
             .collect()
@@ -613,8 +603,10 @@ fn a_string_literal_holding_one_identifier_is_data() {
     );
     repo.commit("drop them");
 
-    let rows: Vec<(usize, usize, String)> =
-        found(&repo).into_iter().map(|m| (m.2, m.3, m.5)).collect();
+    let rows: Vec<(usize, usize, String)> = found_by_path(&repo)
+        .into_iter()
+        .map(|m| (m.2, m.3, m.5))
+        .collect();
     assert_eq!(
         rows,
         [
@@ -635,7 +627,7 @@ fn a_doc_comment_runs_across_doc_attributes_plain_comments_and_attributes() {
     );
     repo.commit("drop them");
 
-    let rows: Vec<(usize, usize, Context, String)> = found(&repo)
+    let rows: Vec<(usize, usize, Context, String)> = found_by_path(&repo)
         .into_iter()
         .map(|m| (m.2, m.3, m.4, m.5))
         .collect();
@@ -672,8 +664,10 @@ fn identifiers_in_attribute_arguments_of_a_compiled_example_are_not_names() {
     );
     repo.commit("drop them");
 
-    let rows: Vec<(usize, usize, String)> =
-        found(&repo).into_iter().map(|m| (m.2, m.3, m.5)).collect();
+    let rows: Vec<(usize, usize, String)> = found_by_path(&repo)
+        .into_iter()
+        .map(|m| (m.2, m.3, m.5))
+        .collect();
     assert_eq!(
         rows,
         [
@@ -699,7 +693,10 @@ fn a_rust_example_in_a_plain_comment_declares_its_own_names() {
     );
     repo.commit("drop them");
 
-    let rows: Vec<(String, usize)> = found(&repo).into_iter().map(|m| (m.0, m.2)).collect();
+    let rows: Vec<(String, usize)> = found_by_path(&repo)
+        .into_iter()
+        .map(|m| (m.0, m.2))
+        .collect();
     assert_eq!(
         rows,
         [
@@ -725,7 +722,7 @@ fn attribute_boundaries_preserve_string_literal_mentions() {
     );
     repo.commit("drop the structures");
 
-    let mentions: Vec<_> = found(&repo)
+    let mentions: Vec<_> = found_by_path(&repo)
         .into_iter()
         .map(|row| (row.0, row.2, row.5))
         .collect();
@@ -752,7 +749,10 @@ fn a_doc_attribute_keeps_its_example_bindings_local() {
     );
     repo.commit("drop the items");
 
-    let mentions: Vec<_> = found(&repo).into_iter().map(|row| (row.0, row.5)).collect();
+    let mentions: Vec<_> = found_by_path(&repo)
+        .into_iter()
+        .map(|row| (row.0, row.5))
+        .collect();
     assert_eq!(
         mentions,
         [(
