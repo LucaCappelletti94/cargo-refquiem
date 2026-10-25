@@ -1,10 +1,12 @@
 //! `.refquiem.toml` parameters and the files a scan leaves out.
 
-use std::path::Path;
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
 use crate::Error;
+use crate::error::CustomFailure;
 
 /// The file name looked up at the workspace root.
 pub(crate) const FILE_NAME: &str = ".refquiem.toml";
@@ -53,6 +55,14 @@ impl Config {
             .as_ref()
             .is_none_or(|vocabularies| vocabularies.builtins.contains(&Builtin::English))
     }
+
+    /// The custom vocabulary files the selection names, empty without a table.
+    pub(crate) fn custom_files(&self) -> &[String] {
+        match &self.vocabularies {
+            Some(vocabularies) => &vocabularies.files,
+            None => &[],
+        }
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -60,6 +70,9 @@ impl Config {
 struct Vocabularies {
     #[serde(default)]
     builtins: Vec<Builtin>,
+    /// Custom vocabulary files, resolved against the directory of this config.
+    #[serde(default)]
+    files: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Deserialize)]
@@ -81,6 +94,125 @@ pub(crate) fn load(path: &Path, required: bool) -> Result<Config, Error> {
         path: path.to_path_buf(),
         source: Box::new(source),
     })
+}
+
+/// The category of a custom vocabulary file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum Category {
+    /// Words claim bare names in running text.
+    NaturalLanguage,
+    /// Words claim bare names in running text and inline code spans.
+    Technical,
+}
+
+impl Category {
+    /// The category as its configuration spelling.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Category::NaturalLanguage => "natural-language",
+            Category::Technical => "technical",
+        }
+    }
+}
+
+/// The case rule of a custom vocabulary file.
+#[derive(Clone, Copy, Debug, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum Case {
+    /// Words match their exact spelling.
+    Sensitive,
+    /// Words match with ASCII case ignored.
+    AsciiInsensitive,
+    /// Words match with Unicode lowercase applied.
+    UnicodeLowercase,
+}
+
+impl Case {
+    /// The rule as its configuration spelling.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Case::Sensitive => "sensitive",
+            Case::AsciiInsensitive => "ascii-insensitive",
+            Case::UnicodeLowercase => "unicode-lowercase",
+        }
+    }
+}
+
+/// The document of a custom vocabulary file.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+struct CustomFile {
+    format_version: u32,
+    kind: Category,
+    case: Case,
+    words: Vec<String>,
+}
+
+/// A selected custom vocabulary file, read and validated.
+pub(crate) struct Custom {
+    /// The canonical path the selection resolved to.
+    pub(crate) path: PathBuf,
+    pub(crate) kind: Category,
+    pub(crate) case: Case,
+    pub(crate) format_version: u32,
+    pub(crate) words: Vec<String>,
+}
+
+/// The distinct custom vocabulary files the config selects, in canonical path order,
+/// each read once.
+pub(crate) fn load_custom(config_path: &Path, config: &Config) -> Result<Vec<Custom>, Error> {
+    let base = config_path.parent().unwrap_or(Path::new("."));
+    let mut paths = BTreeSet::new();
+    for entry in config.custom_files() {
+        paths.insert(canonical(&base.join(entry))?);
+    }
+    let mut files = Vec::with_capacity(paths.len());
+    for path in paths {
+        files.push(load_custom_file(path)?);
+    }
+    Ok(files)
+}
+
+/// The custom vocabulary at `path`, a UTF-8 `TOML` document with supported values.
+fn load_custom_file(path: PathBuf) -> Result<Custom, Error> {
+    let bytes =
+        std::fs::read(&path).map_err(|source| custom_error(&path, CustomFailure::Io(source)))?;
+    let text = std::str::from_utf8(&bytes).map_err(|_| custom_error(&path, CustomFailure::Utf8))?;
+    let mut file: CustomFile = toml::from_str(text)
+        .map_err(|source| custom_error(&path, CustomFailure::Toml(Box::new(source))))?;
+    if file.format_version != 1 {
+        return Err(custom_error(
+            &path,
+            CustomFailure::Version(file.format_version),
+        ));
+    }
+    if let Some(at) = file.words.iter().position(|word| {
+        word.is_empty() || word.chars().any(|c| c.is_whitespace() || c.is_control())
+    }) {
+        let word = file.words.swap_remove(at);
+        return Err(custom_error(&path, CustomFailure::Word(word)));
+    }
+    Ok(Custom {
+        path,
+        kind: file.kind,
+        case: file.case,
+        format_version: file.format_version,
+        words: file.words,
+    })
+}
+
+fn custom_error(path: &Path, source: CustomFailure) -> Error {
+    Error::Custom {
+        path: path.to_path_buf(),
+        source: Box::new(source),
+    }
+}
+
+/// `path` after symlink resolution, an error with the path when it cannot be resolved.
+fn canonical(path: &Path) -> Result<PathBuf, Error> {
+    path.canonicalize()
+        .map_err(|source| custom_error(path, CustomFailure::Io(source)))
 }
 
 /// Which files a scan reads for mentions.

@@ -35,6 +35,27 @@ fn vocabulary_catalog_ignores_project_state_outside_a_repository() {
     assert_eq!(output.status.code(), Some(0));
     let catalog = String::from_utf8(output.stdout).unwrap();
     assert!(catalog.contains("english"));
+    std::fs::write(
+        dir.path().join("domain.toml"),
+        "format-version = 1\nkind = \"technical\"\ncase = \"sensitive\"\nwords = [\"PrivateSDKThing\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join(".refquiem.toml"),
+        "[vocabularies]\nfiles = [\"domain.toml\"]\n",
+    )
+    .unwrap();
+    let custom = cargo_refquiem(dir.path(), &["vocabularies", "--json"]);
+    assert_eq!(custom.status.code(), Some(0));
+    let custom: serde_json::Value = serde_json::from_slice(&custom.stdout).unwrap();
+    assert!(!custom.to_string().contains("domain.toml"));
+    assert!(
+        custom
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|entry| entry.get("files").is_none() && entry.get("path").is_none())
+    );
     let effective = cargo_refquiem(dir.path(), &["vocabularies", "--effective", "--json"]);
     assert_eq!(effective.status.code(), Some(2));
     assert_eq!(effective.stdout, b"");
@@ -217,6 +238,351 @@ fn vocabulary_inspection_rejects_invalid_selected_configuration_without_partial_
     );
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("missing.toml"));
+}
+
+#[test]
+fn custom_vocabulary_inspection_resolves_config_relative_files_without_history() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "invalid Rust {");
+    let external = tempfile::tempdir().unwrap();
+    let config = external.path().join("selection.toml");
+    let file = external.path().join("domain.toml");
+    std::fs::write(
+        &config,
+        "[vocabularies]\nfiles = [\"domain.toml\", \"./domain.toml\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        &file,
+        "format-version = 1\nkind = \"technical\"\ncase = \"sensitive\"\nwords = [\"PrivateSDKThing\"]\n",
+    )
+    .unwrap();
+    let output = cargo_refquiem(
+        repo.path(),
+        &[
+            "vocabularies",
+            "--effective",
+            "--config",
+            config.to_str().unwrap(),
+            "--json",
+        ],
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let selection: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(selection["builtins"], serde_json::json!([]));
+    assert_eq!(
+        selection["files"],
+        serde_json::json!([{
+            "path": std::fs::canonicalize(file).unwrap(),
+            "kind": "technical",
+            "case": "sensitive",
+            "format_version": 1,
+        }])
+    );
+}
+
+#[test]
+fn effective_output_lists_custom_files_with_their_category_case_and_format_version() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "invalid Rust {");
+    let external = tempfile::tempdir().unwrap();
+    let config = external.path().join("selection.toml");
+    let file = external.path().join("domain.toml");
+    std::fs::write(&config, "[vocabularies]\nfiles = [\"domain.toml\"]\n").unwrap();
+    std::fs::write(
+        &file,
+        "format-version = 1\nkind = \"technical\"\ncase = \"sensitive\"\nwords = [\"PrivateSDKThing\"]\n",
+    )
+    .unwrap();
+    let output = cargo_refquiem(
+        repo.path(),
+        &[
+            "vocabularies",
+            "--effective",
+            "--config",
+            config.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let selection = String::from_utf8(output.stdout).unwrap();
+    let canonical = std::fs::canonicalize(file).unwrap();
+    assert!(
+        selection.contains(canonical.to_str().unwrap()),
+        "{selection}"
+    );
+    assert!(selection.contains("technical"), "{selection}");
+    assert!(selection.contains("sensitive"), "{selection}");
+    assert!(selection.contains("format version 1"), "{selection}");
+    assert!(
+        !selection.contains("No optional vocabularies"),
+        "{selection}"
+    );
+    assert!(!selection.contains("english"), "{selection}");
+    repo.write(".refquiem.toml", "[vocabularies]\n");
+    let output = cargo_refquiem(repo.path(), &["vocabularies", "--effective"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let selection = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        selection.contains("No optional vocabularies"),
+        "{selection}"
+    );
+    assert!(!selection.contains("english"), "{selection}");
+}
+
+#[test]
+fn custom_file_metadata_is_deterministic_and_sorted_by_canonical_path() {
+    let repo = Repo::new();
+    let external = tempfile::tempdir().unwrap();
+    std::fs::write(
+        external.path().join("a.toml"),
+        "format-version = 1\nkind = \"technical\"\ncase = \"sensitive\"\nwords = [\"Word\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        external.path().join("m.toml"),
+        "format-version = 1\nkind = \"natural-language\"\ncase = \"unicode-lowercase\"\nwords = [\"ÄTHER\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        external.path().join("z.toml"),
+        "format-version = 1\nkind = \"natural-language\"\ncase = \"ascii-insensitive\"\nwords = [\"Word\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        external.path().join("first.toml"),
+        "[vocabularies]\nfiles = [\"z.toml\", \"m.toml\", \"a.toml\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        external.path().join("second.toml"),
+        format!(
+            "[vocabularies]\nfiles = {}\n",
+            serde_json::to_string(&[
+                external.path().join("a.toml"),
+                external.path().join("m.toml"),
+                external.path().join("z.toml"),
+            ])
+            .unwrap()
+        ),
+    )
+    .unwrap();
+    let selection_of = |config: &std::path::Path| -> serde_json::Value {
+        let output = cargo_refquiem(
+            repo.path(),
+            &[
+                "vocabularies",
+                "--effective",
+                "--config",
+                config.to_str().unwrap(),
+                "--json",
+            ],
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice(&output.stdout).unwrap()
+    };
+    let first = selection_of(&external.path().join("first.toml"));
+    let second = selection_of(&external.path().join("second.toml"));
+    assert_eq!(first["files"], second["files"]);
+    let a = std::fs::canonicalize(external.path().join("a.toml")).unwrap();
+    let m = std::fs::canonicalize(external.path().join("m.toml")).unwrap();
+    let z = std::fs::canonicalize(external.path().join("z.toml")).unwrap();
+    assert_eq!(
+        first["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["path"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            a.to_str().unwrap(),
+            m.to_str().unwrap(),
+            z.to_str().unwrap()
+        ]
+    );
+    assert_eq!(first["files"][0]["kind"], "technical");
+    assert_eq!(first["files"][1]["kind"], "natural-language");
+    assert_eq!(first["files"][2]["kind"], "natural-language");
+    assert_eq!(first["files"][0]["case"], "sensitive");
+    assert_eq!(first["files"][1]["case"], "unicode-lowercase");
+    assert_eq!(first["files"][2]["case"], "ascii-insensitive");
+    assert_eq!(first["files"][0]["format_version"], serde_json::json!(1));
+    assert_eq!(first["files"][1]["format_version"], serde_json::json!(1));
+    assert_eq!(first["files"][2]["format_version"], serde_json::json!(1));
+}
+
+#[test]
+fn invalid_custom_files_exit_2_without_partial_output_in_either_output_mode() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "invalid Rust {");
+    let external = tempfile::tempdir().unwrap();
+    let config = external.path().join("selection.toml");
+    let file = external.path().join("domain.toml");
+    std::fs::write(&config, "[vocabularies]\nfiles = [\"domain.toml\"]\n").unwrap();
+    for (name, contents) in [
+        ("missing file", None::<Vec<u8>>),
+        (
+            "unsupported format version",
+            Some(
+                b"format-version = 2\nkind = \"technical\"\ncase = \"sensitive\"\nwords = [\"Word\"]\n"
+                    .to_vec(),
+            ),
+        ),
+        (
+            "unsupported kind",
+            Some(
+                b"format-version = 1\nkind = \"sql\"\ncase = \"sensitive\"\nwords = [\"Word\"]\n"
+                    .to_vec(),
+            ),
+        ),
+        (
+            "blank word",
+            Some(
+                b"format-version = 1\nkind = \"technical\"\ncase = \"sensitive\"\nwords = [\"bad word\"]\n"
+                    .to_vec(),
+            ),
+        ),
+        (
+            "non UTF-8 bytes",
+            Some(
+                b"format-version = 1\nkind = \"technical\"\ncase = \"sensitive\"\nwords = [\xff\xfe]\n"
+                    .to_vec(),
+            ),
+        ),
+    ] {
+        match contents {
+            Some(contents) => std::fs::write(&file, contents).unwrap(),
+            None => std::fs::remove_file(&file)
+                .unwrap_or_else(|error| assert_eq!(error.kind(), std::io::ErrorKind::NotFound)),
+        }
+        for json in [false, true] {
+            let mut args = vec!["vocabularies", "--effective", "--config", config.to_str().unwrap()];
+            if json {
+                args.push("--json");
+            }
+            let output = cargo_refquiem(repo.path(), &args);
+            assert_eq!(output.status.code(), Some(2), "{name}");
+            assert_eq!(output.stdout, b"", "{name}");
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("domain.toml"),
+                "{name}"
+            );
+        }
+    }
+}
+
+#[test]
+fn custom_files_mask_eligible_mentions_while_explicit_rust_references_stay_reported() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub struct PrivateSDKThing;\n");
+    repo.commit("public SDK name");
+    repo.write(
+        "src/lib.rs",
+        "/// PrivateSDKThing\n/// [PrivateSDKThing]\n/// ```\n/// let _: PrivateSDKThing;\n/// ```\npub struct Kept;\npub fn diagnostic() { println!(\"PrivateSDKThing failed\"); }\n",
+    );
+    repo.write(
+        "README.md",
+        "PrivateSDKThing\n`PrivateSDKThing`\n`fixture::PrivateSDKThing`\n",
+    );
+    repo.write(
+        "domain.toml",
+        "format-version = 1\nkind = \"technical\"\ncase = \"sensitive\"\nwords = [\"PrivateSDKThing\"]\n",
+    );
+    let mentions = |report: &serde_json::Value| -> Vec<(String, u64)> {
+        let mut rows: Vec<_> = report["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|group| {
+                group["mentions"].as_array().unwrap().iter().map(|mention| {
+                    (
+                        mention["file"].as_str().unwrap().to_owned(),
+                        mention["line"].as_u64().unwrap(),
+                    )
+                })
+            })
+            .collect();
+        rows.sort_unstable();
+        rows
+    };
+    repo.write(".refquiem.toml", "[vocabularies]\n");
+    let bare = cargo_refquiem(repo.path(), &["--json"]);
+    assert_eq!(
+        bare.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&bare.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&bare.stdout).unwrap();
+    assert_eq!(report["groups"].as_array().unwrap().len(), 1);
+    assert_eq!(report["groups"][0]["path"], "fixture::PrivateSDKThing");
+    assert_eq!(
+        mentions(&report),
+        [
+            ("README.md".to_owned(), 1),
+            ("README.md".to_owned(), 2),
+            ("README.md".to_owned(), 3),
+            ("src/lib.rs".to_owned(), 1),
+            ("src/lib.rs".to_owned(), 2),
+            ("src/lib.rs".to_owned(), 4),
+            ("src/lib.rs".to_owned(), 7),
+        ]
+    );
+    repo.write(
+        ".refquiem.toml",
+        "[vocabularies]\nfiles = [\"domain.toml\"]\n",
+    );
+    let inspected = cargo_refquiem(repo.path(), &["vocabularies", "--effective", "--json"]);
+    assert_eq!(
+        inspected.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&inspected.stderr)
+    );
+    let selection: serde_json::Value = serde_json::from_slice(&inspected.stdout).unwrap();
+    assert_eq!(selection["builtins"], serde_json::json!([]));
+    assert_eq!(selection["files"].as_array().unwrap().len(), 1);
+    assert_eq!(selection["files"][0]["kind"], "technical");
+    assert_eq!(selection["files"][0]["case"], "sensitive");
+    let domain = std::fs::canonicalize(repo.path().join("domain.toml")).unwrap();
+    assert_eq!(selection["files"][0]["path"], domain.to_str().unwrap());
+    let scanned = cargo_refquiem(repo.path(), &["--json"]);
+    assert_eq!(
+        scanned.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&scanned.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&scanned.stdout).unwrap();
+    assert_eq!(report["groups"].as_array().unwrap().len(), 1);
+    assert_eq!(report["groups"][0]["path"], "fixture::PrivateSDKThing");
+    assert_eq!(
+        mentions(&report),
+        [
+            ("README.md".to_owned(), 3),
+            ("src/lib.rs".to_owned(), 2),
+            ("src/lib.rs".to_owned(), 4),
+        ]
+    );
 }
 
 #[test]

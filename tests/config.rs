@@ -192,7 +192,7 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
         "[vocabularies]\nbuiltins = [\"rust\"]\n",
         "[vocabularies]\nbuiltin = [\"english\"]\n",
         "[vocabularies]\nbuiltins = \"english\"\n",
-        "[vocabularies]\nfiles = [\"custom.toml\"]\n",
+        "[vocabularies]\nfiles = \"custom.toml\"\n",
     ] {
         repo.write(".refquiem.toml", config);
         let error = refquiem::run(&options).unwrap_err();

@@ -64,13 +64,25 @@ English is the default optional vocabulary. An explicit `[vocabularies]` table r
 ```toml
 [vocabularies]
 builtins = ["english"]
+files = ["vocab/domain.toml"]
 ```
 
-An empty table or `builtins = []` disables optional vocabularies. `english` is the available built-in identity, and unknown identities or fields are configuration errors. `--config PATH` selects a replacement configuration, while `--package NAME` only limits scanned files.
+An empty table disables optional vocabularies. Omitted arrays default to empty, and selecting only `files` never enables `english`. `english` is the available built-in identity, and unknown identities or fields are configuration errors. `--config PATH` selects a replacement configuration, while `--package NAME` only limits scanned files.
 
-English uses Unicode lowercasing and establishes ambiguity only in running text, including plain diagnostic text. Inline code spans, Rust-specific links, qualified Rust paths, compiled Rust identifiers, and serialized names receive no English exemption. Rust standard-library resolution is always active.
+A custom file is a self-describing `TOML` document with `format-version = 1`, `kind` as `natural-language` or `technical`, `case` as `sensitive`, `ascii-insensitive` or `unicode-lowercase`, and `words` as a string array. Missing fields, unknown fields, and unsupported values are errors.
 
-`cargo refquiem vocabularies` lists bundled identities, matching rules, and source revisions, including outside a repository. `cargo refquiem vocabularies --effective` resolves the workspace selection without scanning history, and accepts `--config PATH` to select another configuration. Inspection flags follow the subcommand, both modes support `--json`, and their exit status is `0` on success or `2` on error.
+```toml
+format-version = 1
+kind = "technical"
+case = "sensitive"
+words = ["PrivateSDKThing", "memory.grow"]
+```
+
+Relative paths resolve from the directory of the selected configuration, absolute paths select local files, canonical aliases select one file, and edits take effect on the next run. Missing, unreadable, non-UTF-8, malformed, or invalid files abort the run with the offending path. Words are nonempty without whitespace or control characters, and duplicates after the declared case normalization count once. Matching never trims words, strips punctuation, or applies Unicode composition normalization or full case folding.
+
+Natural-language vocabularies establish ambiguity only in running text, including plain diagnostic text. English uses Unicode lowercasing. Technical vocabularies also establish ambiguity in inline code spans. Rust-specific links, qualified Rust paths, compiled Rust identifiers, serialized names, and manifest entries receive no vocabulary exemption, and matching uses the complete spelling under each vocabulary's case rule. Rust standard-library resolution is always active.
+
+`cargo refquiem vocabularies` lists bundled identities, matching rules, and source revisions, including outside a repository, and never reads project configuration. `cargo refquiem vocabularies --effective` resolves the workspace selection without scanning history, lists selected built-ins and resolved custom files with their category, case rule, and format version, and accepts `--config PATH` to select another configuration. Inspection flags follow the subcommand, both modes support `--json`, and their exit status is `0` on success or `2` on error.
 
 ## Rerun
 
