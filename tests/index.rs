@@ -56,6 +56,23 @@ fn items_of_raw_named_modules_are_found_by_their_plain_path() {
 }
 
 #[test]
+fn a_removed_function_component_is_reported_under_its_generated_name() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod ui {\n    #[function_component(Dashboard)]\n    pub fn dashboard() {}\n}\n",
+    );
+    repo.commit("component");
+    repo.write("src/lib.rs", "pub mod ui {}\n");
+    repo.write("README.md", "`fixture::ui::Dashboard`\n");
+    repo.commit("remove component");
+
+    let report = run(&repo);
+    assert_eq!(removed(&report), ["fixture::ui::Dashboard"]);
+    assert_eq!(kind_of(&report, "fixture::ui::Dashboard"), ItemKind::Struct);
+}
+
+#[test]
 fn a_removed_const_is_reported() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "pub const ANSWER: u32 = 1;\n");

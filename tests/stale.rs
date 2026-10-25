@@ -409,6 +409,83 @@ fn an_item_moved_into_an_item_macro_stays_alive() {
 }
 
 #[test]
+fn a_function_component_name_claims_local_links_without_hiding_a_removed_crate_path() {
+    for attribute in [
+        "function_component(Dashboard)",
+        "yew::function_component(Dashboard)",
+        "function_component(r#Dashboard)",
+    ] {
+        let repo = Repo::new();
+        repo.write(
+            "Cargo.toml",
+            "[workspace]\nmembers = [\"a\", \"b\"]\nresolver = \"2\"\n",
+        );
+        for member in ["a", "b"] {
+            repo.write(
+                &format!("{member}/Cargo.toml"),
+                &format!(
+                    "[package]\nname = \"{member}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"
+                ),
+            );
+        }
+        repo.write("a/src/lib.rs", "pub fn Dashboard() {}\n");
+        repo.write(
+            "b/src/lib.rs",
+            &format!(
+                "/// Handed to [`Dashboard`] or [`b::Dashboard`], formerly [`a::Dashboard`].\npub struct Handle;\n#[{attribute}]\nfn dashboard() {{}}\n"
+            ),
+        );
+        repo.commit("dashboards");
+        repo.write("a/src/lib.rs", "pub struct Other;\n");
+        repo.commit("remove a dashboard");
+
+        let report = repo.run();
+        let links: Vec<_> = report
+            .groups
+            .iter()
+            .flat_map(|group| group.mentions.iter().map(|mention| mention.text.as_str()))
+            .collect();
+        assert_eq!(removed(&report), ["a::Dashboard"], "{attribute}");
+        assert_eq!(links, ["a::Dashboard"], "{attribute}");
+    }
+}
+
+#[test]
+fn a_function_component_keeps_its_name_only_in_its_module() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod ui { pub struct Dashboard; }\npub mod old { pub struct Dashboard; }\n",
+    );
+    repo.commit("plain dashboards");
+    repo.write(
+        "src/lib.rs",
+        "pub mod ui {\n    #[function_component(Dashboard)]\n    pub fn dashboard() {}\n}\npub mod old {}\n",
+    );
+    repo.write("README.md", "`ui::Dashboard` and `old::Dashboard`\n");
+    repo.commit("generate ui dashboard");
+
+    assert_eq!(removed(&repo.run()), ["fixture::old::Dashboard"]);
+}
+
+#[test]
+fn non_naming_attributes_do_not_claim_their_arguments_as_items() {
+    for attribute in ["allow(Dashboard)", "derive(Dashboard)", "component"] {
+        let repo = Repo::new();
+        repo.write("src/lib.rs", "pub struct Dashboard;\n");
+        repo.commit("dashboard");
+        repo.write(
+            "src/lib.rs",
+            &format!("#[{attribute}]\npub fn dashboard() {{}}\n"),
+        );
+        repo.write("README.md", "`Dashboard`\n");
+        repo.commit("remove dashboard");
+
+        assert_eq!(removed(&repo.run()), ["fixture::Dashboard"], "{attribute}");
+    }
+}
+
+#[test]
 fn a_macro_rules_body_keeps_its_generated_names_alive_where_invoked() {
     let repo = Repo::new();
     repo.write(

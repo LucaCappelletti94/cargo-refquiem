@@ -227,6 +227,17 @@ impl Collector<'_> {
                 Item::Fn(item) => {
                     let name = item.sig.ident.to_string();
                     self.decl(&item.sig.ident, ItemKind::Function, &item.vis);
+                    for attr in &item.attrs {
+                        if attr
+                            .path()
+                            .segments
+                            .last()
+                            .is_some_and(|segment| segment.ident == "function_component")
+                            && let Ok(ident) = attr.parse_args::<syn::Ident>()
+                        {
+                            self.decl(&ident, ItemKind::Struct, &item.vis);
+                        }
+                    }
                     let end = item.block.brace_token.span.open().byte_range().start;
                     let signature = self.signature(&item.sig, end);
                     self.sign(&[&name], ItemKind::Function, signature);

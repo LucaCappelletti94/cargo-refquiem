@@ -43,6 +43,8 @@ A suggestion names where the item most likely went. Verify it before applying.
 
 Fix the references themselves. Matching uses parsed names rather than type checking, so run the affected build or documentation checks after rewriting them.
 
+Functions annotated with `#[function_component(Name)]` or `#[yew::function_component(Name)]` declare a struct named `Name` for matching.
+
 ## Skipped dependencies
 
 `skipped` entries identify removed dependencies whose sources Cargo could not resolve. Their items were not checked, and these warnings do not change the exit status or clean verdict. Read each reason before claiming coverage of historical dependency APIs.
