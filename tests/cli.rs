@@ -31,6 +31,10 @@ fn vocabulary_catalog_ignores_project_state_outside_a_repository() {
             .iter()
             .any(|entry| entry["id"] == "english")
     );
+    let output = cargo_refquiem(dir.path(), &["vocabularies"]);
+    assert_eq!(output.status.code(), Some(0));
+    let catalog = String::from_utf8(output.stdout).unwrap();
+    assert!(catalog.contains("english"));
     let effective = cargo_refquiem(dir.path(), &["vocabularies", "--effective", "--json"]);
     assert_eq!(effective.status.code(), Some(2));
     assert_eq!(effective.stdout, b"");
@@ -64,14 +68,14 @@ fn vocabulary_inspection_uses_workspace_config_without_history_or_rust_parsing()
     let selection: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(selection["builtins"], serde_json::json!([]));
     assert_eq!(selection["rust_stdlib"], true);
-    assert_eq!(
-        selection["config"],
-        std::fs::canonicalize(repo.path())
-            .unwrap()
-            .join(".refquiem.toml")
-            .to_str()
-            .unwrap()
-    );
+    let root_config = std::fs::canonicalize(repo.path())
+        .unwrap()
+        .join(".refquiem.toml");
+    assert_eq!(selection["config"], root_config.to_str().unwrap());
+    let output = cargo_refquiem(&member, &["vocabularies", "--effective"]);
+    assert_eq!(output.status.code(), Some(0));
+    let selection = String::from_utf8(output.stdout).unwrap();
+    assert!(selection.contains(root_config.to_str().unwrap()));
     let external = tempfile::tempdir().unwrap();
     let config = external.path().join("selection.toml");
     std::fs::write(
@@ -99,6 +103,18 @@ fn vocabulary_inspection_uses_workspace_config_without_history_or_rust_parsing()
         .collect();
     assert_eq!(identities, ["english"]);
     assert_eq!(selection["config"], config.to_str().unwrap());
+    let output = cargo_refquiem(
+        &member,
+        &[
+            "vocabularies",
+            "--effective",
+            "--config",
+            config.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0));
+    let selection = String::from_utf8(output.stdout).unwrap();
+    assert!(selection.contains(config.to_str().unwrap()));
 }
 
 #[test]
