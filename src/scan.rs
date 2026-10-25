@@ -130,15 +130,20 @@ fn head_snapshot<'r>(
     }
 }
 
+/// The discovered repository containing `options.root`.
+pub(crate) fn repository(options: &Options) -> Result<gix::Repository, Error> {
+    gix::discover(&options.root).map_err(|source| Error::Discover {
+        path: options.root.clone(),
+        source,
+    })
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "the scan driver lists its steps one per line, splitting it would hide their order"
 )]
 pub(crate) fn run(options: &Options) -> Result<Report, Error> {
-    let mut repo = gix::discover(&options.root).map_err(|source| Error::Discover {
-        path: options.root.clone(),
-        source,
-    })?;
+    let mut repo = repository(options)?;
     // Trees are looked up by path once per module file and commit, mostly hitting the same objects.
     repo.object_cache_size_if_unset(64 * 1024 * 1024);
     let layout = layout(options, &repo)?;
@@ -496,13 +501,22 @@ fn reported(interner: &Interner, id: PathId) -> String {
     }
 }
 
-/// The config of the scan and its range, `since` from the config starting a full one.
-fn settings(options: &Options, workspace_dir: &Path) -> Result<(Config, Range), Error> {
+/// The config of the scan and the path selected for it, including the absent default.
+pub(crate) fn selected_config(
+    options: &Options,
+    workspace_dir: &Path,
+) -> Result<(PathBuf, Config), Error> {
     let path = options
         .config
         .clone()
         .unwrap_or_else(|| workspace_dir.join(config::FILE_NAME));
     let config = config::load(&path, options.config.is_some())?;
+    Ok((path, config))
+}
+
+/// The config of the scan and its range, `since` from the config starting a full one.
+fn settings(options: &Options, workspace_dir: &Path) -> Result<(Config, Range), Error> {
+    let (_, config) = selected_config(options, workspace_dir)?;
     let range = match (&options.range, &config.since) {
         (Range::Full, Some(since)) => Range::Since(since.clone()),
         (range, _) => range.clone(),
@@ -705,12 +719,21 @@ fn display(interner: &Interner, id: PathId) -> String {
     format!("{}::\"{}\"", owner.join("::"), spelling.join("::"))
 }
 
-fn layout(options: &Options, repo: &gix::Repository) -> Result<Layout, Error> {
+/// The workdir and the workspace directory `options.root` resolves to.
+pub(crate) fn workspace(
+    options: &Options,
+    repo: &gix::Repository,
+) -> Result<(PathBuf, PathBuf), Error> {
     let workdir = repo
         .workdir()
         .ok_or_else(|| Error::Bare(options.root.clone()))?;
     let workdir = canonical(workdir)?;
     let workspace_dir = find_workspace(&canonical(&options.root)?, &workdir)?;
+    Ok((workdir, workspace_dir))
+}
+
+fn layout(options: &Options, repo: &gix::Repository) -> Result<Layout, Error> {
+    let (workdir, workspace_dir) = workspace(options, repo)?;
     let target_dir = workspace_dir.join("target");
     Ok(Layout {
         workspace: git::relative(&workdir, &workspace_dir).unwrap_or_default(),
