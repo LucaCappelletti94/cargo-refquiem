@@ -30,6 +30,180 @@ fn removed_gone() -> Repo {
 }
 
 #[test]
+fn vocabularies_select_english_independently_of_cached_declarations() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct PhD;\npub struct MyGone;\npub struct Vec;\n",
+    );
+    repo.commit("public names");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "A PhD student, MyGone, Vec.\n");
+    repo.commit("remove names");
+    let options = Options::new(repo.path().to_path_buf());
+    let paths = || {
+        found(&options)
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(paths(), ["fixture::MyGone"]);
+    for (config, expected) in [
+        ("", vec!["fixture::MyGone"]),
+        ("[vocabularies]\n", vec!["fixture::MyGone", "fixture::PhD"]),
+        (
+            "[vocabularies]\nbuiltins = [\"english\"]\n",
+            vec!["fixture::MyGone"],
+        ),
+        (
+            "[vocabularies]\nbuiltins = []\n",
+            vec!["fixture::MyGone", "fixture::PhD"],
+        ),
+        (
+            "[vocabularies]\nbuiltins = [\"english\", \"english\"]\n",
+            vec!["fixture::MyGone"],
+        ),
+    ] {
+        repo.write(".refquiem.toml", config);
+        assert_eq!(paths(), expected, "{config}");
+    }
+}
+
+#[test]
+fn vocabularies_do_not_suppress_explicit_rust_mentions() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub struct PhD;\n");
+    repo.commit("public name");
+    repo.write(
+        "src/lib.rs",
+        "/// A PhD student.\n/// [PhD]\n/// ```\n/// let _: PhD;\n/// ```\npub struct Kept;\npub fn diagnostic() { println!(\"A PhD student\"); }\n",
+    );
+    repo.write("README.md", "A PhD student.\n`PhD`\n`fixture::PhD`\n");
+    repo.write(
+        ".refquiem.toml",
+        "[vocabularies]\nbuiltins = [\"english\"]\n",
+    );
+    let report = refquiem::run(&Options::new(repo.path().to_path_buf())).unwrap();
+    let mut mentions: Vec<_> = report
+        .groups
+        .iter()
+        .flat_map(|group| {
+            group
+                .mentions
+                .iter()
+                .map(|mention| (mention.file.as_str(), mention.line, mention.text.as_str()))
+        })
+        .collect();
+    mentions.sort_unstable();
+    assert_eq!(
+        mentions,
+        [
+            ("README.md", 2, "PhD"),
+            ("README.md", 3, "fixture::PhD"),
+            ("src/lib.rs", 2, "PhD"),
+            ("src/lib.rs", 4, "PhD"),
+        ]
+    );
+}
+
+#[test]
+fn vocabularies_preserve_serialized_names_with_or_without_a_rust_name_collision() {
+    for rust_item in ["", "pub struct PhD;\n"] {
+        let repo = Repo::new();
+        repo.write(
+            "src/lib.rs",
+            &format!(
+                "{rust_item}#[derive(serde::Serialize)]\npub struct Data {{ #[serde(rename = \"PhD\")] pub value: u8 }}\n"
+            ),
+        );
+        repo.commit("serialized name");
+        repo.write("src/lib.rs", "");
+        repo.write(
+            "README.md",
+            "A PhD student.\n\n```json\n{\"PhD\": 1}\n```\n",
+        );
+        let options = Options::new(repo.path().to_path_buf());
+        let report = refquiem::run(&options).unwrap();
+        let mut mentions: Vec<_> = report
+            .groups
+            .iter()
+            .flat_map(|group| {
+                group
+                    .mentions
+                    .iter()
+                    .map(|mention| (group.path.as_str(), mention.line))
+            })
+            .collect();
+        mentions.sort_unstable();
+        assert_eq!(
+            mentions,
+            [("fixture::Data::\"PhD\"", 1), ("fixture::Data::\"PhD\"", 4)],
+            "{rust_item}"
+        );
+    }
+}
+
+#[test]
+fn vocabularies_apply_workspace_wide_and_follow_the_selected_config() {
+    let repo = Repo::new();
+    repo.write("Cargo.toml", "[workspace]\nmembers = [\"a\", \"b\"]\n");
+    for member in ["a", "b"] {
+        repo.write(
+            &format!("{member}/Cargo.toml"),
+            &format!("[package]\nname = \"{member}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+        );
+        repo.write(&format!("{member}/src/lib.rs"), "pub struct PhD;\n");
+    }
+    repo.commit("member names");
+    for member in ["a", "b"] {
+        repo.write(&format!("{member}/src/lib.rs"), "");
+        repo.write(&format!("{member}/README.md"), "A PhD student.\n");
+    }
+    repo.commit("remove member names");
+    repo.write(".refquiem.toml", "[vocabularies]\n");
+    let mut options = Options::new(repo.path().to_path_buf());
+    assert_eq!(
+        found(&options),
+        [
+            ("a::PhD".to_owned(), "a/README.md".to_owned()),
+            ("b::PhD".to_owned(), "b/README.md".to_owned()),
+        ]
+    );
+    options.package = Some("b".to_owned());
+    assert_eq!(
+        found(&options),
+        [("b::PhD".to_owned(), "b/README.md".to_owned())]
+    );
+    let external = tempfile::tempdir().unwrap();
+    let config = external.path().join("selection.toml");
+    std::fs::write(&config, "[vocabularies]\nbuiltins = [\"english\"]\n").unwrap();
+    options.config = Some(config);
+    assert_eq!(found(&options), []);
+}
+
+#[test]
+fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
+    let repo = removed_gone();
+    let options = Options::new(repo.path().to_path_buf());
+    let config_path = repo.path().join(".refquiem.toml");
+    for config in [
+        "[vocabularies]\nbuiltins = [\"engilsh\"]\n",
+        "[vocabularies]\nbuiltins = [\"english@missing\"]\n",
+        "[vocabularies]\nbuiltins = [\"rust\"]\n",
+        "[vocabularies]\nbuiltin = [\"english\"]\n",
+        "[vocabularies]\nbuiltins = \"english\"\n",
+        "[vocabularies]\nfiles = [\"custom.toml\"]\n",
+    ] {
+        repo.write(".refquiem.toml", config);
+        let error = refquiem::run(&options).unwrap_err();
+        assert!(
+            matches!(&error, refquiem::Error::Config { path, .. } if path == &config_path),
+            "{config} {error}"
+        );
+    }
+}
+
+#[test]
 fn a_bare_allow_entry_keeps_serialized_names_alive() {
     let repo = Repo::new();
     repo.write(

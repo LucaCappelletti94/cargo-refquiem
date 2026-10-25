@@ -209,7 +209,7 @@ fn bare_names_are_stale_unless_a_vocabulary_or_live_item_claims_them() {
 }
 
 #[test]
-fn hyphenated_english_in_prose_is_no_kebab_case_spelling() {
+fn english_words_remain_stale_serialized_spellings() {
     let repo = Repo::new();
     repo.write(
         "src/lib.rs",
@@ -227,6 +227,8 @@ fn hyphenated_english_in_prose_is_no_kebab_case_spelling() {
     assert_eq!(
         texts,
         [
+            (Kind::Text, "well-known".to_owned()),
+            (Kind::Text, "self-contained".to_owned()),
             (Kind::Text, "frob-nicate".to_owned()),
             (Kind::CodeSpan, "well-known".to_owned())
         ]
