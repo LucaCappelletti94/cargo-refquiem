@@ -42,6 +42,30 @@ pub(crate) struct Config {
     pub(crate) scan_commented_code: bool,
     /// The revision a scan of the full history starts at instead.
     pub(crate) since: Option<String>,
+    /// Optional ambiguity vocabularies, English when the table is absent.
+    vocabularies: Option<Vocabularies>,
+}
+
+impl Config {
+    /// Whether English words can establish ambiguity in running text.
+    pub(crate) fn uses_english(&self) -> bool {
+        self.vocabularies
+            .as_ref()
+            .is_none_or(|vocabularies| vocabularies.builtins.contains(&Builtin::English))
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Vocabularies {
+    #[serde(default)]
+    builtins: Vec<Builtin>,
+}
+
+#[derive(Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum Builtin {
+    English,
 }
 
 /// The config at `path`, the default one when `path` is absent and not `required`.

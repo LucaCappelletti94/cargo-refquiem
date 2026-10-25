@@ -57,6 +57,19 @@ Write a local marker in a Rust line comment or Markdown HTML comment. Marker tex
 
 A marker that hides nothing becomes a finding, `refquiem: allow(name) suppresses nothing`.
 
+## Vocabularies
+
+English is the default optional vocabulary. An explicit `[vocabularies]` table replaces the optional selection for every scanned workspace file.
+
+```toml
+[vocabularies]
+builtins = ["english"]
+```
+
+An empty table or `builtins = []` disables optional vocabularies. `english` is the available built-in identity, and unknown identities or fields are configuration errors. `--config PATH` selects a replacement configuration, while `--package NAME` only limits scanned files.
+
+English uses Unicode lowercasing and establishes ambiguity only in running text, including plain diagnostic text. Inline code spans, Rust-specific links, qualified Rust paths, compiled Rust identifiers, and serialized names receive no English exemption. Rust standard-library resolution is always active.
+
 ## Rerun
 
 Rerun the same command until it exits `0`.

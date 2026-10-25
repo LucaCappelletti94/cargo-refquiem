@@ -25,7 +25,7 @@ cargo refquiem --json                          # the report as JSON
 cargo refquiem --markdown > report.md         # findings with suggested actions, linked when the repository is on GitHub
 ```
 
-The exit status is `0` when nothing is stale, `1` with findings and `2` on errors. A `.refquiem.toml` at the workspace root adds excludes and names never reported, a `refquiem: allow(Name)` comment silences one mention, and `cargo refquiem --help` lists every option.
+The exit status is `0` when nothing is stale, `1` with findings and `2` on errors. A `.refquiem.toml` at the workspace root selects optional vocabularies and configures excludes and allowed names. A `refquiem: allow(Name)` comment silences one mention, and `cargo refquiem --help` lists every option.
 
 ## GitHub Action
 

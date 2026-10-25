@@ -193,6 +193,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         &rooted,
     );
     matcher.add_vocabulary(&config.allow);
+    matcher.vocabulary = config.uses_english().then(Vocabulary::new);
     let filter = filter(
         options,
         &config,
@@ -1129,7 +1130,7 @@ struct Matcher<'a> {
     /// The library crate names of head.
     libs: Vec<&'a str>,
     std: [stdlib::Layer; 4],
-    vocabulary: Vocabulary,
+    vocabulary: Option<Vocabulary>,
     entries: &'a Entries<'a>,
     /// The crate names of every workspace target in any indexed snapshot.
     crates: &'a HashSet<Sym>,
@@ -1214,7 +1215,7 @@ impl<'a> Matcher<'a> {
             removed_spellings,
             libs: head.libs.iter().map(|&lib| interner.name(lib)).collect(),
             std: stdlib::layers(),
-            vocabulary: Vocabulary::new(),
+            vocabulary: None,
             entries,
             crates,
             reexports: &head.reexports,
@@ -1256,9 +1257,7 @@ impl<'a> Matcher<'a> {
         }
     }
 
-    /// The removed item or serialized spelling the bare name `word` names, unless something
-    /// live or a vocabulary of `context` claims the name, preferring an item of crate `own`. A
-    /// word in a data example only names serialized spellings.
+    /// Resolves a bare item or serialized name, subject to live names and vocabulary ambiguity.
     fn stale_name(
         &self,
         word: &str,
@@ -1267,18 +1266,26 @@ impl<'a> Matcher<'a> {
         own: Option<Sym>,
     ) -> Option<PathId> {
         let sym = self.interner.find_sym(word)?;
+        let claimed = self.names.contains(&sym)
+            || self.macro_idents.contains(&sym)
+            || self.std.iter().any(|layer| layer.has_name(word));
+        if claimed {
+            return None;
+        }
         let spelling_only = data || word.contains('-');
         let name = if spelling_only {
             None
         } else {
             self.removed_names.get(&sym)
         };
-        let found = self.pick(name.or_else(|| self.removed_spellings.get(&sym))?, own);
-        let claimed = self.names.contains(&sym)
-            || self.macro_idents.contains(&sym)
-            || self.std.iter().any(|layer| layer.has_name(word))
-            || (context.kind == Kind::Text && self.vocabulary.claims(word));
-        (!claimed).then_some(found)
+        let name = name.filter(|_| {
+            !(context.kind == Kind::Text
+                && self
+                    .vocabulary
+                    .as_ref()
+                    .is_some_and(|vocabulary| vocabulary.claims(word)))
+        });
+        Some(self.pick(name.or_else(|| self.removed_spellings.get(&sym))?, own))
     }
 
     /// The removed item every reading of `path` names, preferring an item of crate `own`, else

@@ -112,7 +112,7 @@ pub enum Error {
     /// The thread a scan runs on could not start.
     #[error("starting the scan thread")]
     Thread(#[source] std::io::Error),
-    /// A config file is not valid TOML or has an unknown key.
+    /// A config file has invalid syntax, values, or keys.
     #[error("reading the config file {path}")]
     Config {
         /// The config file.
