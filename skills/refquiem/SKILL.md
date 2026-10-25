@@ -70,6 +70,8 @@ An empty table or `builtins = []` disables optional vocabularies. `english` is t
 
 English uses Unicode lowercasing and establishes ambiguity only in running text, including plain diagnostic text. Inline code spans, Rust-specific links, qualified Rust paths, compiled Rust identifiers, and serialized names receive no English exemption. Rust standard-library resolution is always active.
 
+`cargo refquiem vocabularies` lists bundled identities, matching rules, and source revisions, including outside a repository. `cargo refquiem vocabularies --effective` resolves the workspace selection without scanning history, and accepts `--config PATH` to select another configuration. Inspection flags follow the subcommand, both modes support `--json`, and their exit status is `0` on success or `2` on error.
+
 ## Rerun
 
 Rerun the same command until it exits `0`.

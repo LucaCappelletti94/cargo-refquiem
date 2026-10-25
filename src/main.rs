@@ -1,5 +1,6 @@
 //! The `cargo-refquiem` binary: argument parsing and exit codes.
 
+use std::io::Write as _;
 use std::process::ExitCode;
 
 use clap::Parser;
@@ -12,7 +13,8 @@ const GITHUB_SUMMARY_LIMIT: usize = 1_048_576;
     name = "refquiem",
     bin_name = "cargo refquiem",
     version,
-    about = "Find mentions of Rust items that no longer exist"
+    about = "Find mentions of Rust items that no longer exist",
+    args_conflicts_with_subcommands = true
 )]
 struct Args {
     /// Scan this revision and the commits after it instead of the full history.
@@ -35,6 +37,30 @@ struct Args {
     /// Exit 0 even with findings.
     #[arg(long)]
     no_fail: bool,
+    /// The `vocabularies` subcommand, which conflicts with every scan argument.
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+/// An action instead of the default scan.
+#[derive(clap::Subcommand)]
+enum Command {
+    /// Report the available or the workspace's effective vocabularies.
+    Vocabularies(Vocabularies),
+}
+
+/// Vocabulary inspection arguments, which follow the `vocabularies` subcommand.
+#[derive(clap::Args)]
+struct Vocabularies {
+    /// Report the workspace's effective selection instead of the catalog.
+    #[arg(long)]
+    effective: bool,
+    /// Read this config file instead of the workspace's `.refquiem.toml`.
+    #[arg(long, value_name = "PATH", requires = "effective")]
+    config: Option<std::path::PathBuf>,
+    /// Print the result as JSON.
+    #[arg(long)]
+    json: bool,
 }
 
 /// How the report is printed.
@@ -100,16 +126,111 @@ fn main() -> ExitCode {
         args.remove(1);
     }
     let args = Args::parse_from(args);
-    let output = args.output;
-    let no_fail = args.no_fail;
-    match run(args).and_then(|report| output.emit(&report, no_fail).map(|()| report)) {
-        Ok(report) if report.is_clean() || no_fail => ExitCode::SUCCESS,
-        Ok(_) => ExitCode::FAILURE,
-        Err(error) => {
-            eprintln!("refquiem: {}", chain(&error));
-            ExitCode::from(2)
+    match &args.command {
+        Some(Command::Vocabularies(vocabularies)) => match inspection(vocabularies) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("refquiem: {}", chain(&error));
+                ExitCode::from(2)
+            }
+        },
+        None => {
+            let output = args.output;
+            let no_fail = args.no_fail;
+            match run(args).and_then(|report| output.emit(&report, no_fail).map(|()| report)) {
+                Ok(report) if report.is_clean() || no_fail => ExitCode::SUCCESS,
+                Ok(_) => ExitCode::FAILURE,
+                Err(error) => {
+                    eprintln!("refquiem: {}", chain(&error));
+                    ExitCode::from(2)
+                }
+            }
         }
     }
+}
+
+/// A failed vocabulary inspection.
+#[derive(Debug, thiserror::Error)]
+enum InspectionError {
+    /// The workspace discovery or the selected configuration failed.
+    #[error(transparent)]
+    Scan(#[from] refquiem::Error),
+    /// The invocation directory could not be read or the output could not be written.
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    /// Vocabulary output could not be serialized.
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+}
+
+/// Report on the vocabularies instead of scanning.
+fn inspection(vocabularies: &Vocabularies) -> Result<(), InspectionError> {
+    if vocabularies.effective {
+        let root = std::env::current_dir()?;
+        let config = vocabularies.config.as_ref().map(|path| root.join(path));
+        let mut options = refquiem::Options::new(root);
+        options.config = config;
+        let selection = refquiem::vocabulary::effective(&options)?;
+        print_selection(&selection, vocabularies.json)
+    } else {
+        print_catalog(vocabularies.json)
+    }
+}
+
+/// Print the catalog of the built-in vocabularies, without discovering a repository.
+fn print_catalog(json: bool) -> Result<(), InspectionError> {
+    let builtins = refquiem::vocabulary::available();
+    let mut stdout = std::io::stdout().lock();
+    if json {
+        serde_json::to_writer(&mut stdout, builtins)?;
+        writeln!(stdout)?;
+        return Ok(());
+    }
+    print_builtins(&mut stdout, builtins)?;
+    Ok(())
+}
+
+/// Print the workspace's effective vocabulary selection.
+fn print_selection(
+    selection: &refquiem::vocabulary::EffectiveVocabularies,
+    json: bool,
+) -> Result<(), InspectionError> {
+    let mut stdout = std::io::stdout().lock();
+    if json {
+        serde_json::to_writer(&mut stdout, selection)?;
+        writeln!(stdout)?;
+        return Ok(());
+    }
+    writeln!(stdout, "Configuration {}", selection.config.display())?;
+    writeln!(
+        stdout,
+        "Rust standard-library resolution {}",
+        selection.rust_stdlib
+    )?;
+    if selection.builtins.is_empty() {
+        writeln!(stdout, "No optional vocabularies selected.")?;
+    }
+    print_builtins(&mut stdout, selection.builtins)?;
+    Ok(())
+}
+
+fn print_builtins(
+    output: &mut impl std::io::Write,
+    builtins: &[refquiem::vocabulary::BuiltinVocabulary],
+) -> std::io::Result<()> {
+    for builtin in builtins {
+        writeln!(
+            output,
+            "{} ({}, {})",
+            builtin.id, builtin.kind, builtin.case
+        )?;
+        writeln!(
+            output,
+            "  source {} @{}",
+            builtin.source, builtin.source_version
+        )?;
+    }
+    Ok(())
 }
 
 /// The web root for the Markdown links. `GITHUB_SERVER_URL` and `GITHUB_REPOSITORY` when both

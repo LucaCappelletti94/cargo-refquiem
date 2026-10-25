@@ -23,6 +23,8 @@ cargo refquiem                                 # every commit, against the worki
 cargo refquiem --base origin/main --head HEAD  # what a branch removed
 cargo refquiem --json                          # the report as JSON
 cargo refquiem --markdown > report.md         # findings with suggested actions, linked when the repository is on GitHub
+cargo refquiem vocabularies                    # bundled vocabularies and their sources
+cargo refquiem vocabularies --effective        # resolved workspace vocabulary selection
 ```
 
 The exit status is `0` when nothing is stale, `1` with findings and `2` on errors. A `.refquiem.toml` at the workspace root selects optional vocabularies and configures excludes and allowed names. A `refquiem: allow(Name)` comment silences one mention, and `cargo refquiem --help` lists every option.
@@ -33,7 +35,7 @@ The [action guide](https://github.com/LucaCappelletti94/cargo-refquiem/wiki/GitH
 
 ## Library
 
-Depend on `refquiem` with `default-features = false` to drop the CLI, then call `refquiem::run` as the [Library page](https://github.com/LucaCappelletti94/cargo-refquiem/wiki/Library) shows. Coding agents get the same guidance from the [`refquiem` skill](https://github.com/LucaCappelletti94/cargo-refquiem/blob/main/skills/refquiem/SKILL.md).
+Depend on `refquiem` with `default-features = false` to drop the CLI, then call `refquiem::run` as the [Library page](https://github.com/LucaCappelletti94/cargo-refquiem/wiki/Library) shows. `refquiem::vocabulary` exposes the catalog and effective selection. Coding agents get the same guidance from the [`refquiem` skill](https://github.com/LucaCappelletti94/cargo-refquiem/blob/main/skills/refquiem/SKILL.md).
 
 ```sh
 npx skills add LucaCappelletti94/cargo-refquiem

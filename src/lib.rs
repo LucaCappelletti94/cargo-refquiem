@@ -23,6 +23,7 @@ mod serde_names;
 mod stdlib;
 mod suggest;
 mod text;
+pub mod vocabulary;
 pub mod web;
 
 pub use error::Error;

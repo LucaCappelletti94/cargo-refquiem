@@ -18,6 +18,192 @@ fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn vocabulary_catalog_ignores_project_state_outside_a_repository() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(".refquiem.toml"), "invalid configuration").unwrap();
+    let output = cargo_refquiem(dir.path(), &["vocabularies", "--json"]);
+    assert_eq!(output.status.code(), Some(0));
+    let catalog: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        catalog
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["id"] == "english")
+    );
+    let effective = cargo_refquiem(dir.path(), &["vocabularies", "--effective", "--json"]);
+    assert_eq!(effective.status.code(), Some(2));
+    assert_eq!(effective.stdout, b"");
+}
+
+#[test]
+fn vocabulary_inspection_uses_workspace_config_without_history_or_rust_parsing() {
+    let repo = Repo::new();
+    repo.write("Cargo.toml", "[workspace]\nmembers = [\"member\"]\n");
+    repo.write(
+        "member/Cargo.toml",
+        "[package]\nname = \"member\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("member/src/lib.rs", "invalid Rust source {");
+    repo.write(
+        "member/.refquiem.toml",
+        "[vocabularies]\nbuiltins = [\"english\"]\n",
+    );
+    repo.write(
+        ".refquiem.toml",
+        "since = \"nonexistent-history-reference\"\n[vocabularies]\n",
+    );
+    let member = repo.path().join("member");
+    let output = cargo_refquiem(&member, &["vocabularies", "--effective", "--json"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let selection: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(selection["builtins"], serde_json::json!([]));
+    assert_eq!(selection["rust_stdlib"], true);
+    assert_eq!(
+        selection["config"],
+        std::fs::canonicalize(repo.path())
+            .unwrap()
+            .join(".refquiem.toml")
+            .to_str()
+            .unwrap()
+    );
+    let external = tempfile::tempdir().unwrap();
+    let config = external.path().join("selection.toml");
+    std::fs::write(
+        &config,
+        "[vocabularies]\nbuiltins = [\"english\", \"english\"]\n",
+    )
+    .unwrap();
+    let output = cargo_refquiem(
+        &member,
+        &[
+            "vocabularies",
+            "--effective",
+            "--json",
+            "--config",
+            config.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0));
+    let selection: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let identities: Vec<_> = selection["builtins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(identities, ["english"]);
+    assert_eq!(selection["config"], config.to_str().unwrap());
+}
+
+#[test]
+fn vocabulary_inspection_reports_the_same_selection_that_scanning_uses() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub struct PhD;\n");
+    repo.commit("public name");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "A PhD student.\n");
+    repo.commit("remove name");
+    for (config, enabled) in [
+        ("", true),
+        ("[vocabularies]\n", false),
+        ("[vocabularies]\nbuiltins = [\"english\"]\n", true),
+    ] {
+        repo.write(".refquiem.toml", config);
+        let inspected = cargo_refquiem(repo.path(), &["vocabularies", "--effective", "--json"]);
+        assert_eq!(inspected.status.code(), Some(0), "{config}");
+        let selection: serde_json::Value = serde_json::from_slice(&inspected.stdout).unwrap();
+        let identities: Vec<_> = selection["builtins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            identities,
+            if enabled { vec!["english"] } else { vec![] },
+            "{config}"
+        );
+        let scanned = cargo_refquiem(repo.path(), &["--json"]);
+        assert_eq!(scanned.status.code(), Some(i32::from(!enabled)), "{config}");
+        let report: serde_json::Value = serde_json::from_slice(&scanned.stdout).unwrap();
+        let findings: Vec<_> = report["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|group| group["path"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            findings,
+            if enabled {
+                vec![]
+            } else {
+                vec!["fixture::PhD"]
+            },
+            "{config}"
+        );
+    }
+}
+
+#[test]
+fn vocabulary_inspection_rejects_scan_arguments_and_catalog_configuration() {
+    let dir = tempfile::tempdir().unwrap();
+    for flag in ["--markdown", "--github", "--no-fail"] {
+        for args in [[flag, "vocabularies"], ["vocabularies", flag]] {
+            let output = cargo_refquiem(dir.path(), &args);
+            assert_eq!(output.status.code(), Some(2), "{args:?}");
+            assert!(String::from_utf8_lossy(&output.stderr).contains(flag));
+        }
+    }
+    for flag in ["--base", "--since", "--package"] {
+        for args in [
+            [flag, "HEAD", "vocabularies"],
+            ["vocabularies", flag, "HEAD"],
+        ] {
+            let output = cargo_refquiem(dir.path(), &args);
+            assert_eq!(output.status.code(), Some(2), "{args:?}");
+            assert!(String::from_utf8_lossy(&output.stderr).contains(flag));
+        }
+    }
+    let output = cargo_refquiem(dir.path(), &["vocabularies", "--head", "HEAD"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--head"));
+    let output = cargo_refquiem(dir.path(), &["vocabularies", "--config", "selection.toml"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--effective"));
+}
+
+#[test]
+fn vocabulary_inspection_rejects_invalid_selected_configuration_without_partial_output() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "");
+    for config in [
+        "[vocabularies]\nbuiltins = [\"engilsh\"]\n",
+        "[vocabularies\n",
+    ] {
+        repo.write(".refquiem.toml", config);
+        let output = cargo_refquiem(repo.path(), &["vocabularies", "--effective", "--json"]);
+        assert_eq!(output.status.code(), Some(2), "{config}");
+        assert_eq!(output.stdout, b"");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(".refquiem.toml"),
+            "{config}"
+        );
+    }
+    let output = cargo_refquiem(
+        repo.path(),
+        &["vocabularies", "--effective", "--config", "missing.toml"],
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("missing.toml"));
+}
+
+#[test]
 fn findings_print_one_group_per_removed_name_and_exit_1() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "pub fn gone() {}\npub fn kept() {}\n");
