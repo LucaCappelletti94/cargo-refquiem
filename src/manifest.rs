@@ -159,6 +159,19 @@ pub(crate) fn read_manifest(
     Ok(Some(manifest))
 }
 
+/// The package in `dir`, read alone with no workspace context, `None` when the directory
+/// holds no package.
+pub(crate) fn package(
+    snapshot: &dyn Snapshot,
+    dir: &str,
+    manifests: &mut Manifests,
+) -> Result<Option<Member>, Error> {
+    let Some(manifest) = read_manifest(snapshot, dir, manifests)? else {
+        return Ok(None);
+    };
+    read_member(snapshot, dir, &manifest, (dir, None))
+}
+
 fn read_member(
     snapshot: &dyn Snapshot,
     dir: &str,

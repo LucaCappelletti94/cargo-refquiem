@@ -1249,3 +1249,335 @@ fn a_known_library_root_is_not_attributed_to_a_removed_dependency() {
         .collect();
     assert_eq!(rows, [("live_root::retired_probe842", ItemKind::Function)]);
 }
+
+#[test]
+fn an_excluded_path_dependency_shares_workspace_package_identity() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"client\", \"app\"]\nexclude = [\"web\"]\nresolver = \"2\"\n",
+    );
+    repo.write(
+        "client/Cargo.toml",
+        "[package]\nname = \"fixture-client\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("client/src/lib.rs", "pub struct RetiredProbe;\n");
+    repo.write(
+        "app/Cargo.toml",
+        "[package]\nname = \"fixture-app\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[dependencies]\nfixture-client = { path = \"../client\" }\nfixture-web = { path = \"../web\" }\n",
+    );
+    repo.write("app/src/lib.rs", "");
+    repo.write(
+        "web/Cargo.toml",
+        "[package]\nname = \"fixture-web\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[workspace]\n\n[dependencies]\nfixture-client = { path = \"../client\" }\n",
+    );
+    repo.write("web/src/lib.rs", "pub struct WebMarker;\n");
+    lock(&repo);
+    repo.commit("workspace and excluded web crate");
+    repo.write("client/src/lib.rs", "pub struct Kept;\n");
+    repo.write(
+        "README.md",
+        "`fixture_client::RetiredProbe` and `fixture_web::WebMarker`.\n",
+    );
+    repo.commit("remove client probe");
+
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let rows: Vec<_> = report
+        .groups
+        .iter()
+        .map(|group| (group.path.as_str(), group.kind))
+        .collect();
+    assert_eq!(rows, [("fixture_client::RetiredProbe", ItemKind::Struct)]);
+    assert_eq!(report.skipped, []);
+}
+
+#[test]
+fn an_absolute_path_dependency_shares_the_member_package_identity() {
+    let repo = Repo::new();
+    let core = toml::Value::String(repo.path().join("fixture-core").display().to_string());
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"fixture-core\", \"fixture-app\"]\nresolver = \"2\"\n",
+    );
+    repo.write(
+        "fixture-core/Cargo.toml",
+        "[package]\nname = \"fixture-core\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("fixture-core/src/lib.rs", "pub struct RetiredProbe;\n");
+    repo.write(
+        "fixture-app/Cargo.toml",
+        &format!(
+            "[package]\nname = \"fixture-app\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[dependencies]\nfixture-core = {{ path = {core} }}\n"
+        ),
+    );
+    repo.write("fixture-app/src/lib.rs", "");
+    lock(&repo);
+    repo.commit("an absolute path to the core member");
+    repo.write("fixture-core/src/lib.rs", "pub struct Kept;\n");
+    repo.write("README.md", "`fixture_core::RetiredProbe`.\n");
+    repo.commit("drop the probe");
+
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let rows: Vec<_> = report
+        .groups
+        .iter()
+        .map(|group| (group.path.as_str(), group.kind))
+        .collect();
+    assert_eq!(rows, [("fixture_core::RetiredProbe", ItemKind::Struct)]);
+    assert_eq!(report.skipped, []);
+}
+
+#[test]
+fn an_excluded_dependency_preserves_a_transitive_reexport() {
+    let repo = Repo::new();
+    repo.vendor(
+        "helper",
+        "1.0.0",
+        "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} }\n",
+    );
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"fixture-core\", \"fixture-app\"]\nexclude = [\"fixture-web\"]\nresolver = \"2\"\n",
+    );
+    repo.write(
+        "fixture-core/Cargo.toml",
+        "[package]\nname = \"fixture-core\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("fixture-core/src/lib.rs", "pub struct CoreMarker;\n");
+    repo.write(
+        "fixture-app/Cargo.toml",
+        "[package]\nname = \"fixture-app\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[dependencies]\nfixture-web = { path = \"../fixture-web\" }\n",
+    );
+    repo.write(
+        "fixture-app/src/lib.rs",
+        "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} pub fn gone() {} }\n",
+    );
+    repo.write(
+        "fixture-web/Cargo.toml",
+        "[package]\nname = \"fixture-web\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[workspace]\n\n[dependencies]\nfixture-core = { path = \"../fixture-core\" }\nhelper = \"1\"\n",
+    );
+    repo.write("fixture-web/src/lib.rs", "pub use helper::SharedProbe;\n");
+    repo.write("fixture-web/.cargo-checksum.json", "{\"files\":{}}");
+    lock(&repo);
+    repo.commit("local methods");
+    repo.write(
+        "fixture-app/src/lib.rs",
+        "pub use fixture_web::SharedProbe;\n",
+    );
+    repo.write(
+        "README.md",
+        "`fixture_app::SharedProbe::kept` and `fixture_app::SharedProbe::gone`.\n",
+    );
+    repo.commit("public dependency methods");
+
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let rows: Vec<_> = report
+        .groups
+        .iter()
+        .map(|group| (group.path.as_str(), group.kind))
+        .collect();
+    assert_eq!(rows, [("fixture_app::SharedProbe::gone", ItemKind::Method)]);
+    assert_eq!(report.skipped, []);
+}
+
+#[test]
+fn a_sibling_crate_pointing_back_at_a_subdirectory_workspace_member() {
+    let repo = Repo::new();
+    repo.write(
+        "ws/Cargo.toml",
+        "[workspace]\nmembers = [\"fixture-core\", \"fixture-app\"]\n",
+    );
+    repo.write(
+        "ws/fixture-core/Cargo.toml",
+        "[package]\nname = \"fixture-core\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("ws/fixture-core/src/lib.rs", "pub struct RetiredProbe;\n");
+    repo.write(
+        "ws/fixture-app/Cargo.toml",
+        "[package]\nname = \"fixture-app\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[dependencies]\nfixture-core = { path = \"../fixture-core\" }\nfixture-side = { path = \"../../side\" }\n",
+    );
+    repo.write("ws/fixture-app/src/lib.rs", "");
+    repo.write(
+        "side/Cargo.toml",
+        "[package]\nname = \"fixture-side\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[workspace]\n\n[dependencies]\nfixture-core = { path = \"../ws/fixture-core\" }\n",
+    );
+    repo.write("side/src/lib.rs", "");
+    assert!(
+        std::process::Command::new("cargo")
+            .args([
+                "generate-lockfile",
+                "--offline",
+                "--quiet",
+                "--manifest-path",
+                "ws/Cargo.toml",
+            ])
+            .current_dir(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    repo.commit("the workspace and its sibling crate");
+    repo.write("ws/fixture-core/src/lib.rs", "pub struct Kept;\n");
+    repo.write("ws/README.md", "`fixture_core::RetiredProbe`.\n");
+    repo.commit("drop the probe");
+
+    let report = refquiem::run(&refquiem::Options::new(repo.path().join("ws"))).unwrap();
+    let rows: Vec<_> = report
+        .groups
+        .iter()
+        .map(|group| (group.path.as_str(), group.kind))
+        .collect();
+    assert_eq!(rows, [("fixture_core::RetiredProbe", ItemKind::Struct)]);
+    assert_eq!(report.skipped, []);
+}
+
+#[test]
+fn an_external_workspace_preserves_transitive_apis_inheritance_and_member_identity() {
+    let repo = Repo::new();
+    let outer = tempfile::tempdir().unwrap();
+    let core = toml::Value::String(repo.path().join("fixture-core").display().to_string());
+    let owner = toml::Value::String(outer.path().display().to_string());
+    let outer_path = toml::Value::String(outer.path().join("wrapper").display().to_string());
+    let owner_manifest = format!(
+        "[workspace]\nmembers = [\"wrapper\", \"leaf\"]\nresolver = \"2\"\n\n[workspace.package]\nversion = \"0.0.0\"\n\n[workspace.dependencies]\nfixture-core = {{ path = {core} }}\n",
+    );
+    let outer_manifest = format!(
+        "[package]\nname = \"fixture-outer\"\nversion.workspace = true\nedition = \"2021\"\nworkspace = {owner}\n\n[dependencies]\nfixture-core.workspace = true\nfixture-leaf = {{ path = \"../leaf\" }}\n",
+    );
+    let leaf_manifest =
+        "[package]\nname = \"fixture-leaf\"\nversion.workspace = true\nedition = \"2021\"\n";
+    std::fs::create_dir_all(outer.path().join("wrapper/src")).unwrap();
+    std::fs::create_dir_all(outer.path().join("leaf/src")).unwrap();
+    std::fs::write(outer.path().join("Cargo.toml"), &owner_manifest).unwrap();
+    std::fs::write(outer.path().join("wrapper/Cargo.toml"), &outer_manifest).unwrap();
+    std::fs::write(
+        outer.path().join("wrapper/src/lib.rs"),
+        "pub use fixture_leaf::SharedProbe;\n",
+    )
+    .unwrap();
+    std::fs::write(outer.path().join("leaf/Cargo.toml"), leaf_manifest).unwrap();
+    std::fs::write(
+        outer.path().join("leaf/src/lib.rs"),
+        "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} }\n",
+    )
+    .unwrap();
+    let root_manifest =
+        "[workspace]\nmembers = [\"fixture-core\", \"fixture-app\"]\nresolver = \"2\"\n";
+    let app_manifest = format!(
+        "[package]\nname = \"fixture-app\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[dependencies]\nfixture-outer = {{ path = {outer_path} }}\n",
+    );
+    repo.write("Cargo.toml", root_manifest);
+    repo.write(
+        "fixture-core/Cargo.toml",
+        "[package]\nname = \"fixture-core\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("fixture-core/src/lib.rs", "pub struct CoreMarker;\n");
+    repo.write("fixture-app/Cargo.toml", &app_manifest);
+    repo.write(
+        "fixture-app/src/lib.rs",
+        "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} pub fn gone() {} }\n",
+    );
+    lock(&repo);
+    repo.commit("local methods");
+    let lockfile = std::fs::read(repo.path().join("Cargo.lock")).unwrap();
+    repo.write(
+        "fixture-app/src/lib.rs",
+        "pub use fixture_outer::SharedProbe;\n",
+    );
+    repo.write(
+        "README.md",
+        "`fixture_app::SharedProbe::kept` and `fixture_app::SharedProbe::gone`.\n",
+    );
+    repo.commit("public external dependency methods");
+
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let rows: Vec<_> = report
+        .groups
+        .iter()
+        .map(|group| (group.path.as_str(), group.kind))
+        .collect();
+    assert_eq!(rows, [("fixture_app::SharedProbe::gone", ItemKind::Method)]);
+    assert_eq!(report.skipped, []);
+    for (path, expected) in [
+        (repo.path().join("Cargo.toml"), root_manifest.as_bytes()),
+        (
+            repo.path().join("fixture-app/Cargo.toml"),
+            app_manifest.as_bytes(),
+        ),
+        (repo.path().join("Cargo.lock"), lockfile.as_slice()),
+        (outer.path().join("Cargo.toml"), owner_manifest.as_bytes()),
+        (
+            outer.path().join("wrapper/Cargo.toml"),
+            outer_manifest.as_bytes(),
+        ),
+        (
+            outer.path().join("leaf/Cargo.toml"),
+            leaf_manifest.as_bytes(),
+        ),
+    ] {
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            expected,
+            "{}",
+            path.display()
+        );
+    }
+}
+
+#[test]
+fn a_committed_head_reads_local_dependency_manifests_and_apis_from_the_snapshot() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"fixture-core\", \"fixture-app\"]\nexclude = [\"fixture-web\"]\nresolver = \"2\"\n",
+    );
+    repo.write(
+        "fixture-core/Cargo.toml",
+        "[package]\nname = \"fixture-core\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("fixture-core/src/lib.rs", "pub struct CoreMarker;\n");
+    repo.write(
+        "fixture-app/Cargo.toml",
+        "[package]\nname = \"fixture-app\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[dependencies]\nfixture-web = { path = \"../fixture-web\" }\n",
+    );
+    let local_api =
+        "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} pub fn gone() {} }\n";
+    repo.write("fixture-app/src/lib.rs", local_api);
+    let web_manifest = "[package]\nname = \"fixture-web\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[workspace]\n\n[dependencies]\nfixture-core = { path = \"../fixture-core\" }\n";
+    repo.write("fixture-web/Cargo.toml", web_manifest);
+    repo.write(
+        "fixture-web/src/lib.rs",
+        "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} }\n",
+    );
+    repo.write("fixture-web/.cargo-checksum.json", "{\"files\":{}}");
+    lock(&repo);
+    let base = repo.commit("local methods");
+    repo.write(
+        "fixture-app/src/lib.rs",
+        "pub use fixture_web::SharedProbe;\n",
+    );
+    repo.write(
+        "README.md",
+        "`fixture_app::SharedProbe::kept` and `fixture_app::SharedProbe::gone`.\n",
+    );
+    let head = repo.commit("public dependency methods");
+    repo.write(
+        "fixture-web/Cargo.toml",
+        &web_manifest.replace("0.0.0", "1.0.0"),
+    );
+    repo.write("fixture-web/src/lib.rs", local_api);
+
+    let mut options = refquiem::Options::new(repo.path().to_path_buf());
+    options.range = refquiem::Range::Base {
+        base,
+        head: Some(head),
+    };
+    let report = refquiem::run(&options).unwrap();
+    let rows: Vec<_> = report
+        .groups
+        .iter()
+        .map(|group| (group.path.as_str(), group.kind))
+        .collect();
+    assert_eq!(rows, [("fixture_app::SharedProbe::gone", ItemKind::Method)]);
+    assert_eq!(report.skipped, []);
+}

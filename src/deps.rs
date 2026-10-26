@@ -1,7 +1,9 @@
-//! The public items of head's dependencies and of the dependencies the range removed, located
-//! through `cargo metadata` on manifests refquiem writes, so the user's tree is never touched.
+//! Dependency APIs resolved through a scratch Cargo manifest graph.
+//!
+//! Each local package has one identity. Repository manifests and API sources come from the selected snapshot, external packages from disk.
 
-use std::path::Path;
+use std::collections::{BTreeMap, VecDeque};
+use std::path::{Path, PathBuf};
 
 use cargo_metadata::{CargoOpt, Metadata, MetadataCommand, PackageId};
 use gix::ObjectId;
@@ -70,6 +72,22 @@ pub(crate) struct Removed {
     pub(crate) skipped: Vec<Skipped>,
 }
 
+/// A package directory the graph export walks.
+enum Local {
+    /// From the repository root.
+    Repo(String),
+    /// On disk, outside the repository.
+    Disk(PathBuf),
+}
+
+/// Where a mirrored package's sources are read from, keyed by mirror directory.
+enum Source<'a> {
+    /// The selected snapshot, the package's directory from the repository root.
+    Repo(&'a dyn Snapshot, String),
+    /// The package's original directory on disk.
+    Disk(PathBuf),
+}
+
 /// The layer of head's dependencies.
 pub(crate) fn head(
     indexer: &mut Indexer,
@@ -81,15 +99,29 @@ pub(crate) fn head(
         return Ok(Layer::default());
     }
     let export = scratch.dir.join("metadata");
-    export_workspace(snapshot, &members, &export, scratch, &mut indexer.manifests)?;
-    let metadata = metadata(&export.join("Cargo.toml"), scratch.workspace_dir)?;
+    let (root, sources) =
+        export_graph(snapshot, &members, &export, scratch, &mut indexer.manifests)?;
+    let metadata = metadata(&root, scratch.workspace_dir)?;
+    // Cargo can enroll path packages that only the dependency index reads.
+    let member_dirs: HashSet<&str> = members.iter().map(|member| member.dir.as_str()).collect();
+    let workspace: HashSet<&PackageId> = metadata
+        .packages
+        .iter()
+        .filter_map(|package| {
+            let dir = package.manifest_path.parent()?;
+            let Source::Repo(_, dir) = sources.get(dir.as_std_path())? else {
+                return None;
+            };
+            member_dirs.contains(dir.as_str()).then_some(&package.id)
+        })
+        .collect();
     let mut roots = Vec::new();
     for node in metadata.resolve.iter().flat_map(|resolve| &resolve.nodes) {
-        if metadata.workspace_members.contains(&node.id) {
+        if workspace.contains(&node.id) {
             roots.extend(
                 node.deps
                     .iter()
-                    .filter(|dep| !metadata.workspace_members.contains(&dep.pkg))
+                    .filter(|dep| !workspace.contains(&dep.pkg))
                     .map(|dep| (dep.pkg.clone(), dep.name.clone())),
             );
         }
@@ -98,11 +130,8 @@ pub(crate) fn head(
         let package = metadata.packages.iter().find(|package| &package.id == id)?;
         Some(lib_target(package)?.name.replace('-', "_"))
     };
-    let workspace_crates: HashSet<String> = metadata
-        .workspace_members
-        .iter()
-        .filter_map(crate_name)
-        .collect();
+    let workspace_crates: HashSet<String> =
+        workspace.iter().copied().filter_map(crate_name).collect();
     // A renamed dependency still reads by its crate name, as code written for it elsewhere does.
     let renamed: Vec<(PackageId, String)> = roots
         .iter()
@@ -113,7 +142,7 @@ pub(crate) fn head(
         })
         .collect();
     roots.extend(renamed);
-    libraries(indexer, &metadata, roots)
+    libraries(indexer, &metadata, roots, Some(&sources))
 }
 
 /// The public paths of the `removals` that neither set of `alive` paths has. A removal whose
@@ -263,6 +292,7 @@ fn fetched(
         indexer,
         &metadata,
         vec![(root.pkg.clone(), root.name.clone())],
+        None,
     )?;
     let paths = layer.paths;
     memo.insert(id, paths.clone());
@@ -312,11 +342,13 @@ fn locked(lock: &Table, member: &str, package: &str) -> Option<(String, Option<S
 }
 
 /// The public paths of the `roots` packages, each by the name its dependent spells it, with
-/// the libraries they re-export from indexed to resolve those re-exports.
+/// the libraries they re-export from indexed to resolve those re-exports. A package listed in
+/// `sources` reads its library root from that source, every other from its manifest directory.
 fn libraries(
     indexer: &mut Indexer,
     metadata: &Metadata,
     roots: Vec<(PackageId, String)>,
+    sources: Option<&HashMap<PathBuf, Source<'_>>>,
 ) -> Result<Layer, Error> {
     let packages: HashMap<&PackageId, &cargo_metadata::Package> =
         metadata.packages.iter().map(|p| (&p.id, p)).collect();
@@ -349,8 +381,19 @@ fn libraries(
         let Some(root) = relative(dir.as_std_path(), target.src_path.as_std_path()) else {
             continue;
         };
-        let snapshot = WorkTreeSnapshot::new(dir.as_std_path().to_path_buf(), Vec::new());
-        let library = indexer.library(&snapshot, &root, &name)?;
+        let library = match sources.and_then(|sources| sources.get(dir.as_std_path())) {
+            Some(Source::Repo(snapshot, dir)) => {
+                indexer.library(*snapshot, &join(dir, &root), &name)?
+            }
+            Some(Source::Disk(dir)) => {
+                let snapshot = WorkTreeSnapshot::new(dir.clone(), Vec::new());
+                indexer.library(&snapshot, &root, &name)?
+            }
+            None => {
+                let snapshot = WorkTreeSnapshot::new(dir.as_std_path().to_path_buf(), Vec::new());
+                indexer.library(&snapshot, &root, &name)?
+            }
+        };
         if let Some(node) = nodes.get(&id) {
             for first in library.use_roots() {
                 let first = indexer.interner.name(first);
@@ -397,110 +440,354 @@ fn metadata(manifest: &Path, cwd: &Path) -> Result<Metadata, Error> {
         })
 }
 
-/// Writes the root and member manifests, `Cargo.lock` and empty target roots of the workspace
-/// in `snapshot` below `export`, with every `path` dependency outside them made absolute.
-fn export_workspace(
-    snapshot: &dyn Snapshot,
+/// Writes the local manifest graph and records the original API source of each mirror.
+#[expect(
+    clippy::too_many_lines,
+    reason = "discovery precedes rewriting so every path has a settled package identity"
+)]
+fn export_graph<'a>(
+    snapshot: &'a dyn Snapshot,
     members: &[Member],
     export: &Path,
     scratch: &Scratch<'_>,
     manifests: &mut Manifests,
-) -> Result<(), Error> {
-    if export.exists() {
-        std::fs::remove_dir_all(export).map_err(|source| Error::Io {
-            path: export.to_path_buf(),
-            source,
-        })?;
-    }
+) -> Result<(PathBuf, HashMap<PathBuf, Source<'a>>), Error> {
+    let workdir = scratch.workdir;
     let workspace = scratch.workspace;
-    let mut mirrored: Vec<&str> = vec![workspace];
-    mirrored.extend(members.iter().map(|member| member.dir.as_str()));
-    for (i, dir) in mirrored.iter().enumerate() {
-        if i > 0 && *dir == workspace {
-            continue;
+    let external = scratch.dir.join("external");
+    for dir in [export, &external] {
+        if dir.exists() {
+            std::fs::remove_dir_all(dir).map_err(|source| Error::Io {
+                path: dir.to_path_buf(),
+                source,
+            })?;
         }
-        let Some(mut table) = manifest::read_manifest(snapshot, dir, manifests)? else {
-            continue;
+    }
+    let export = export.join("repo");
+    let root = export.join(workspace);
+    let mut repo = BTreeMap::new();
+    let mut queue = VecDeque::new();
+    let mut seen = HashSet::new();
+    let mut claimed = HashMap::new();
+    let mut roots = BTreeMap::new();
+    let mut ext_seen = HashSet::new();
+    for dir in
+        std::iter::once(workspace.to_owned()).chain(members.iter().map(|member| member.dir.clone()))
+    {
+        queue_repo(dir, snapshot, manifests, &mut seen, &mut repo, &mut queue)?;
+    }
+    while let Some(dir) = queue.pop_front() {
+        let (base, mut table, rel) = match dir {
+            Local::Repo(rel) => {
+                let table = repo.remove(&rel).expect("queued manifests are present");
+                (workdir.join(&rel), table, Some(rel))
+            }
+            Local::Disk(base) => {
+                let disk = WorkTreeSnapshot::new(base.clone(), Vec::new());
+                let Some(table) = manifest::read_manifest(&disk, "", manifests)? else {
+                    continue;
+                };
+                (base, table, None)
+            }
         };
-        each_dependency_table(&mut table, &mut |specs| {
-            absolute_paths(specs, dir, &mirrored, scratch.workdir);
-        });
-        if i == 0 {
+        each_path(&mut table, &mut |path| {
+            let resolved = normalize(&base, path);
+            if let Some(rel) = relative(workdir, &resolved) {
+                queue_repo(rel, snapshot, manifests, &mut seen, &mut repo, &mut queue)
+            } else {
+                queue_external(
+                    &resolved,
+                    manifests,
+                    &mut ext_seen,
+                    &mut claimed,
+                    &mut roots,
+                    &mut queue,
+                )
+            }
+        })?;
+        if let Some(rel) = rel {
+            if table.contains_key("workspace") && rel != workspace {
+                for member in manifest::workspace(snapshot, &rel, manifests)? {
+                    queue_repo(
+                        member.dir, snapshot, manifests, &mut seen, &mut repo, &mut queue,
+                    )?;
+                }
+            }
+            repo.insert(rel, table);
+        }
+    }
+    let mut sources = HashMap::new();
+    for (rel, mut table) in repo {
+        if let Some(member) = members.iter().find(|member| member.dir == rel) {
+            for target in &member.targets {
+                write(&export.join(&target.root), b"")?;
+            }
+        } else if let Some(package) = manifest::package(snapshot, &rel, manifests)? {
+            for target in package.targets {
+                write(&export.join(&target.root), b"")?;
+            }
+        }
+        mirror_paths(
+            &mut table,
+            &workdir.join(&rel),
+            workdir,
+            &export,
+            &external,
+            &claimed,
+        )?;
+        if rel == workspace {
             table
                 .entry("workspace")
                 .or_insert_with(|| Value::Table(Table::new()));
         }
-        let target = export.join(below(workspace, dir)).join("Cargo.toml");
-        write(&target, table.to_string().as_bytes())?;
+        let dir = export.join(&rel);
+        write(&dir.join("Cargo.toml"), table.to_string().as_bytes())?;
+        sources.insert(dir, Source::Repo(snapshot, rel));
     }
-    for target in members.iter().flat_map(|member| &member.targets) {
-        write(&export.join(below(workspace, &target.root)), b"")?;
+    for (source, members) in roots {
+        let disk = WorkTreeSnapshot::new(source.clone(), Vec::new());
+        let mirror = external.join(hex(&source, &source)?);
+        for member in &members {
+            if member.dir.is_empty() {
+                continue;
+            }
+            let dir = source.join(&member.dir);
+            let Some(mut table) = manifest::read_manifest(&disk, &member.dir, manifests)? else {
+                continue;
+            };
+            mirror_paths(&mut table, &dir, workdir, &export, &external, &claimed)?;
+            let destination = mirror.join(&member.dir);
+            write(
+                &destination.join("Cargo.toml"),
+                table.to_string().as_bytes(),
+            )?;
+            sources.insert(destination, Source::Disk(dir));
+        }
+        if let Some(mut table) = manifest::read_manifest(&disk, "", manifests)? {
+            mirror_paths(&mut table, &source, workdir, &export, &external, &claimed)?;
+            write(&mirror.join("Cargo.toml"), table.to_string().as_bytes())?;
+            sources.insert(mirror.clone(), Source::Disk(source));
+        }
+        for member in members {
+            for target in member.targets {
+                write(&mirror.join(&target.root), b"")?;
+            }
+        }
     }
     let lock = join(workspace, "Cargo.lock");
     if let Some(id) = snapshot.blob(&lock)? {
-        write(&export.join("Cargo.lock"), &snapshot.read(&lock, id)?)?;
+        write(&root.join("Cargo.lock"), &snapshot.read(&lock, id)?)?;
     }
+    Ok((root.join("Cargo.toml"), sources))
+}
+
+/// Reads the manifest of the repository directory `dir`, queuing it when new and present.
+fn queue_repo(
+    dir: String,
+    snapshot: &dyn Snapshot,
+    manifests: &mut Manifests,
+    seen: &mut HashSet<String>,
+    repo: &mut BTreeMap<String, Table>,
+    queue: &mut VecDeque<Local>,
+) -> Result<(), Error> {
+    if !seen.insert(dir.clone()) {
+        return Ok(());
+    }
+    let Some(table) = manifest::read_manifest(snapshot, &dir, manifests)? else {
+        return Ok(());
+    };
+    let owns_workspace = table.contains_key("workspace");
+    repo.insert(dir.clone(), table);
+    if !owns_workspace {
+        for ancestor in Path::new(&dir).ancestors().skip(1) {
+            let Some(ancestor) = ancestor.to_str() else {
+                continue;
+            };
+            if manifest::read_manifest(snapshot, ancestor, manifests)?
+                .is_some_and(|table| table.contains_key("workspace"))
+            {
+                queue_repo(ancestor.to_owned(), snapshot, manifests, seen, repo, queue)?;
+                break;
+            }
+        }
+    }
+    queue.push_back(Local::Repo(dir));
     Ok(())
 }
 
-/// Calls `visit` on every table of dependency specifications in `manifest`.
-fn each_dependency_table(manifest: &mut Table, visit: &mut impl FnMut(&mut Table)) {
-    let kinds = |table: &mut Table, visit: &mut dyn FnMut(&mut Table)| {
-        for kind in KINDS {
-            if let Some(Value::Table(specs)) = table.get_mut(kind) {
-                visit(specs);
+/// Queues each external workspace once and records its original member locations.
+fn queue_external(
+    dir: &Path,
+    manifests: &mut Manifests,
+    seen: &mut HashSet<PathBuf>,
+    claimed: &mut HashMap<PathBuf, (PathBuf, String)>,
+    roots: &mut BTreeMap<PathBuf, Vec<Member>>,
+    queue: &mut VecDeque<Local>,
+) -> Result<(), Error> {
+    if seen.contains(dir) || claimed.contains_key(dir) {
+        return Ok(());
+    }
+    let (root, members) = external_members(dir, manifests)?;
+    if !seen.insert(root.clone()) {
+        return Ok(());
+    }
+    for member in &members {
+        let abs = root.join(&member.dir);
+        claimed.insert(abs.clone(), (root.clone(), member.dir.clone()));
+        queue.push_back(Local::Disk(abs));
+    }
+    if !members.iter().any(|member| member.dir.is_empty()) {
+        claimed.insert(root.clone(), (root.clone(), String::new()));
+        queue.push_back(Local::Disk(root.clone()));
+    }
+    roots.insert(root, members);
+    Ok(())
+}
+
+/// The workspace root of the external package at `dir` and its members, `dir` itself when it
+/// owns a `[workspace]` table or no `[workspace]` ancestor lists it as a member.
+fn external_members(
+    dir: &Path,
+    manifests: &mut Manifests,
+) -> Result<(PathBuf, Vec<Member>), Error> {
+    let read = |dir: &Path, manifests: &mut Manifests| {
+        let disk = WorkTreeSnapshot::new(dir.to_path_buf(), Vec::new());
+        manifest::read_manifest(&disk, "", manifests)
+    };
+    let Some(table) = read(dir, manifests)? else {
+        return Ok((dir.to_path_buf(), Vec::new()));
+    };
+    if !table.contains_key("workspace") {
+        for ancestor in dir.ancestors().skip(1) {
+            let Some(table) = read(ancestor, manifests)? else {
+                continue;
+            };
+            if !table.contains_key("workspace") {
+                continue;
+            }
+            let disk = WorkTreeSnapshot::new(ancestor.to_path_buf(), Vec::new());
+            let members = manifest::workspace(&disk, "", manifests)?;
+            let rel = relative(ancestor, dir).unwrap_or_default();
+            if members.iter().any(|member| member.dir == rel) {
+                return Ok((ancestor.to_path_buf(), members));
+            }
+            break;
+        }
+    }
+    let root = dir.to_path_buf();
+    let disk = WorkTreeSnapshot::new(root.clone(), Vec::new());
+    Ok((root, manifest::workspace(&disk, "", manifests)?))
+}
+
+/// Visits dependency paths and explicit workspace owners, including target and override tables.
+fn each_path(
+    manifest: &mut Table,
+    visit: &mut impl FnMut(&mut String) -> Result<(), Error>,
+) -> Result<(), Error> {
+    if let Some(Value::Table(package)) = manifest.get_mut("package")
+        && let Some(Value::String(path)) = package.get_mut("workspace")
+    {
+        visit(path)?;
+    }
+    let mut visit_specs = |specs: &mut Table| -> Result<(), Error> {
+        for (_, spec) in specs.iter_mut() {
+            if let Value::Table(spec) = spec
+                && let Some(Value::String(path)) = spec.get_mut("path")
+            {
+                visit(path)?;
             }
         }
+        Ok(())
     };
-    kinds(manifest, visit);
+    for kind in KINDS {
+        if let Some(Value::Table(specs)) = manifest.get_mut(kind) {
+            visit_specs(specs)?;
+        }
+    }
     if let Some(Value::Table(targets)) = manifest.get_mut("target") {
         for (_, platform) in targets.iter_mut() {
             if let Value::Table(platform) = platform {
-                kinds(platform, visit);
+                for kind in KINDS {
+                    if let Some(Value::Table(specs)) = platform.get_mut(kind) {
+                        visit_specs(specs)?;
+                    }
+                }
             }
         }
     }
     if let Some(Value::Table(workspace)) = manifest.get_mut("workspace")
         && let Some(Value::Table(specs)) = workspace.get_mut("dependencies")
     {
-        visit(specs);
+        visit_specs(specs)?;
     }
     if let Some(Value::Table(patches)) = manifest.get_mut("patch") {
         for (_, specs) in patches.iter_mut() {
             if let Value::Table(specs) = specs {
-                visit(specs);
+                visit_specs(specs)?;
             }
         }
     }
     if let Some(Value::Table(specs)) = manifest.get_mut("replace") {
-        visit(specs);
+        visit_specs(specs)?;
     }
+    Ok(())
 }
 
-/// Makes absolute every relative `path` in `specs`, written in the manifest in `dir`, that
-/// leaves the `mirrored` directories.
-fn absolute_paths(specs: &mut Table, dir: &str, mirrored: &[&str], workdir: &Path) {
-    for (_, spec) in specs.iter_mut() {
-        if let Value::Table(spec) = spec
-            && let Some(Value::String(path)) = spec.get_mut("path")
-            && !Path::new(path.as_str()).is_absolute()
-        {
-            let resolved = join(dir, path);
-            if !mirrored.contains(&resolved.as_str()) {
-                *path = workdir.join(&resolved).to_string_lossy().into_owned();
+/// Rewrites source paths to their settled mirror locations.
+fn mirror_paths(
+    manifest: &mut Table,
+    base: &Path,
+    workdir: &Path,
+    export: &Path,
+    external: &Path,
+    claimed: &HashMap<PathBuf, (PathBuf, String)>,
+) -> Result<(), Error> {
+    each_path(manifest, &mut |path| {
+        let resolved = normalize(base, path);
+        let destination = if let Some(rel) = relative(workdir, &resolved) {
+            export.join(rel)
+        } else if let Some((root, rel)) = claimed.get(&resolved) {
+            external.join(hex(root, &resolved)?).join(rel)
+        } else {
+            external.join(hex(&resolved, &resolved)?)
+        };
+        *path = destination.to_string_lossy().into_owned();
+        Ok(())
+    })
+}
+
+/// The hex SHA-1 of `path`, naming a mirror directory.
+fn hex(path: &Path, context: &Path) -> Result<String, Error> {
+    let id = gix::objs::compute_hash(
+        gix::hash::Kind::Sha1,
+        gix::objs::Kind::Blob,
+        path.to_string_lossy().as_bytes(),
+    )
+    .map_err(|source| Error::Hash {
+        path: context.display().to_string(),
+        source,
+    })?;
+    Ok(id.to_string())
+}
+
+/// Resolves a path against its manifest directory, clamping parent traversal at the filesystem root.
+fn normalize(base: &Path, path: &str) -> PathBuf {
+    let path = Path::new(path);
+    let mut out = if path.is_absolute() {
+        PathBuf::new()
+    } else {
+        base.to_path_buf()
+    };
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
             }
+            component => out.push(component.as_os_str()),
         }
     }
-}
-
-/// `path`, from the repository root, relative to the workspace directory `workspace`.
-fn below<'p>(workspace: &str, path: &'p str) -> &'p str {
-    if workspace.is_empty() {
-        return path;
-    }
-    path.strip_prefix(workspace)
-        .and_then(|rest| rest.strip_prefix('/'))
-        .unwrap_or(if path == workspace { "" } else { path })
+    out
 }
 
 fn write(path: &Path, contents: &[u8]) -> Result<(), Error> {
