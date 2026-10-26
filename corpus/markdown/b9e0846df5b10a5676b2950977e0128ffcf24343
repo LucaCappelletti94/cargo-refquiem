@@ -1,0 +1,4 @@
+```toml
+[dependencies]
+feature =  on = "0.1", features = ["fast"] }
+```
