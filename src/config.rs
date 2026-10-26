@@ -89,6 +89,8 @@ pub(crate) enum Builtin {
     Wasm3,
     #[serde(rename = "android@36")]
     Android36,
+    #[serde(rename = "uikit@27.1")]
+    Uikit27_1,
 }
 
 /// The config at `path`, the default one when `path` is absent and not `required`.

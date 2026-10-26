@@ -65,6 +65,14 @@ const BUILTINS: &[BuiltinVocabulary] = &[
         source_version: include_str!("../data/android/AOSP").trim_ascii(),
         builtin: config::Builtin::Android36,
     },
+    BuiltinVocabulary {
+        id: "uikit@27.1",
+        kind: "technical",
+        case: "sensitive",
+        source: "https://github.com/dotnet/macios",
+        source_version: include_str!("../data/uikit/MACIOS").trim_ascii(),
+        builtin: config::Builtin::Uikit27_1,
+    },
 ];
 
 /// Returns metadata for the bundled vocabularies.

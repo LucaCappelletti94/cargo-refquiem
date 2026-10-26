@@ -197,6 +197,8 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
         "[vocabularies]\nbuiltins = [\"wasm@2.0\"]\n",
         "[vocabularies]\nbuiltins = [\"android\"]\n",
         "[vocabularies]\nbuiltins = [\"android@35\"]\n",
+        "[vocabularies]\nbuiltins = [\"uikit\"]\n",
+        "[vocabularies]\nbuiltins = [\"uikit@26.0\"]\n",
         "[vocabularies]\nbuiltins = [\"rust\"]\n",
         "[vocabularies]\nbuiltin = [\"english\"]\n",
         "[vocabularies]\nbuiltins = \"english\"\n",
@@ -208,6 +210,60 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
             matches!(&error, refquiem::Error::Config { path, .. } if path == &config_path),
             "{config} {error}"
         );
+    }
+}
+
+#[test]
+fn uikit_27_1_claims_objective_c_types_and_camel_case_selectors() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "#![allow(non_snake_case, non_upper_case_globals)]\npub struct UIViewController;\npub fn viewDidLoad() {}\npub fn isExclusiveTouch() {}\npub struct UIGraphicsPDFRenderer;\npub struct UIGraphicsPdfRenderer;\npub const NSBluetoothAlwaysUsageDescription: u8 = 0;\n",
+    );
+    repo.commit("public names");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// let _ = UIViewController;\n/// ```\npub struct Kept;\n",
+    );
+    repo.write(
+        "README.md",
+        "The UIViewController calls `viewDidLoad` and `isExclusiveTouch`.\n`UIGraphicsPDFRenderer` `UIGraphicsPdfRenderer` NSBluetoothAlwaysUsageDescription\n`fixture::UIViewController`\n",
+    );
+    repo.commit("remove names");
+    let options = Options::new(repo.path().to_path_buf());
+    let mentions = || {
+        let mut out: Vec<(String, usize, String)> = refquiem::run(&options)
+            .unwrap()
+            .groups
+            .iter()
+            .flat_map(|group| group.mentions.iter())
+            .map(|m| (m.file.clone(), m.line, m.text.clone()))
+            .collect();
+        out.sort();
+        out
+    };
+    let row = |file: &str, line, text: &str| (file.to_owned(), line, text.to_owned());
+    let selected = vec![
+        row("README.md", 2, "NSBluetoothAlwaysUsageDescription"),
+        row("README.md", 2, "UIGraphicsPdfRenderer"),
+        row("README.md", 3, "fixture::UIViewController"),
+        row("src/lib.rs", 2, "UIViewController"),
+    ];
+    let mut unselected = selected.clone();
+    unselected.extend([
+        row("README.md", 1, "UIViewController"),
+        row("README.md", 1, "isExclusiveTouch"),
+        row("README.md", 1, "viewDidLoad"),
+        row("README.md", 2, "UIGraphicsPDFRenderer"),
+    ]);
+    unselected.sort();
+    for (config, expected) in [
+        ("", &unselected),
+        ("[vocabularies]\nbuiltins = [\"wasm@3.0\"]\n", &unselected),
+        ("[vocabularies]\nbuiltins = [\"uikit@27.1\"]\n", &selected),
+    ] {
+        repo.write(".refquiem.toml", config);
+        assert_eq!(&mentions(), expected, "{config}");
     }
 }
 
