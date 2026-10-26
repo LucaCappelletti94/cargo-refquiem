@@ -199,6 +199,8 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
         "[vocabularies]\nbuiltins = [\"android@35\"]\n",
         "[vocabularies]\nbuiltins = [\"uikit\"]\n",
         "[vocabularies]\nbuiltins = [\"uikit@26.0\"]\n",
+        "[vocabularies]\nbuiltins = [\"posix\"]\n",
+        "[vocabularies]\nbuiltins = [\"posix@2024\"]\n",
         "[vocabularies]\nbuiltins = [\"rust\"]\n",
         "[vocabularies]\nbuiltin = [\"english\"]\n",
         "[vocabularies]\nbuiltins = \"english\"\n",
@@ -210,6 +212,60 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
             matches!(&error, refquiem::Error::Config { path, .. } if path == &config_path),
             "{config} {error}"
         );
+    }
+}
+
+#[test]
+fn posix_2017_claims_constants_errors_signals_and_underscore_functions() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "#![allow(non_upper_case_globals)]\npub const O_RDONLY: u8 = 0;\npub const EINVAL: u8 = 0;\npub const SIGTERM: u8 = 0;\npub const BUFSIZ: u8 = 0;\npub fn pthread_create() {}\npub fn strlen() {}\n",
+    );
+    repo.commit("public names");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// let _ = O_RDONLY;\n/// ```\npub struct Kept;\n",
+    );
+    repo.write(
+        "README.md",
+        "Opening with O_RDONLY calls pthread_create.\n`EINVAL` `SIGTERM` `strlen` `BUFSIZ`\n`fixture::O_RDONLY`\n",
+    );
+    repo.commit("remove names");
+    let options = Options::new(repo.path().to_path_buf());
+    let mentions = || {
+        let mut out: Vec<(String, usize, String)> = refquiem::run(&options)
+            .unwrap()
+            .groups
+            .iter()
+            .flat_map(|group| group.mentions.iter())
+            .map(|m| (m.file.clone(), m.line, m.text.clone()))
+            .collect();
+        out.sort();
+        out
+    };
+    let row = |file: &str, line, text: &str| (file.to_owned(), line, text.to_owned());
+    let selected = vec![
+        row("README.md", 2, "BUFSIZ"),
+        row("README.md", 2, "strlen"),
+        row("README.md", 3, "fixture::O_RDONLY"),
+        row("src/lib.rs", 2, "O_RDONLY"),
+    ];
+    let mut unselected = selected.clone();
+    unselected.extend([
+        row("README.md", 1, "O_RDONLY"),
+        row("README.md", 1, "pthread_create"),
+        row("README.md", 2, "EINVAL"),
+        row("README.md", 2, "SIGTERM"),
+    ]);
+    unselected.sort();
+    for (config, expected) in [
+        ("", &unselected),
+        ("[vocabularies]\nbuiltins = [\"wasm@3.0\"]\n", &unselected),
+        ("[vocabularies]\nbuiltins = [\"posix@2017\"]\n", &selected),
+    ] {
+        repo.write(".refquiem.toml", config);
+        assert_eq!(&mentions(), expected, "{config}");
     }
 }
 
