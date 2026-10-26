@@ -1357,7 +1357,6 @@ fn an_excluded_dependency_preserves_a_transitive_reexport() {
         "[package]\nname = \"fixture-web\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[workspace]\n\n[dependencies]\nfixture-core = { path = \"../fixture-core\" }\nhelper = \"1\"\n",
     );
     repo.write("fixture-web/src/lib.rs", "pub use helper::SharedProbe;\n");
-    repo.write("fixture-web/.cargo-checksum.json", "{\"files\":{}}");
     lock(&repo);
     repo.commit("local methods");
     repo.write(
@@ -1549,7 +1548,6 @@ fn a_committed_head_reads_local_dependency_manifests_and_apis_from_the_snapshot(
         "fixture-web/src/lib.rs",
         "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} }\n",
     );
-    repo.write("fixture-web/.cargo-checksum.json", "{\"files\":{}}");
     lock(&repo);
     let base = repo.commit("local methods");
     repo.write(
