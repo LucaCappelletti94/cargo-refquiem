@@ -88,7 +88,7 @@ fn main() -> ExitCode {
 }
 
 /// Writes the standard library layers and the English, SQL, WASI, WebAssembly, Android,
-/// `UIKit` and POSIX word lists under `data/`.
+/// `UIKit`, POSIX and Web API word lists under `data/`.
 fn vocab() -> Result<(), Error> {
     let data = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -101,7 +101,8 @@ fn vocab() -> Result<(), Error> {
     wasm(&data.join("wasm"))?;
     android(&data.join("android"))?;
     uikit(&data.join("uikit"))?;
-    posix(&data.join("posix"))
+    posix(&data.join("posix"))?;
+    web_api(&data.join("web-api"))
 }
 
 /// Writes `<layer>.fst`, every suffix of two or more segments of every public path reachable
@@ -231,6 +232,13 @@ const MAN_PAGES_POSIX: &str =
 /// The SHA-256 of the pinned `man-pages-posix` release tarball.
 const MAN_PAGES_POSIX_SHA256: &str =
     "ce67bb25b5048b20dad772e405a83f4bc70faf051afa289361c81f9660318bc3";
+
+/// Where npm serves MDN's `browser-compat-data` release tarballs.
+const BCD_PACKAGE: &str =
+    "https://registry.npmjs.org/@mdn/browser-compat-data/-/browser-compat-data";
+
+/// The SHA-256 of the pinned `browser-compat-data` release tarball.
+const BCD_SHA256: &str = "4e7a8747cac26a68087df5f38405f834a352245283af1128f4cf189989bd691e";
 
 /// A reader of the files of `repository` at tag `pinned`, through a partial clone whose
 /// blobs arrive on demand, so only the files read are downloaded.
@@ -778,7 +786,8 @@ fn without_font_escapes(text: &str) -> String {
     out
 }
 
-/// The directory where the `.tar.xz` at `url` is unpacked, after its SHA-256 matched `sha256`.
+/// The directory named `name` where the tarball at `url` is unpacked, after its SHA-256
+/// matched `sha256`.
 fn pinned_tarball(url: &str, sha256: &'static str, name: &str) -> Result<PathBuf, Error> {
     let cache = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -786,7 +795,7 @@ fn pinned_tarball(url: &str, sha256: &'static str, name: &str) -> Result<PathBuf
         .join("target")
         .join("xtask");
     create_dir(&cache)?;
-    let archive = cache.join(format!("{name}.tar.xz"));
+    let archive = cache.join(url.rsplit('/').next().unwrap_or(name));
     let archive_arg = archive.to_string_lossy();
     if !archive.is_file() {
         run(&cache, "curl", &["-sSfL", "-o", &archive_arg, url])?;
@@ -808,8 +817,75 @@ fn pinned_tarball(url: &str, sha256: &'static str, name: &str) -> Result<PathBuf
         })?;
     }
     create_dir(&dir)?;
-    run(&dir, "tar", &["-xJf", &archive_arg, "--strip-components=1"])?;
+    run(&dir, "tar", &["-xf", &archive_arg, "--strip-components=1"])?;
     Ok(dir)
+}
+
+/// Writes `words.fst`, the standards-track Web API interface and member names that MDN's
+/// `browser-compat-data` records and that are compound type names such as `HTMLElement` or
+/// camelCase such as `querySelector`, and the data's CC0 `LICENSE`.
+///
+/// Event, inheritance and permission entries describe behavior rather than name a member,
+/// and a `_static` suffix marks a static member. A single word such as `fetch` or `Document`
+/// names too many Rust items to claim.
+fn web_api(out: &Path) -> Result<(), Error> {
+    let pinned = include_str!("../../data/web-api/BCD").trim_ascii();
+    let version = pinned.trim_start_matches('v');
+    let package = pinned_tarball(
+        &format!("{BCD_PACKAGE}-{version}.tgz"),
+        BCD_SHA256,
+        &format!("browser-compat-data-{version}"),
+    )?;
+    let path = package.join("data.json");
+    let bytes = std::fs::read(&path).map_err(|source| Error::Read {
+        path: path.clone(),
+        source,
+    })?;
+    let data: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|source| Error::Json { path, source })?;
+    let standards_track = |entry: &serde_json::Value| {
+        entry["__compat"]["status"]["standard_track"]
+            .as_bool()
+            .unwrap_or(true)
+    };
+    let claimable = |name: &str| {
+        name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && (is_compound_type(name) || is_camel_case(name))
+    };
+    let mut words = BTreeSet::new();
+    for (interface, entry) in data["api"].as_object().into_iter().flatten() {
+        if interface.starts_with("__") || !standards_track(entry) {
+            continue;
+        }
+        if claimable(interface) {
+            words.insert(interface.as_str());
+        }
+        for (member, entry) in entry.as_object().into_iter().flatten() {
+            let described = ["_event", "_inheritance", "_permission"]
+                .iter()
+                .any(|suffix| member.ends_with(suffix));
+            if member.starts_with("__")
+                || member.starts_with("@@")
+                || described
+                || !standards_track(entry)
+            {
+                continue;
+            }
+            let member = member.strip_suffix("_static").unwrap_or(member);
+            if claimable(member) {
+                words.insert(member);
+            }
+        }
+    }
+    create_dir(out)?;
+    let count = write_set(&out.join("words.fst"), words.iter().copied())?;
+    let license = out.join("LICENSE");
+    std::fs::copy(package.join("LICENSE"), &license).map_err(|source| Error::Write {
+        path: license,
+        source,
+    })?;
+    println!("web-api@2026-10: {count} words");
+    Ok(())
 }
 
 /// Runs `program` in `dir` and returns its standard output.

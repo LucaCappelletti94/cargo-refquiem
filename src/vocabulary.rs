@@ -81,6 +81,14 @@ const BUILTINS: &[BuiltinVocabulary] = &[
         source_version: include_str!("../data/posix/MAN_PAGES_POSIX").trim_ascii(),
         builtin: config::Builtin::Posix2017,
     },
+    BuiltinVocabulary {
+        id: "web-api@2026-10",
+        kind: "technical",
+        case: "sensitive",
+        source: "https://github.com/mdn/browser-compat-data",
+        source_version: include_str!("../data/web-api/BCD").trim_ascii(),
+        builtin: config::Builtin::WebApi2026_10,
+    },
 ];
 
 /// Returns metadata for the bundled vocabularies.

@@ -63,11 +63,11 @@ English is the default optional vocabulary. An explicit `[vocabularies]` table r
 
 ```toml
 [vocabularies]
-builtins = ["english", "sql@2023", "wasi@preview1", "wasm@3.0", "android@36", "uikit@27.1", "posix@2017"]
+builtins = ["english", "sql@2023", "posix@2017"]
 files = ["vocab/domain.toml"]
 ```
 
-An empty table disables optional vocabularies. Omitted arrays default to empty, and selecting only `files` never enables `english`. The built-in identities are `english`, `sql@2023`, `wasi@preview1`, `wasm@3.0`, `android@36`, `uikit@27.1` and `posix@2017`, and unknown identities or fields are configuration errors. `--config PATH` selects a replacement configuration, while `--package NAME` only limits scanned files.
+An empty table disables optional vocabularies. Omitted arrays default to empty, and selecting only `files` never enables `english`. The built-in identities are `english`, `sql@2023`, `wasi@preview1`, `wasm@3.0`, `android@36`, `uikit@27.1`, `posix@2017` and `web-api@2026-10`, and unknown identities or fields are configuration errors. `--config PATH` selects a replacement configuration, while `--package NAME` only limits scanned files.
 
 `sql@2023` holds the reserved key words of SQL:2023 parts 2, 9 and 14 as a technical vocabulary matched case-sensitively, so `ARRAY_AGG` is ambiguous while `array_agg` stays reportable. Write a SQL key word in uppercase for it to count as SQL. A reported bare name whose uppercase spelling a selected exact-case vocabulary holds carries that spelling and vocabulary, as `uppercase` in JSON and as a `write ARRAY_AGG to mark it as sql@2023` note elsewhere.
 
@@ -78,6 +78,8 @@ An empty table disables optional vocabularies. Omitted arrays default to empty, 
 `uikit@27.1` holds the compound Objective-C class and protocol names and the camelCase selector heads of UIKit in the Xcode 27.1 SDK, such as `UIViewController`, `viewDidLoad` and `isExclusiveTouch`, as a technical vocabulary matched case-sensitively. Of a selector such as `tableView:cellForRowAtIndexPath:` only the head `tableView` can count as a mention. `Info.plist` keys such as `NSBluetoothAlwaysUsageDescription` and single words such as `close` stay reportable.
 
 `posix@2017` holds POSIX.1-2017 names from the POSIX manual pages, the header constants and functions with an inner underscore such as `O_RDONLY`, `PATH_MAX` and `pthread_create`, the error numbers of `errno.h` such as `EINVAL` and the signals of `signal.h` such as `SIGTERM`, as a technical vocabulary matched case-sensitively. Single-word functions and constants such as `strlen`, `close` and `BUFSIZ` stay reportable.
+
+`web-api@2026-10` holds the standards-track Web API interface and member names of MDN's browser compatibility data as of October 2026 that are compound or camelCase, such as `HTMLElement`, `CanvasRenderingContext2D` and `querySelector`, as a technical vocabulary matched case-sensitively. Single words such as `Document` and `fetch` stay reportable, and dotted spellings such as `document.getElementById` never count as a mention.
 
 A custom file is a self-describing `TOML` document with `format-version = 1`, `kind` as `natural-language` or `technical`, `case` as `sensitive`, `ascii-insensitive` or `unicode-lowercase`, and `words` as a string array. Missing fields, unknown fields, and unsupported values are errors.
 

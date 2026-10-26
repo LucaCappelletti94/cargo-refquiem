@@ -51,6 +51,11 @@ fn vocabulary_catalog_ignores_project_state_outside_a_repository() {
             "https://mirrors.edge.kernel.org/pub/linux/docs/man-pages/man-pages-posix",
             "man-pages-posix-2017-a",
         ),
+        (
+            "web-api@2026-10",
+            "https://github.com/mdn/browser-compat-data",
+            "v8.1.7",
+        ),
     ]
     .into_iter()
     .map(|(id, source, source_version)| {

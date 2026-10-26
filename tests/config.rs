@@ -201,6 +201,8 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
         "[vocabularies]\nbuiltins = [\"uikit@26.0\"]\n",
         "[vocabularies]\nbuiltins = [\"posix\"]\n",
         "[vocabularies]\nbuiltins = [\"posix@2024\"]\n",
+        "[vocabularies]\nbuiltins = [\"web-api\"]\n",
+        "[vocabularies]\nbuiltins = [\"web-api@2026-09\"]\n",
         "[vocabularies]\nbuiltins = [\"rust\"]\n",
         "[vocabularies]\nbuiltin = [\"english\"]\n",
         "[vocabularies]\nbuiltins = \"english\"\n",
@@ -212,6 +214,61 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
             matches!(&error, refquiem::Error::Config { path, .. } if path == &config_path),
             "{config} {error}"
         );
+    }
+}
+
+#[test]
+fn web_api_2026_10_claims_compound_interfaces_and_camel_case_members() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "#![allow(non_snake_case, non_camel_case_types)]\npub struct HTMLElement;\npub struct ANGLE_instanced_arrays;\npub fn querySelector() {}\npub fn atob() {}\n",
+    );
+    repo.commit("public names");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// let _ = HTMLElement;\n/// ```\npub struct Kept;\n",
+    );
+    repo.write(
+        "README.md",
+        "The HTMLElement calls querySelector with ANGLE_instanced_arrays.\n`atob` and `fixture::HTMLElement`\n",
+    );
+    repo.commit("remove names");
+    let options = Options::new(repo.path().to_path_buf());
+    let mentions = || {
+        let mut out: Vec<(String, usize, String)> = refquiem::run(&options)
+            .unwrap()
+            .groups
+            .iter()
+            .flat_map(|group| group.mentions.iter())
+            .map(|m| (m.file.clone(), m.line, m.text.clone()))
+            .collect();
+        out.sort();
+        out
+    };
+    let row = |file: &str, line, text: &str| (file.to_owned(), line, text.to_owned());
+    let selected = vec![
+        row("README.md", 2, "atob"),
+        row("README.md", 2, "fixture::HTMLElement"),
+        row("src/lib.rs", 2, "HTMLElement"),
+    ];
+    let mut unselected = selected.clone();
+    unselected.extend([
+        row("README.md", 1, "ANGLE_instanced_arrays"),
+        row("README.md", 1, "HTMLElement"),
+        row("README.md", 1, "querySelector"),
+    ]);
+    unselected.sort();
+    for (config, expected) in [
+        ("", &unselected),
+        ("[vocabularies]\nbuiltins = [\"wasm@3.0\"]\n", &unselected),
+        (
+            "[vocabularies]\nbuiltins = [\"web-api@2026-10\"]\n",
+            &selected,
+        ),
+    ] {
+        repo.write(".refquiem.toml", config);
+        assert_eq!(&mentions(), expected, "{config}");
     }
 }
 
