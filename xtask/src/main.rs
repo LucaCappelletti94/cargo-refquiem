@@ -81,8 +81,8 @@ fn main() -> ExitCode {
     }
 }
 
-/// Writes the standard library layers and the English, SQL, WASI and WebAssembly word lists
-/// under `data/`.
+/// Writes the standard library layers and the English, SQL, WASI, WebAssembly and Android
+/// word lists under `data/`.
 fn vocab() -> Result<(), Error> {
     let data = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -92,7 +92,8 @@ fn vocab() -> Result<(), Error> {
     english(&data.join("english"))?;
     sql(&data.join("sql"))?;
     wasi(&data.join("wasi"))?;
-    wasm(&data.join("wasm"))
+    wasm(&data.join("wasm"))?;
+    android(&data.join("android"))
 }
 
 /// Writes `<layer>.fst`, every suffix of two or more segments of every public path reachable
@@ -207,6 +208,9 @@ const WASI_PREVIEW1: &str = "legacy/preview1/witx/wasi_snapshot_preview1.witx";
 
 /// Where the WebAssembly specification is published.
 const WASM_REPOSITORY: &str = "https://github.com/WebAssembly/spec";
+
+/// Where AOSP publishes the Android framework, whose public API it describes in signature files.
+const AOSP_FRAMEWORKS_BASE: &str = "https://android.googlesource.com/platform/frameworks/base";
 
 /// A reader of the files of `repository` at tag `pinned`, through a partial clone whose
 /// blobs arrive on demand, so only the files read are downloaded.
@@ -358,6 +362,107 @@ fn instruction_macro(line: &str) -> Option<(&str, String)> {
         _ => None,
     })?;
     Some((name, text[..end].replace(r"\_", "_").replace("{.}", ".")))
+}
+
+/// Writes `words.fst`, the compound class names and camelCase method names of the public
+/// Android framework API, and the framework's `NOTICE`, which the Apache License requires
+/// with any copy.
+fn android(out: &Path) -> Result<(), Error> {
+    let pinned = include_str!("../../data/android/AOSP").trim_ascii();
+    let show = pinned_files(AOSP_FRAMEWORKS_BASE, "android", pinned)?;
+    let api = show("core/api/current.txt")?;
+    let mut words = BTreeSet::new();
+    for line in api.lines() {
+        let line = without_annotations(line);
+        if let Some(declaration) = line.strip_prefix("  ").filter(|d| !d.starts_with(' ')) {
+            let mut tokens = declaration.split_whitespace();
+            if tokens.any(|token| matches!(token, "class" | "interface" | "enum"))
+                && let Some(name) = tokens.next()
+            {
+                let name = name
+                    .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.'))
+                    .next()
+                    .unwrap_or_default();
+                let simple = name.rsplit('.').next().unwrap_or_default();
+                // A single word such as `Builder` names too many Rust types to claim.
+                let mut chars = simple.chars();
+                if chars.next().is_some_and(|c| c.is_ascii_uppercase())
+                    && chars.any(|c| c.is_ascii_uppercase())
+                {
+                    words.insert(simple.to_owned());
+                }
+            }
+        } else if let Some((head, _)) = line
+            .strip_prefix("    method ")
+            .and_then(|declaration| declaration.split_once('('))
+        {
+            let name = head
+                .rsplit(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .next()
+                .unwrap_or_default();
+            let lower = name
+                .chars()
+                .take_while(|c| !c.is_ascii_uppercase())
+                .collect::<String>();
+            if lower.len() < name.len()
+                && lower.starts_with(|c: char| c.is_ascii_lowercase())
+                && lower
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+            {
+                words.insert(name.to_owned());
+            }
+        }
+    }
+    create_dir(out)?;
+    let count = write_set(&out.join("words.fst"), words.iter().map(String::as_str))?;
+    let notice = out.join("NOTICE");
+    std::fs::write(&notice, show("NOTICE")?).map_err(|source| Error::Write {
+        path: notice,
+        source,
+    })?;
+    println!("android@36: {count} words");
+    Ok(())
+}
+
+/// `line` without its `@Name` and `@Name(arguments)` annotations, keeping `@interface`.
+fn without_annotations(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(at) = rest.find('@') {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 1..];
+        let end = after
+            .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.'))
+            .unwrap_or(after.len());
+        if &after[..end] == "interface" {
+            out.push_str("interface");
+            rest = &after[end..];
+            continue;
+        }
+        let mut tail = &after[end..];
+        if tail.starts_with('(') {
+            let (mut depth, mut quoted) = (0_usize, false);
+            let close = tail.char_indices().find_map(|(at, c)| {
+                match c {
+                    '"' => quoted = !quoted,
+                    '(' if !quoted => depth += 1,
+                    ')' if !quoted => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return Some(at);
+                        }
+                    }
+                    _ => {}
+                }
+                None
+            });
+            tail = close.map_or("", |at| &tail[at + 1..]);
+        }
+        rest = tail.trim_start();
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Runs `program` in `dir` and returns its standard output.

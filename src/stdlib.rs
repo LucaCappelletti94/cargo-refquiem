@@ -96,6 +96,14 @@ impl Vocabulary {
         }
     }
 
+    /// The compound class names and camelCase method names of the public Android 16 API.
+    pub(crate) fn android_36() -> Self {
+        Self {
+            words: fst::Set::new(&include_bytes!("../data/android/words.fst")[..])
+                .expect("data/android holds an fst set written by xtask"),
+        }
+    }
+
     /// Whether `word`, spelled as the vocabulary stores it, is one of its words.
     pub(crate) fn contains(&self, word: &str) -> bool {
         self.words.contains(word)

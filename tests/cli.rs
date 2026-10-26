@@ -32,7 +32,13 @@ fn vocabulary_catalog_ignores_project_state_outside_a_repository() {
         .collect();
     assert_eq!(
         identities,
-        ["english", "sql@2023", "wasi@preview1", "wasm@3.0"]
+        [
+            "english",
+            "sql@2023",
+            "wasi@preview1",
+            "wasm@3.0",
+            "android@36"
+        ]
     );
     assert_eq!(
         catalog[1],
@@ -62,6 +68,16 @@ fn vocabulary_catalog_ignores_project_state_outside_a_repository() {
             "case": "sensitive",
             "source": "https://github.com/WebAssembly/spec",
             "source_version": "wg-3.0",
+        })
+    );
+    assert_eq!(
+        catalog[4],
+        serde_json::json!({
+            "id": "android@36",
+            "kind": "technical",
+            "case": "sensitive",
+            "source": "https://android.googlesource.com/platform/frameworks/base",
+            "source_version": "android-16.0.0_r4",
         })
     );
     let output = cargo_refquiem(dir.path(), &["vocabularies"]);

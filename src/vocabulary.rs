@@ -57,6 +57,14 @@ const BUILTINS: &[BuiltinVocabulary] = &[
         source_version: include_str!("../data/wasm/SPEC").trim_ascii(),
         builtin: config::Builtin::Wasm3,
     },
+    BuiltinVocabulary {
+        id: "android@36",
+        kind: "technical",
+        case: "sensitive",
+        source: "https://android.googlesource.com/platform/frameworks/base",
+        source_version: include_str!("../data/android/AOSP").trim_ascii(),
+        builtin: config::Builtin::Android36,
+    },
 ];
 
 /// Returns metadata for the bundled vocabularies.
