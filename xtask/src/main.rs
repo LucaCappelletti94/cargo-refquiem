@@ -81,14 +81,15 @@ fn main() -> ExitCode {
     }
 }
 
-/// Writes the standard library layers and the English word list under `data/`.
+/// Writes the standard library layers and the English and SQL word lists under `data/`.
 fn vocab() -> Result<(), Error> {
     let data = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("xtask sits inside the workspace")
         .join("data");
     standard_library(&data.join("std"))?;
-    english(&data.join("english"))
+    english(&data.join("english"))?;
+    sql(&data.join("sql"))
 }
 
 /// Writes `<layer>.fst`, every suffix of two or more segments of every public path reachable
@@ -184,6 +185,72 @@ fn english(out: &Path) -> Result<(), Error> {
 
 /// Where ESDB, the English Speller Database, is published.
 const ESDB_REPOSITORY: &str = "https://github.com/en-wl/wordlist";
+
+/// Where PostgreSQL, whose documentation tabulates the SQL standard's key words, is published.
+const POSTGRESQL_REPOSITORY: &str = "https://github.com/postgres/postgres";
+
+/// The SQL:2023 key-word tables of parts 2, 9 and 14 that PostgreSQL's documentation carries.
+const SQL_2023_RESERVED: [&str; 3] = [
+    "doc/src/sgml/keywords/sql2023-02-reserved.txt",
+    "doc/src/sgml/keywords/sql2023-09-reserved.txt",
+    "doc/src/sgml/keywords/sql2023-14-reserved.txt",
+];
+
+/// Writes `words.fst`, the reserved key words of SQL:2023 in their uppercase spelling, and
+/// PostgreSQL's `COPYRIGHT`, which its license requires next to any copy.
+fn sql(out: &Path) -> Result<(), Error> {
+    let pinned = include_str!("../../data/sql/POSTGRESQL").trim_ascii();
+    let checkout = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask sits inside the workspace")
+        .join("target")
+        .join("xtask")
+        .join(format!("postgresql-{pinned}"));
+    if !checkout.join(".git").is_dir() {
+        create_dir(&checkout)?;
+        run(&checkout, "git", &["init", "-q"])?;
+        run(
+            &checkout,
+            "git",
+            &["remote", "add", "origin", POSTGRESQL_REPOSITORY],
+        )?;
+    }
+    let tag = format!("refs/tags/{pinned}");
+    // Blobs arrive on demand, so only the files read below are downloaded.
+    run(
+        &checkout,
+        "git",
+        &[
+            "fetch",
+            "-q",
+            "--depth",
+            "1",
+            "--filter=blob:none",
+            "origin",
+            &format!("+{tag}:{tag}"),
+        ],
+    )?;
+    let show = |path: &str| run(&checkout, "git", &["show", &format!("{tag}:{path}")]);
+    let mut words = BTreeSet::new();
+    for table in SQL_2023_RESERVED {
+        words.extend(
+            show(table)?
+                .lines()
+                .map(str::trim_ascii)
+                .filter(|word| !word.is_empty())
+                .map(str::to_owned),
+        );
+    }
+    create_dir(out)?;
+    let count = write_set(&out.join("words.fst"), words.iter().map(String::as_str))?;
+    let target = out.join("COPYRIGHT");
+    std::fs::write(&target, show("COPYRIGHT")?).map_err(|source| Error::Write {
+        path: target,
+        source,
+    })?;
+    println!("sql@2023: {count} words");
+    Ok(())
+}
 
 /// Runs `program` in `dir` and returns its standard output.
 fn run(dir: &Path, program: &str, args: &[&str]) -> Result<String, Error> {

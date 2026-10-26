@@ -49,11 +49,12 @@ pub(crate) struct Config {
 }
 
 impl Config {
-    /// Whether English words can establish ambiguity in running text.
-    pub(crate) fn uses_english(&self) -> bool {
-        self.vocabularies
-            .as_ref()
-            .is_none_or(|vocabularies| vocabularies.builtins.contains(&Builtin::English))
+    /// Whether the selection includes `builtin`, English alone when the table is absent.
+    pub(crate) fn selects(&self, builtin: Builtin) -> bool {
+        match &self.vocabularies {
+            Some(vocabularies) => vocabularies.builtins.contains(&builtin),
+            None => builtin == Builtin::English,
+        }
     }
 
     /// The custom vocabulary files the selection names, empty without a table.
@@ -75,10 +76,13 @@ struct Vocabularies {
     files: Vec<String>,
 }
 
-#[derive(Debug, PartialEq, Eq, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
-enum Builtin {
+/// A bundled vocabulary as configuration names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+pub(crate) enum Builtin {
+    #[serde(rename = "english")]
     English,
+    #[serde(rename = "sql@2023")]
+    Sql2023,
 }
 
 /// The config at `path`, the default one when `path` is absent and not `required`.

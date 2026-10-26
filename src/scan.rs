@@ -199,7 +199,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         &rooted,
     );
     matcher.add_vocabulary(&config.allow);
-    matcher.vocabularies = Vocabularies::new(config.uses_english(), custom);
+    matcher.vocabularies = Vocabularies::new(&config, custom);
     let filter = filter(
         options,
         &config,
@@ -1172,15 +1172,21 @@ impl VocabularyWords {
 #[derive(Default)]
 struct Vocabularies {
     english: Option<stdlib::Vocabulary>,
+    sql: Option<stdlib::Vocabulary>,
     sensitive: VocabularyWords,
     ascii: VocabularyWords,
     unicode: VocabularyWords,
 }
 
 impl Vocabularies {
-    fn new(english: bool, files: Vec<config::Custom>) -> Self {
+    fn new(config: &config::Config, files: Vec<config::Custom>) -> Self {
         let mut selected = Self {
-            english: english.then(stdlib::Vocabulary::new),
+            english: config
+                .selects(config::Builtin::English)
+                .then(stdlib::Vocabulary::english),
+            sql: config
+                .selects(config::Builtin::Sql2023)
+                .then(stdlib::Vocabulary::sql_2023),
             ..Self::default()
         };
         for file in files {
@@ -1210,7 +1216,9 @@ impl Vocabularies {
         if !text && kind != Kind::CodeSpan {
             return false;
         }
-        if self.sensitive.claims(word, text) {
+        if self.sensitive.claims(word, text)
+            || self.sql.as_ref().is_some_and(|sql| sql.contains(word))
+        {
             return true;
         }
         let english = self.english.as_ref().filter(|_| text);
@@ -1222,7 +1230,7 @@ impl Vocabularies {
             }
         });
         if let Some(lowercase) = &lowercase
-            && (english.is_some_and(|english| english.claims_lowercase(lowercase))
+            && (english.is_some_and(|english| english.contains(lowercase))
                 || self.unicode.claims(lowercase, text))
         {
             return true;

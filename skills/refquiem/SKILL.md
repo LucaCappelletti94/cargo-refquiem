@@ -63,11 +63,13 @@ English is the default optional vocabulary. An explicit `[vocabularies]` table r
 
 ```toml
 [vocabularies]
-builtins = ["english"]
+builtins = ["english", "sql@2023"]
 files = ["vocab/domain.toml"]
 ```
 
-An empty table disables optional vocabularies. Omitted arrays default to empty, and selecting only `files` never enables `english`. `english` is the available built-in identity, and unknown identities or fields are configuration errors. `--config PATH` selects a replacement configuration, while `--package NAME` only limits scanned files.
+An empty table disables optional vocabularies. Omitted arrays default to empty, and selecting only `files` never enables `english`. The built-in identities are `english` and `sql@2023`, and unknown identities or fields are configuration errors. `--config PATH` selects a replacement configuration, while `--package NAME` only limits scanned files.
+
+`sql@2023` holds the reserved key words of SQL:2023 parts 2, 9 and 14 as a technical vocabulary matched case-sensitively, so `ARRAY_AGG` is ambiguous while `array_agg` stays reportable. Write a SQL key word in uppercase for it to count as SQL.
 
 A custom file is a self-describing `TOML` document with `format-version = 1`, `kind` as `natural-language` or `technical`, `case` as `sensitive`, `ascii-insensitive` or `unicode-lowercase`, and `words` as a string array. Missing fields, unknown fields, and unsupported values are errors.
 
