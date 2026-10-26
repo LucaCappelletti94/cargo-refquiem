@@ -248,6 +248,8 @@ pub(crate) struct Library {
     pub(crate) macro_idents: HashSet<Sym>,
     /// Its `#[macro_export]` macros by name.
     pub(crate) macro_rules: Vec<(Sym, Definition)>,
+    /// The names of its item-position macro invocations no definition expanded.
+    pub(crate) unexpanded: HashSet<Sym>,
 }
 
 impl Library {
@@ -292,7 +294,7 @@ pub(crate) struct Indexer {
     /// items.
     expansions: HashMap<ExpansionKey, Option<Rc<Contribution>>>,
     expander: expand::Expander,
-    /// The `#[macro_export]` macros of head's dependencies by name, expanded wherever the
+    /// The `#[macro_export]` macros of indexed dependencies by name, expanded wherever the
     /// indexed crate defines no macro of that name.
     dependency_macros: HashMap<Sym, Rc<Vec<Definition>>>,
     /// The item-position macros head invokes without expanding them, by name, which workspace
@@ -357,15 +359,18 @@ impl Indexer {
         }
     }
 
-    /// Makes the `#[macro_export]` macros `rules` of head's dependencies expandable in every
-    /// later index.
-    pub(crate) fn use_dependency_macros(&mut self, rules: &[(Sym, Definition)]) {
+    /// Makes the `#[macro_export]` macros `rules` of dependencies expandable in every later
+    /// index, returning whether any definition was new.
+    pub(crate) fn use_dependency_macros(&mut self, rules: &[(Sym, Definition)]) -> bool {
+        let mut added = false;
         for (name, definition) in rules {
             let definitions = Rc::make_mut(self.dependency_macros.entry(*name).or_default());
             if !definitions.contains(definition) {
                 definitions.push(definition.clone());
+                added = true;
             }
         }
+        added
     }
 
     /// Leaves the macros `head` invokes without expanding them unexpanded in every later
@@ -909,6 +914,11 @@ impl Indexer {
                     };
                     (rules.name, definition)
                 })
+                .collect(),
+            unexpanded: reached
+                .unexpanded()
+                .filter(|call| call.expandable.is_some())
+                .map(|call| call.name)
                 .collect(),
             paths: index.paths,
             hidden: reached
