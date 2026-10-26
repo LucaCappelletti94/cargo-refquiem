@@ -81,7 +81,8 @@ fn main() -> ExitCode {
     }
 }
 
-/// Writes the standard library layers and the English, SQL and WASI word lists under `data/`.
+/// Writes the standard library layers and the English, SQL, WASI and WebAssembly word lists
+/// under `data/`.
 fn vocab() -> Result<(), Error> {
     let data = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -90,7 +91,8 @@ fn vocab() -> Result<(), Error> {
     standard_library(&data.join("std"))?;
     english(&data.join("english"))?;
     sql(&data.join("sql"))?;
-    wasi(&data.join("wasi"))
+    wasi(&data.join("wasi"))?;
+    wasm(&data.join("wasm"))
 }
 
 /// Writes `<layer>.fst`, every suffix of two or more segments of every public path reachable
@@ -203,6 +205,9 @@ const WASI_REPOSITORY: &str = "https://github.com/WebAssembly/WASI";
 /// The Preview 1 interface definition, whose `export` names are its functions.
 const WASI_PREVIEW1: &str = "legacy/preview1/witx/wasi_snapshot_preview1.witx";
 
+/// Where the WebAssembly specification is published.
+const WASM_REPOSITORY: &str = "https://github.com/WebAssembly/spec";
+
 /// A reader of the files of `repository` at tag `pinned`, through a partial clone whose
 /// blobs arrive on demand, so only the files read are downloaded.
 fn pinned_files(
@@ -284,6 +289,75 @@ fn wasi(out: &Path) -> Result<(), Error> {
     })?;
     println!("wasi@preview1: {count} words");
     Ok(())
+}
+
+/// Writes `words.fst`, the WebAssembly instructions the specification's index lists whose
+/// text-format name has no dot, the W3C notice its license requires on every copy, and the
+/// statement naming the document they derive from.
+fn wasm(out: &Path) -> Result<(), Error> {
+    let pinned = include_str!("../../data/wasm/SPEC").trim_ascii();
+    let show = pinned_files(WASM_REPOSITORY, "wasm-spec", pinned)?;
+    let macros = show("document/core/util/macros.def")?;
+    let instructions: HashMap<&str, String> =
+        macros.lines().filter_map(instruction_macro).collect();
+    let index = show("document/core/appendix/index-instructions.py")?;
+    let words: BTreeSet<&str> = index
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("Instruction("))
+        .filter_map(|row| row.split_once(r"r'\").map(|(_, rest)| rest))
+        .filter_map(|rest| {
+            // A lone macro, its operands after `~`, is one instruction, not a `\I32.\ADD` pair.
+            let end = rest.find(|c: char| !c.is_ascii_alphanumeric())?;
+            matches!(rest.as_bytes()[end], b'~' | b'\'').then(|| &rest[..end])
+        })
+        .filter_map(|name| instructions.get(name).map(String::as_str))
+        .filter(|text| !text.contains('.'))
+        .collect();
+    let conf = show("document/core/conf.py")?;
+    let copyright = conf
+        .lines()
+        .find_map(|line| line.strip_prefix("copyright = u'")?.strip_suffix('\''))
+        .expect("the specification's conf.py states its copyright");
+    create_dir(out)?;
+    let count = write_set(&out.join("words.fst"), words)?;
+    let license = out.join("LICENSE");
+    std::fs::write(&license, show("document/core/LICENSE")?).map_err(|source| Error::Write {
+        path: license,
+        source,
+    })?;
+    let notice = out.join("NOTICE");
+    let statement = format!(
+        "words.fst includes material derived from the WebAssembly Specification,\n{WASM_REPOSITORY}/tree/{pinned}/document/core.\nCopyright {copyright}.\n"
+    );
+    std::fs::write(&notice, statement).map_err(|source| Error::Write {
+        path: notice,
+        source,
+    })?;
+    println!("wasm@3.0: {count} words");
+    Ok(())
+}
+
+/// The name and text-format spelling of an instruction that a `macros.def` line defines.
+fn instruction_macro(line: &str) -> Option<(&str, String)> {
+    let (name, body) = line.strip_prefix(".. |")?.split_once("| mathdef:: ")?;
+    let text = body
+        .strip_prefix(r"\xref{syntax/instructions}")?
+        .split_once(r"\K{")?
+        .1;
+    let mut depth = 0_usize;
+    let end = text.char_indices().find_map(|(at, c)| match c {
+        '{' => {
+            depth += 1;
+            None
+        }
+        '}' if depth == 0 => Some(at),
+        '}' => {
+            depth -= 1;
+            None
+        }
+        _ => None,
+    })?;
+    Some((name, text[..end].replace(r"\_", "_").replace("{.}", ".")))
 }
 
 /// Runs `program` in `dir` and returns its standard output.

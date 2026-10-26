@@ -1,4 +1,5 @@
-//! The standard library paths and the English, SQL and WASI words that `cargo xtask vocab` builds.
+//! The standard library paths and the English, SQL, WASI and WebAssembly words that
+//! `cargo xtask vocab` builds.
 
 /// The public paths reachable from one crate root.
 pub(crate) struct Layer {
@@ -57,8 +58,8 @@ pub(crate) fn layers() -> [Layer; 4] {
     ]
 }
 
-/// Words a bare name may simply be, English words in running text and SQL key words and WASI
-/// function names in running text and code spans.
+/// Words a bare name may simply be, English words in running text and SQL key words, WASI
+/// functions and WebAssembly instructions in running text and code spans.
 pub(crate) struct Vocabulary {
     words: fst::Set<&'static [u8]>,
 }
@@ -84,6 +85,14 @@ impl Vocabulary {
         Self {
             words: fst::Set::new(&include_bytes!("../data/wasi/words.fst")[..])
                 .expect("data/wasi holds an fst set written by xtask"),
+        }
+    }
+
+    /// The WebAssembly 3.0 instructions whose text-format name has no dot.
+    pub(crate) fn wasm_3() -> Self {
+        Self {
+            words: fst::Set::new(&include_bytes!("../data/wasm/words.fst")[..])
+                .expect("data/wasm holds an fst set written by xtask"),
         }
     }
 
