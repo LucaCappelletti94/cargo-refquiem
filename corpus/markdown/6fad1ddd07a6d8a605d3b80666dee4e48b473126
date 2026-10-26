@@ -1,4 +1,0 @@
-```toml
-[dependencies]
-fixture = { version = "0.1", features = ["fast"] }
-```
