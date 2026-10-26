@@ -67,9 +67,11 @@ builtins = ["english", "sql@2023", "posix@2017"]
 files = ["vocab/domain.toml"]
 ```
 
-An empty table disables optional vocabularies. Omitted arrays default to empty, and selecting only `files` never enables `english`. The built-in identities are `english`, `sql@2023`, `wasi@preview1`, `wasm@3.0`, `android@36`, `uikit@27.1`, `posix@2017`, `web-api@2026-10`, `python@3.15`, `javascript@2026-10` and `svg@2026-10`, and unknown identities or fields are configuration errors. `--config PATH` selects a replacement configuration, while `--package NAME` only limits scanned files.
+An empty table disables optional vocabularies. Omitted arrays default to empty, and selecting only `files` never enables `english`. The built-in identities are `english`, `sql@2023`, `postgres@18`, `sqlite@3.54`, `wasi@preview1`, `wasm@3.0`, `android@36`, `uikit@27.1`, `posix@2017`, `web-api@2026-10`, `python@3.15`, `javascript@2026-10` and `svg@2026-10`, and unknown identities or fields are configuration errors. `--config PATH` selects a replacement configuration, while `--package NAME` only limits scanned files.
 
 `sql@2023` holds the reserved key words of SQL:2023 parts 2, 9 and 14 as a technical vocabulary matched case-sensitively, so `ARRAY_AGG` is ambiguous while `array_agg` stays reportable. Write a SQL key word in uppercase for it to count as SQL. A reported bare name whose uppercase spelling a selected exact-case vocabulary holds carries that spelling and vocabulary, as `uppercase` in JSON and as a `write ARRAY_AGG to mark it as sql@2023` note elsewhere.
+
+`postgres@18` holds the functions PostgreSQL 18 documents and `sqlite@3.54` the functions a SQLite 3.54 build registers, each as lowercase names matched case-sensitively, such as `set_config`, `uuidv7`, `json_extract` and `strftime`. Both keep every name with an inner underscore and the single words English lacks, so `date`, `text` and `coalesce` stay reportable.
 
 `wasi@preview1` holds the 46 WASI Preview 1 function names, such as `fd_write` and `path_open`, and `wasm@3.0` the WebAssembly 3.0 instructions whose text-format name has no dot, such as `call_indirect` and `br_table`, both as technical vocabularies matched case-sensitively. Dotted names such as `memory.grow` never count as a mention of a Rust name.
 

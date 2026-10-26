@@ -259,6 +259,10 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
         "[vocabularies]\nbuiltins = [\"javascript@2026-09\"]\n",
         "[vocabularies]\nbuiltins = [\"svg\"]\n",
         "[vocabularies]\nbuiltins = [\"svg@1.1\"]\n",
+        "[vocabularies]\nbuiltins = [\"postgres\"]\n",
+        "[vocabularies]\nbuiltins = [\"postgres@17\"]\n",
+        "[vocabularies]\nbuiltins = [\"sqlite\"]\n",
+        "[vocabularies]\nbuiltins = [\"sqlite@3.53\"]\n",
         "[vocabularies]\nbuiltins = [\"rust\"]\n",
         "[vocabularies]\nbuiltin = [\"english\"]\n",
         "[vocabularies]\nbuiltins = \"english\"\n",
@@ -271,6 +275,47 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
             "{config} {error}"
         );
     }
+}
+
+#[test]
+fn postgres_18_claims_underscore_and_non_english_function_names() {
+    let repo = removed_names(
+        "pub fn set_config() {}\npub fn uuidv7() {}\npub fn date() {}\n",
+        "set_config",
+        "Call set_config before the insert.\n`uuidv7()` and `date`\n`fixture::set_config`\n",
+    );
+    assert_claims(
+        &repo,
+        "postgres@18",
+        &[("README.md", 1, "set_config"), ("README.md", 2, "uuidv7")],
+        &[
+            ("README.md", 2, "date"),
+            ("README.md", 3, "fixture::set_config"),
+            ("src/lib.rs", 2, "set_config"),
+        ],
+    );
+}
+
+#[test]
+fn sqlite_3_54_claims_underscore_and_non_english_function_names() {
+    let repo = removed_names(
+        "pub fn json_extract() {}\npub fn strftime() {}\npub fn glob() {}\n",
+        "json_extract",
+        "Read it with json_extract.\n`strftime` and `glob`\n`fixture::json_extract`\n",
+    );
+    assert_claims(
+        &repo,
+        "sqlite@3.54",
+        &[
+            ("README.md", 1, "json_extract"),
+            ("README.md", 2, "strftime"),
+        ],
+        &[
+            ("README.md", 2, "glob"),
+            ("README.md", 3, "fixture::json_extract"),
+            ("src/lib.rs", 2, "json_extract"),
+        ],
+    );
 }
 
 #[test]
