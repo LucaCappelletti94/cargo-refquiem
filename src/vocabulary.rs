@@ -41,6 +41,14 @@ const BUILTINS: &[BuiltinVocabulary] = &[
         source_version: include_str!("../data/sql/POSTGRESQL").trim_ascii(),
         builtin: config::Builtin::Sql2023,
     },
+    BuiltinVocabulary {
+        id: "wasi@preview1",
+        kind: "technical",
+        case: "sensitive",
+        source: "https://github.com/WebAssembly/WASI",
+        source_version: include_str!("../data/wasi/WASI").trim_ascii(),
+        builtin: config::Builtin::WasiPreview1,
+    },
 ];
 
 /// Returns metadata for the bundled vocabularies.

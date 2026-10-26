@@ -83,6 +83,8 @@ pub(crate) enum Builtin {
     English,
     #[serde(rename = "sql@2023")]
     Sql2023,
+    #[serde(rename = "wasi@preview1")]
+    WasiPreview1,
 }
 
 /// The config at `path`, the default one when `path` is absent and not `required`.

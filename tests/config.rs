@@ -191,6 +191,8 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
         "[vocabularies]\nbuiltins = [\"english@missing\"]\n",
         "[vocabularies]\nbuiltins = [\"sql\"]\n",
         "[vocabularies]\nbuiltins = [\"sql@2016\"]\n",
+        "[vocabularies]\nbuiltins = [\"wasi\"]\n",
+        "[vocabularies]\nbuiltins = [\"wasi@preview2\"]\n",
         "[vocabularies]\nbuiltins = [\"rust\"]\n",
         "[vocabularies]\nbuiltin = [\"english\"]\n",
         "[vocabularies]\nbuiltins = \"english\"\n",
@@ -202,6 +204,61 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
             matches!(&error, refquiem::Error::Config { path, .. } if path == &config_path),
             "{config} {error}"
         );
+    }
+}
+
+#[test]
+fn wasi_preview1_claims_function_names_in_prose_and_code_spans() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn fd_write() {}\npub fn path_open() {}\npub fn sock_accept() {}\npub fn fd_bogus() {}\n",
+    );
+    repo.commit("public names");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// fd_write();\n/// ```\npub struct Kept;\n",
+    );
+    repo.write(
+        "README.md",
+        "Call fd_write and `path_open`.\n`sock_accept`\n`fixture::fd_write`\nfd_bogus\n",
+    );
+    repo.commit("remove names");
+    let options = Options::new(repo.path().to_path_buf());
+    let mentions = || {
+        let mut out: Vec<(String, usize, String)> = refquiem::run(&options)
+            .unwrap()
+            .groups
+            .iter()
+            .flat_map(|group| group.mentions.iter())
+            .map(|m| (m.file.clone(), m.line, m.text.clone()))
+            .collect();
+        out.sort();
+        out
+    };
+    let row = |file: &str, line, text: &str| (file.to_owned(), line, text.to_owned());
+    let selected = vec![
+        row("README.md", 3, "fixture::fd_write"),
+        row("README.md", 4, "fd_bogus"),
+        row("src/lib.rs", 2, "fd_write"),
+    ];
+    let mut unselected = selected.clone();
+    unselected.extend([
+        row("README.md", 1, "fd_write"),
+        row("README.md", 1, "path_open"),
+        row("README.md", 2, "sock_accept"),
+    ]);
+    unselected.sort();
+    for (config, expected) in [
+        ("", &unselected),
+        ("[vocabularies]\nbuiltins = [\"sql@2023\"]\n", &unselected),
+        (
+            "[vocabularies]\nbuiltins = [\"wasi@preview1\"]\n",
+            &selected,
+        ),
+    ] {
+        repo.write(".refquiem.toml", config);
+        assert_eq!(&mentions(), expected, "{config}");
     }
 }
 
