@@ -61,6 +61,16 @@ fn vocabulary_catalog_ignores_project_state_outside_a_repository() {
             "https://github.com/python/cpython",
             "v3.15.2",
         ),
+        (
+            "javascript@2026-10",
+            "https://github.com/mdn/browser-compat-data",
+            "v8.1.7",
+        ),
+        (
+            "svg@2026-10",
+            "https://github.com/mdn/browser-compat-data",
+            "v8.1.7",
+        ),
     ]
     .into_iter()
     .map(|(id, source, source_version)| {

@@ -29,6 +29,56 @@ fn removed_gone() -> Repo {
     repo
 }
 
+/// A mention as `(file, line, text)`.
+type Row = (&'static str, usize, &'static str);
+
+/// A repository whose `public` source gave way to a doctest compiling `compiled` and a README
+/// holding `readme`.
+fn removed_names(public: &str, compiled: &str, readme: &str) -> Repo {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", public);
+    repo.commit("public names");
+    repo.write(
+        "src/lib.rs",
+        &format!("/// ```\n/// let _ = {compiled};\n/// ```\npub struct Kept;\n"),
+    );
+    repo.write("README.md", readme);
+    repo.commit("remove names");
+    repo
+}
+
+/// Asserts that the default selection and `wasm@3.0` report `claimed` and `kept`, and that
+/// selecting `builtin` reports only `kept`.
+fn assert_claims(repo: &Repo, builtin: &str, claimed: &[Row], kept: &[Row]) {
+    let options = Options::new(repo.path().to_path_buf());
+    let reported = |config: &str| {
+        repo.write(".refquiem.toml", config);
+        let mut out: Vec<(String, usize, String)> = refquiem::run(&options)
+            .unwrap()
+            .groups
+            .iter()
+            .flat_map(|group| group.mentions.iter())
+            .map(|m| (m.file.clone(), m.line, m.text.clone()))
+            .collect();
+        out.sort();
+        out
+    };
+    let owned = |rows: &[Row]| {
+        let mut out: Vec<_> = rows
+            .iter()
+            .map(|&(file, line, text)| (file.to_owned(), line, text.to_owned()))
+            .collect();
+        out.sort();
+        out
+    };
+    let unselected = owned(&[claimed, kept].concat());
+    for config in ["", "[vocabularies]\nbuiltins = [\"wasm@3.0\"]\n"] {
+        assert_eq!(reported(config), unselected, "{config}");
+    }
+    let selected = format!("[vocabularies]\nbuiltins = [\"{builtin}\"]\n");
+    assert_eq!(reported(&selected), owned(kept), "{selected}");
+}
+
 #[test]
 fn vocabularies_select_english_independently_of_cached_declarations() {
     let repo = Repo::new();
@@ -205,6 +255,10 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
         "[vocabularies]\nbuiltins = [\"web-api@2026-09\"]\n",
         "[vocabularies]\nbuiltins = [\"python\"]\n",
         "[vocabularies]\nbuiltins = [\"python@3.14\"]\n",
+        "[vocabularies]\nbuiltins = [\"javascript\"]\n",
+        "[vocabularies]\nbuiltins = [\"javascript@2026-09\"]\n",
+        "[vocabularies]\nbuiltins = [\"svg\"]\n",
+        "[vocabularies]\nbuiltins = [\"svg@1.1\"]\n",
         "[vocabularies]\nbuiltins = [\"rust\"]\n",
         "[vocabularies]\nbuiltin = [\"english\"]\n",
         "[vocabularies]\nbuiltins = \"english\"\n",
@@ -220,271 +274,167 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
 }
 
 #[test]
+fn javascript_2026_10_claims_compound_globals_and_camel_case_members() {
+    let repo = removed_names(
+        "#![allow(non_snake_case)]\npub struct ArrayBuffer;\npub fn hasOwnProperty() {}\npub const JSON: u8 = 0;\n",
+        "ArrayBuffer",
+        "An ArrayBuffer has hasOwnProperty.\n`JSON` and `fixture::ArrayBuffer`\n",
+    );
+    assert_claims(
+        &repo,
+        "javascript@2026-10",
+        &[
+            ("README.md", 1, "ArrayBuffer"),
+            ("README.md", 1, "hasOwnProperty"),
+        ],
+        &[
+            ("README.md", 2, "JSON"),
+            ("README.md", 2, "fixture::ArrayBuffer"),
+            ("src/lib.rs", 2, "ArrayBuffer"),
+        ],
+    );
+}
+
+#[test]
+fn svg_2026_10_claims_camel_case_elements_and_attributes() {
+    let repo = removed_names(
+        "#![allow(non_snake_case)]\npub fn linearGradient() {}\npub fn viewBox() {}\npub fn href() {}\n",
+        "viewBox",
+        "Fill with linearGradient inside the viewBox.\n`href` and `fixture::viewBox`\n",
+    );
+    assert_claims(
+        &repo,
+        "svg@2026-10",
+        &[
+            ("README.md", 1, "linearGradient"),
+            ("README.md", 1, "viewBox"),
+        ],
+        &[
+            ("README.md", 2, "fixture::viewBox"),
+            ("README.md", 2, "href"),
+            ("src/lib.rs", 2, "viewBox"),
+        ],
+    );
+}
+
+#[test]
 fn python_3_15_claims_compound_classes_and_camel_case_names() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
+    let repo = removed_names(
         "#![allow(non_snake_case)]\npub struct ValueError;\npub struct ThreadPoolExecutor;\npub fn addHandler() {}\npub fn read_text() {}\npub fn isinstance() {}\n",
-    );
-    repo.commit("public names");
-    repo.write(
-        "src/lib.rs",
-        "/// ```\n/// let _ = ValueError;\n/// ```\npub struct Kept;\n",
-    );
-    repo.write(
-        "README.md",
+        "ValueError",
         "A ValueError stops the ThreadPoolExecutor and addHandler.\nThen read_text, `isinstance` and `fixture::ValueError`\n",
     );
-    repo.commit("remove names");
-    let options = Options::new(repo.path().to_path_buf());
-    let mentions = || {
-        let mut out: Vec<(String, usize, String)> = refquiem::run(&options)
-            .unwrap()
-            .groups
-            .iter()
-            .flat_map(|group| group.mentions.iter())
-            .map(|m| (m.file.clone(), m.line, m.text.clone()))
-            .collect();
-        out.sort();
-        out
-    };
-    let row = |file: &str, line, text: &str| (file.to_owned(), line, text.to_owned());
-    let selected = vec![
-        row("README.md", 2, "fixture::ValueError"),
-        row("README.md", 2, "isinstance"),
-        row("README.md", 2, "read_text"),
-        row("src/lib.rs", 2, "ValueError"),
-    ];
-    let mut unselected = selected.clone();
-    unselected.extend([
-        row("README.md", 1, "ThreadPoolExecutor"),
-        row("README.md", 1, "ValueError"),
-        row("README.md", 1, "addHandler"),
-    ]);
-    unselected.sort();
-    for (config, expected) in [
-        ("", &unselected),
-        ("[vocabularies]\nbuiltins = [\"wasm@3.0\"]\n", &unselected),
-        ("[vocabularies]\nbuiltins = [\"python@3.15\"]\n", &selected),
-    ] {
-        repo.write(".refquiem.toml", config);
-        assert_eq!(&mentions(), expected, "{config}");
-    }
+    assert_claims(
+        &repo,
+        "python@3.15",
+        &[
+            ("README.md", 1, "ThreadPoolExecutor"),
+            ("README.md", 1, "ValueError"),
+            ("README.md", 1, "addHandler"),
+        ],
+        &[
+            ("README.md", 2, "fixture::ValueError"),
+            ("README.md", 2, "isinstance"),
+            ("README.md", 2, "read_text"),
+            ("src/lib.rs", 2, "ValueError"),
+        ],
+    );
 }
 
 #[test]
 fn web_api_2026_10_claims_compound_interfaces_and_camel_case_members() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
+    let repo = removed_names(
         "#![allow(non_snake_case, non_camel_case_types)]\npub struct HTMLElement;\npub struct ANGLE_instanced_arrays;\npub fn querySelector() {}\npub fn atob() {}\n",
-    );
-    repo.commit("public names");
-    repo.write(
-        "src/lib.rs",
-        "/// ```\n/// let _ = HTMLElement;\n/// ```\npub struct Kept;\n",
-    );
-    repo.write(
-        "README.md",
+        "HTMLElement",
         "The HTMLElement calls querySelector with ANGLE_instanced_arrays.\n`atob` and `fixture::HTMLElement`\n",
     );
-    repo.commit("remove names");
-    let options = Options::new(repo.path().to_path_buf());
-    let mentions = || {
-        let mut out: Vec<(String, usize, String)> = refquiem::run(&options)
-            .unwrap()
-            .groups
-            .iter()
-            .flat_map(|group| group.mentions.iter())
-            .map(|m| (m.file.clone(), m.line, m.text.clone()))
-            .collect();
-        out.sort();
-        out
-    };
-    let row = |file: &str, line, text: &str| (file.to_owned(), line, text.to_owned());
-    let selected = vec![
-        row("README.md", 2, "atob"),
-        row("README.md", 2, "fixture::HTMLElement"),
-        row("src/lib.rs", 2, "HTMLElement"),
-    ];
-    let mut unselected = selected.clone();
-    unselected.extend([
-        row("README.md", 1, "ANGLE_instanced_arrays"),
-        row("README.md", 1, "HTMLElement"),
-        row("README.md", 1, "querySelector"),
-    ]);
-    unselected.sort();
-    for (config, expected) in [
-        ("", &unselected),
-        ("[vocabularies]\nbuiltins = [\"wasm@3.0\"]\n", &unselected),
-        (
-            "[vocabularies]\nbuiltins = [\"web-api@2026-10\"]\n",
-            &selected,
-        ),
-    ] {
-        repo.write(".refquiem.toml", config);
-        assert_eq!(&mentions(), expected, "{config}");
-    }
+    assert_claims(
+        &repo,
+        "web-api@2026-10",
+        &[
+            ("README.md", 1, "ANGLE_instanced_arrays"),
+            ("README.md", 1, "HTMLElement"),
+            ("README.md", 1, "querySelector"),
+        ],
+        &[
+            ("README.md", 2, "atob"),
+            ("README.md", 2, "fixture::HTMLElement"),
+            ("src/lib.rs", 2, "HTMLElement"),
+        ],
+    );
 }
 
 #[test]
 fn posix_2017_claims_constants_errors_signals_and_underscore_functions() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
+    let repo = removed_names(
         "#![allow(non_upper_case_globals)]\npub const O_RDONLY: u8 = 0;\npub const EINVAL: u8 = 0;\npub const SIGTERM: u8 = 0;\npub const BUFSIZ: u8 = 0;\npub fn pthread_create() {}\npub fn strlen() {}\n",
-    );
-    repo.commit("public names");
-    repo.write(
-        "src/lib.rs",
-        "/// ```\n/// let _ = O_RDONLY;\n/// ```\npub struct Kept;\n",
-    );
-    repo.write(
-        "README.md",
+        "O_RDONLY",
         "Opening with O_RDONLY calls pthread_create.\n`EINVAL` `SIGTERM` `strlen` `BUFSIZ`\n`fixture::O_RDONLY`\n",
     );
-    repo.commit("remove names");
-    let options = Options::new(repo.path().to_path_buf());
-    let mentions = || {
-        let mut out: Vec<(String, usize, String)> = refquiem::run(&options)
-            .unwrap()
-            .groups
-            .iter()
-            .flat_map(|group| group.mentions.iter())
-            .map(|m| (m.file.clone(), m.line, m.text.clone()))
-            .collect();
-        out.sort();
-        out
-    };
-    let row = |file: &str, line, text: &str| (file.to_owned(), line, text.to_owned());
-    let selected = vec![
-        row("README.md", 2, "BUFSIZ"),
-        row("README.md", 2, "strlen"),
-        row("README.md", 3, "fixture::O_RDONLY"),
-        row("src/lib.rs", 2, "O_RDONLY"),
-    ];
-    let mut unselected = selected.clone();
-    unselected.extend([
-        row("README.md", 1, "O_RDONLY"),
-        row("README.md", 1, "pthread_create"),
-        row("README.md", 2, "EINVAL"),
-        row("README.md", 2, "SIGTERM"),
-    ]);
-    unselected.sort();
-    for (config, expected) in [
-        ("", &unselected),
-        ("[vocabularies]\nbuiltins = [\"wasm@3.0\"]\n", &unselected),
-        ("[vocabularies]\nbuiltins = [\"posix@2017\"]\n", &selected),
-    ] {
-        repo.write(".refquiem.toml", config);
-        assert_eq!(&mentions(), expected, "{config}");
-    }
+    assert_claims(
+        &repo,
+        "posix@2017",
+        &[
+            ("README.md", 1, "O_RDONLY"),
+            ("README.md", 1, "pthread_create"),
+            ("README.md", 2, "EINVAL"),
+            ("README.md", 2, "SIGTERM"),
+        ],
+        &[
+            ("README.md", 2, "BUFSIZ"),
+            ("README.md", 2, "strlen"),
+            ("README.md", 3, "fixture::O_RDONLY"),
+            ("src/lib.rs", 2, "O_RDONLY"),
+        ],
+    );
 }
 
 #[test]
 fn uikit_27_1_claims_objective_c_types_and_camel_case_selectors() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
+    let repo = removed_names(
         "#![allow(non_snake_case, non_upper_case_globals)]\npub struct UIViewController;\npub fn viewDidLoad() {}\npub fn isExclusiveTouch() {}\npub struct UIGraphicsPDFRenderer;\npub struct UIGraphicsPdfRenderer;\npub const NSBluetoothAlwaysUsageDescription: u8 = 0;\n",
-    );
-    repo.commit("public names");
-    repo.write(
-        "src/lib.rs",
-        "/// ```\n/// let _ = UIViewController;\n/// ```\npub struct Kept;\n",
-    );
-    repo.write(
-        "README.md",
+        "UIViewController",
         "The UIViewController calls `viewDidLoad` and `isExclusiveTouch`.\n`UIGraphicsPDFRenderer` `UIGraphicsPdfRenderer` NSBluetoothAlwaysUsageDescription\n`fixture::UIViewController`\n",
     );
-    repo.commit("remove names");
-    let options = Options::new(repo.path().to_path_buf());
-    let mentions = || {
-        let mut out: Vec<(String, usize, String)> = refquiem::run(&options)
-            .unwrap()
-            .groups
-            .iter()
-            .flat_map(|group| group.mentions.iter())
-            .map(|m| (m.file.clone(), m.line, m.text.clone()))
-            .collect();
-        out.sort();
-        out
-    };
-    let row = |file: &str, line, text: &str| (file.to_owned(), line, text.to_owned());
-    let selected = vec![
-        row("README.md", 2, "NSBluetoothAlwaysUsageDescription"),
-        row("README.md", 2, "UIGraphicsPdfRenderer"),
-        row("README.md", 3, "fixture::UIViewController"),
-        row("src/lib.rs", 2, "UIViewController"),
-    ];
-    let mut unselected = selected.clone();
-    unselected.extend([
-        row("README.md", 1, "UIViewController"),
-        row("README.md", 1, "isExclusiveTouch"),
-        row("README.md", 1, "viewDidLoad"),
-        row("README.md", 2, "UIGraphicsPDFRenderer"),
-    ]);
-    unselected.sort();
-    for (config, expected) in [
-        ("", &unselected),
-        ("[vocabularies]\nbuiltins = [\"wasm@3.0\"]\n", &unselected),
-        ("[vocabularies]\nbuiltins = [\"uikit@27.1\"]\n", &selected),
-    ] {
-        repo.write(".refquiem.toml", config);
-        assert_eq!(&mentions(), expected, "{config}");
-    }
+    assert_claims(
+        &repo,
+        "uikit@27.1",
+        &[
+            ("README.md", 1, "UIViewController"),
+            ("README.md", 1, "isExclusiveTouch"),
+            ("README.md", 1, "viewDidLoad"),
+            ("README.md", 2, "UIGraphicsPDFRenderer"),
+        ],
+        &[
+            ("README.md", 2, "NSBluetoothAlwaysUsageDescription"),
+            ("README.md", 2, "UIGraphicsPdfRenderer"),
+            ("README.md", 3, "fixture::UIViewController"),
+            ("src/lib.rs", 2, "UIViewController"),
+        ],
+    );
 }
 
 #[test]
 fn android_36_claims_compound_classes_and_camel_case_methods() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
+    let repo = removed_names(
         "pub struct NativeActivity;\n#[allow(non_snake_case)]\npub fn onCreate() {}\npub struct Addr;\npub const ACTION_VIEW: u8 = 0;\n",
-    );
-    repo.commit("public names");
-    repo.write(
-        "src/lib.rs",
-        "/// ```\n/// let _ = NativeActivity;\n/// ```\npub struct Kept;\n",
-    );
-    repo.write(
-        "README.md",
+        "NativeActivity",
         "The NativeActivity calls `onCreate`.\n`Addr` and ACTION_VIEW\n`fixture::NativeActivity`\n",
     );
-    repo.commit("remove names");
-    let options = Options::new(repo.path().to_path_buf());
-    let mentions = || {
-        let mut out: Vec<(String, usize, String)> = refquiem::run(&options)
-            .unwrap()
-            .groups
-            .iter()
-            .flat_map(|group| group.mentions.iter())
-            .map(|m| (m.file.clone(), m.line, m.text.clone()))
-            .collect();
-        out.sort();
-        out
-    };
-    let row = |file: &str, line, text: &str| (file.to_owned(), line, text.to_owned());
-    let selected = vec![
-        row("README.md", 2, "ACTION_VIEW"),
-        row("README.md", 2, "Addr"),
-        row("README.md", 3, "fixture::NativeActivity"),
-        row("src/lib.rs", 2, "NativeActivity"),
-    ];
-    let mut unselected = selected.clone();
-    unselected.extend([
-        row("README.md", 1, "NativeActivity"),
-        row("README.md", 1, "onCreate"),
-    ]);
-    unselected.sort();
-    for (config, expected) in [
-        ("", &unselected),
-        ("[vocabularies]\nbuiltins = [\"wasm@3.0\"]\n", &unselected),
-        ("[vocabularies]\nbuiltins = [\"android@36\"]\n", &selected),
-    ] {
-        repo.write(".refquiem.toml", config);
-        assert_eq!(&mentions(), expected, "{config}");
-    }
+    assert_claims(
+        &repo,
+        "android@36",
+        &[
+            ("README.md", 1, "NativeActivity"),
+            ("README.md", 1, "onCreate"),
+        ],
+        &[
+            ("README.md", 2, "ACTION_VIEW"),
+            ("README.md", 2, "Addr"),
+            ("README.md", 3, "fixture::NativeActivity"),
+            ("src/lib.rs", 2, "NativeActivity"),
+        ],
+    );
 }
 
 #[test]

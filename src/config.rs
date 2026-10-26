@@ -97,6 +97,10 @@ pub(crate) enum Builtin {
     WebApi2026_10,
     #[serde(rename = "python@3.15")]
     Python3_15,
+    #[serde(rename = "javascript@2026-10")]
+    Javascript2026_10,
+    #[serde(rename = "svg@2026-10")]
+    Svg2026_10,
 }
 
 /// The config at `path`, the default one when `path` is absent and not `required`.
