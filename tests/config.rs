@@ -193,6 +193,8 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
         "[vocabularies]\nbuiltins = [\"sql@2016\"]\n",
         "[vocabularies]\nbuiltins = [\"wasi\"]\n",
         "[vocabularies]\nbuiltins = [\"wasi@preview2\"]\n",
+        "[vocabularies]\nbuiltins = [\"wasm\"]\n",
+        "[vocabularies]\nbuiltins = [\"wasm@2.0\"]\n",
         "[vocabularies]\nbuiltins = [\"rust\"]\n",
         "[vocabularies]\nbuiltin = [\"english\"]\n",
         "[vocabularies]\nbuiltins = \"english\"\n",
@@ -204,6 +206,61 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
             matches!(&error, refquiem::Error::Config { path, .. } if path == &config_path),
             "{config} {error}"
         );
+    }
+}
+
+#[test]
+fn wasm_3_claims_undotted_instructions_in_prose_and_code_spans() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn call_indirect() {}\npub fn br_table() {}\npub fn try_table() {}\npub fn local_get() {}\n",
+    );
+    repo.commit("public names");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// call_indirect();\n/// ```\npub struct Kept;\n",
+    );
+    repo.write(
+        "README.md",
+        "Lower call_indirect and `br_table`.\n`try_table`\n`fixture::call_indirect`\nlocal_get\n",
+    );
+    repo.commit("remove names");
+    let options = Options::new(repo.path().to_path_buf());
+    let mentions = || {
+        let mut out: Vec<(String, usize, String)> = refquiem::run(&options)
+            .unwrap()
+            .groups
+            .iter()
+            .flat_map(|group| group.mentions.iter())
+            .map(|m| (m.file.clone(), m.line, m.text.clone()))
+            .collect();
+        out.sort();
+        out
+    };
+    let row = |file: &str, line, text: &str| (file.to_owned(), line, text.to_owned());
+    let selected = vec![
+        row("README.md", 3, "fixture::call_indirect"),
+        row("README.md", 4, "local_get"),
+        row("src/lib.rs", 2, "call_indirect"),
+    ];
+    let mut unselected = selected.clone();
+    unselected.extend([
+        row("README.md", 1, "br_table"),
+        row("README.md", 1, "call_indirect"),
+        row("README.md", 2, "try_table"),
+    ]);
+    unselected.sort();
+    for (config, expected) in [
+        ("", &unselected),
+        (
+            "[vocabularies]\nbuiltins = [\"wasi@preview1\"]\n",
+            &unselected,
+        ),
+        ("[vocabularies]\nbuiltins = [\"wasm@3.0\"]\n", &selected),
+    ] {
+        repo.write(".refquiem.toml", config);
+        assert_eq!(&mentions(), expected, "{config}");
     }
 }
 

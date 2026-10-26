@@ -49,6 +49,14 @@ const BUILTINS: &[BuiltinVocabulary] = &[
         source_version: include_str!("../data/wasi/WASI").trim_ascii(),
         builtin: config::Builtin::WasiPreview1,
     },
+    BuiltinVocabulary {
+        id: "wasm@3.0",
+        kind: "technical",
+        case: "sensitive",
+        source: "https://github.com/WebAssembly/spec",
+        source_version: include_str!("../data/wasm/SPEC").trim_ascii(),
+        builtin: config::Builtin::Wasm3,
+    },
 ];
 
 /// Returns metadata for the bundled vocabularies.
