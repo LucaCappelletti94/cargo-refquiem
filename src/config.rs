@@ -91,6 +91,8 @@ pub(crate) enum Builtin {
     Android36,
     #[serde(rename = "uikit@27.1")]
     Uikit27_1,
+    #[serde(rename = "posix@2017")]
+    Posix2017,
 }
 
 /// The config at `path`, the default one when `path` is absent and not `required`.

@@ -57,6 +57,12 @@ enum Error {
     },
     #[error("{program} failed: {stderr}")]
     Failed { program: String, stderr: String },
+    #[error("{path} has SHA-256 {found}, the pin is {expected}")]
+    Checksum {
+        path: PathBuf,
+        found: String,
+        expected: &'static str,
+    },
 }
 
 fn main() -> ExitCode {
@@ -81,8 +87,8 @@ fn main() -> ExitCode {
     }
 }
 
-/// Writes the standard library layers and the English, SQL, WASI, WebAssembly, Android and
-/// `UIKit` word lists under `data/`.
+/// Writes the standard library layers and the English, SQL, WASI, WebAssembly, Android,
+/// `UIKit` and POSIX word lists under `data/`.
 fn vocab() -> Result<(), Error> {
     let data = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -94,7 +100,8 @@ fn vocab() -> Result<(), Error> {
     wasi(&data.join("wasi"))?;
     wasm(&data.join("wasm"))?;
     android(&data.join("android"))?;
-    uikit(&data.join("uikit"))
+    uikit(&data.join("uikit"))?;
+    posix(&data.join("posix"))
 }
 
 /// Writes `<layer>.fst`, every suffix of two or more segments of every public path reachable
@@ -216,6 +223,14 @@ const AOSP_FRAMEWORKS_BASE: &str = "https://android.googlesource.com/platform/fr
 /// Where .NET for iOS keeps its bindings of the Apple SDKs, whose attributes carry the
 /// Objective-C names.
 const MACIOS_REPOSITORY: &str = "https://github.com/dotnet/macios";
+
+/// Where kernel.org publishes the Linux man-pages project's releases of the POSIX manual pages.
+const MAN_PAGES_POSIX: &str =
+    "https://mirrors.edge.kernel.org/pub/linux/docs/man-pages/man-pages-posix";
+
+/// The SHA-256 of the pinned `man-pages-posix` release tarball.
+const MAN_PAGES_POSIX_SHA256: &str =
+    "ce67bb25b5048b20dad772e405a83f4bc70faf051afa289361c81f9660318bc3";
 
 /// A reader of the files of `repository` at tag `pinned`, through a partial clone whose
 /// blobs arrive on demand, so only the files read are downloaded.
@@ -648,6 +663,153 @@ fn named_string<'a>(arguments: &'a str, key: &str) -> Option<&'a str> {
             .strip_prefix('"')?;
         value.split_once('"').map(|(value, _)| value)
     })
+}
+
+/// Writes `words.fst`, the POSIX.1-2017 names that the `man-pages-posix` header and function
+/// pages define, and `POSIX-COPYRIGHT`, the notice IEEE and The Open Group require on any
+/// product containing the material.
+///
+/// The names are every uppercase header symbol with an inner underscore such as `O_RDONLY`,
+/// the error numbers of `errno.h` such as `EINVAL`, the signals of `signal.h` such as
+/// `SIGTERM`, and every function with an inner underscore such as `pthread_create`. A single
+/// word such as `close` or `BUFSIZ` names too many Rust items to claim.
+fn posix(out: &Path) -> Result<(), Error> {
+    let pinned = include_str!("../../data/posix/MAN_PAGES_POSIX").trim_ascii();
+    let pages = pinned_tarball(
+        &format!("{MAN_PAGES_POSIX}/{pinned}.tar.xz"),
+        MAN_PAGES_POSIX_SHA256,
+        pinned,
+    )?;
+    let mut words = BTreeSet::new();
+    for (page, text) in manual_pages(&pages.join("man0p"))? {
+        let text = without_font_escapes(&text);
+        for token in text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
+            let symbol = token.starts_with(|c: char| c.is_ascii_uppercase() || c == '_')
+                && token.contains(|c: char| c.is_ascii_uppercase())
+                && token
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+            if !symbol {
+                continue;
+            }
+            // `LC_` stands for a family of names, not a name.
+            let underscored = token.trim_matches('_').contains('_') && !token.ends_with('_');
+            let error = page == "errno.h.0p" && token.len() > 2 && token.starts_with('E');
+            let signal = page == "signal.h.0p" && token.len() > 3 && token.starts_with("SIG");
+            if underscored || (!token.contains('_') && (error || signal)) {
+                words.insert(token.to_owned());
+            }
+        }
+    }
+    for (_, text) in manual_pages(&pages.join("man3p"))? {
+        let Some((_, after)) = text.split_once("\n.SH NAME\n") else {
+            continue;
+        };
+        let section = after.split("\n.").next().unwrap_or_default();
+        let names = section
+            .split("\\(em")
+            .next()
+            .and_then(|names| names.split("\\-").next())
+            .unwrap_or_default()
+            .replace("\\%", "")
+            .replace('\\', "");
+        for name in names.split(|c: char| c == ',' || c.is_whitespace()) {
+            let identifier = name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            if identifier && name.trim_matches('_').contains('_') {
+                words.insert(name.to_owned());
+            }
+        }
+    }
+    create_dir(out)?;
+    let count = write_set(&out.join("words.fst"), words.iter().map(String::as_str))?;
+    let notice = out.join("POSIX-COPYRIGHT");
+    std::fs::copy(pages.join("POSIX-COPYRIGHT"), &notice).map_err(|source| Error::Write {
+        path: notice,
+        source,
+    })?;
+    println!("posix@2017: {count} words");
+    Ok(())
+}
+
+/// The file name and text of every manual page in `dir`, in file-name order.
+fn manual_pages(dir: &Path) -> Result<Vec<(String, String)>, Error> {
+    let read = |source| Error::Read {
+        path: dir.to_owned(),
+        source,
+    };
+    let mut pages = Vec::new();
+    for entry in std::fs::read_dir(dir).map_err(read)? {
+        let path = entry.map_err(read)?.path();
+        let bytes = std::fs::read(&path).map_err(|source| Error::Read {
+            path: path.clone(),
+            source,
+        })?;
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        pages.push((
+            name.into_owned(),
+            String::from_utf8_lossy(&bytes).into_owned(),
+        ));
+    }
+    pages.sort_unstable();
+    Ok(pages)
+}
+
+/// troff `text` without its comment lines and its `\fB`, `\fI`, `\fR`, `\fP` and `\f(XX`
+/// font changes, so a name set in bold reads as one token.
+fn without_font_escapes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for line in text
+        .lines()
+        .filter(|line| !line.starts_with(".\\\"") && !line.starts_with("'\\\""))
+    {
+        let mut rest = line;
+        while let Some(at) = rest.find("\\f") {
+            out.push_str(&rest[..at]);
+            let after = &rest[at + 2..];
+            rest = match after.strip_prefix('(') {
+                Some(named) => named.get(2..).unwrap_or_default(),
+                None => after.get(1..).unwrap_or_default(),
+            };
+        }
+        out.push_str(rest);
+        out.push('\n');
+    }
+    out
+}
+
+/// The directory where the `.tar.xz` at `url` is unpacked, after its SHA-256 matched `sha256`.
+fn pinned_tarball(url: &str, sha256: &'static str, name: &str) -> Result<PathBuf, Error> {
+    let cache = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask sits inside the workspace")
+        .join("target")
+        .join("xtask");
+    create_dir(&cache)?;
+    let archive = cache.join(format!("{name}.tar.xz"));
+    let archive_arg = archive.to_string_lossy();
+    if !archive.is_file() {
+        run(&cache, "curl", &["-sSfL", "-o", &archive_arg, url])?;
+    }
+    let found = run(&cache, "sha256sum", &[&archive_arg])?;
+    let found = found.split_whitespace().next().unwrap_or_default();
+    if found != sha256 {
+        return Err(Error::Checksum {
+            path: archive,
+            found: found.to_owned(),
+            expected: sha256,
+        });
+    }
+    let dir = cache.join(name);
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).map_err(|source| Error::Write {
+            path: dir.clone(),
+            source,
+        })?;
+    }
+    create_dir(&dir)?;
+    run(&dir, "tar", &["-xJf", &archive_arg, "--strip-components=1"])?;
+    Ok(dir)
 }
 
 /// Runs `program` in `dir` and returns its standard output.

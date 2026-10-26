@@ -24,73 +24,48 @@ fn vocabulary_catalog_ignores_project_state_outside_a_repository() {
     let output = cargo_refquiem(dir.path(), &["vocabularies", "--json"]);
     assert_eq!(output.status.code(), Some(0));
     let catalog: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let identities: Vec<_> = catalog
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|entry| entry["id"].as_str().unwrap())
-        .collect();
-    assert_eq!(
-        identities,
-        [
-            "english",
+    let technical: Vec<_> = [
+        (
             "sql@2023",
+            "https://github.com/postgres/postgres",
+            "REL_17_11",
+        ),
+        (
             "wasi@preview1",
-            "wasm@3.0",
+            "https://github.com/WebAssembly/WASI",
+            "v0.2.9",
+        ),
+        ("wasm@3.0", "https://github.com/WebAssembly/spec", "wg-3.0"),
+        (
             "android@36",
-            "uikit@27.1"
-        ]
-    );
-    assert_eq!(
-        catalog[1],
+            "https://android.googlesource.com/platform/frameworks/base",
+            "android-16.0.0_r4",
+        ),
+        (
+            "uikit@27.1",
+            "https://github.com/dotnet/macios",
+            "dotnet-10.0.1xx-xcode27.1-10018",
+        ),
+        (
+            "posix@2017",
+            "https://mirrors.edge.kernel.org/pub/linux/docs/man-pages/man-pages-posix",
+            "man-pages-posix-2017-a",
+        ),
+    ]
+    .into_iter()
+    .map(|(id, source, source_version)| {
         serde_json::json!({
-            "id": "sql@2023",
+            "id": id,
             "kind": "technical",
             "case": "sensitive",
-            "source": "https://github.com/postgres/postgres",
-            "source_version": "REL_17_11",
+            "source": source,
+            "source_version": source_version,
         })
-    );
-    assert_eq!(
-        catalog[2],
-        serde_json::json!({
-            "id": "wasi@preview1",
-            "kind": "technical",
-            "case": "sensitive",
-            "source": "https://github.com/WebAssembly/WASI",
-            "source_version": "v0.2.9",
-        })
-    );
-    assert_eq!(
-        catalog[3],
-        serde_json::json!({
-            "id": "wasm@3.0",
-            "kind": "technical",
-            "case": "sensitive",
-            "source": "https://github.com/WebAssembly/spec",
-            "source_version": "wg-3.0",
-        })
-    );
-    assert_eq!(
-        catalog[4],
-        serde_json::json!({
-            "id": "android@36",
-            "kind": "technical",
-            "case": "sensitive",
-            "source": "https://android.googlesource.com/platform/frameworks/base",
-            "source_version": "android-16.0.0_r4",
-        })
-    );
-    assert_eq!(
-        catalog[5],
-        serde_json::json!({
-            "id": "uikit@27.1",
-            "kind": "technical",
-            "case": "sensitive",
-            "source": "https://github.com/dotnet/macios",
-            "source_version": "dotnet-10.0.1xx-xcode27.1-10018",
-        })
-    );
+    })
+    .collect();
+    let entries = catalog.as_array().unwrap();
+    assert_eq!(entries[0]["id"], "english");
+    assert_eq!(entries[1..], technical);
     let output = cargo_refquiem(dir.path(), &["vocabularies"]);
     assert_eq!(output.status.code(), Some(0));
     let catalog = String::from_utf8(output.stdout).unwrap();

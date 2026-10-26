@@ -73,6 +73,14 @@ const BUILTINS: &[BuiltinVocabulary] = &[
         source_version: include_str!("../data/uikit/MACIOS").trim_ascii(),
         builtin: config::Builtin::Uikit27_1,
     },
+    BuiltinVocabulary {
+        id: "posix@2017",
+        kind: "technical",
+        case: "sensitive",
+        source: "https://mirrors.edge.kernel.org/pub/linux/docs/man-pages/man-pages-posix",
+        source_version: include_str!("../data/posix/MAN_PAGES_POSIX").trim_ascii(),
+        builtin: config::Builtin::Posix2017,
+    },
 ];
 
 /// Returns metadata for the bundled vocabularies.

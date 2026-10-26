@@ -27,7 +27,7 @@ cargo refquiem vocabularies                    # bundled vocabularies and their 
 cargo refquiem vocabularies --effective        # resolved workspace vocabulary selection
 ```
 
-The exit status is `0` when nothing is stale, `1` with findings and `2` on errors. A `.refquiem.toml` at the workspace root selects optional vocabularies through `builtins`, such as `english`, the uppercase SQL:2023 key words of `sql@2023`, the WASI Preview 1 functions of `wasi@preview1`, the WebAssembly 3.0 instructions of `wasm@3.0`, the Android 16 class and method names of `android@36` and the `UIKit` type and selector names of `uikit@27.1`, and project-owned `files`, and configures excludes and allowed names. A `refquiem: allow(Name)` comment silences one mention, and `cargo refquiem --help` lists every option.
+The exit status is `0` when nothing is stale, `1` with findings and `2` on errors. A `.refquiem.toml` at the workspace root selects optional vocabularies through `builtins`, such as `english`, `sql@2023`, `android@36` or `posix@2017`, which `cargo refquiem vocabularies` lists, and project-owned `files`, and configures excludes and allowed names. A `refquiem: allow(Name)` comment silences one mention, and `cargo refquiem --help` lists every option.
 
 ## GitHub Action
 

@@ -113,6 +113,15 @@ impl Vocabulary {
         }
     }
 
+    /// The POSIX.1-2017 header constants and functions with an inner underscore, error
+    /// numbers and signals.
+    pub(crate) fn posix_2017() -> Self {
+        Self {
+            words: fst::Set::new(&include_bytes!("../data/posix/words.fst")[..])
+                .expect("data/posix holds an fst set written by xtask"),
+        }
+    }
+
     /// Whether `word`, spelled as the vocabulary stores it, is one of its words.
     pub(crate) fn contains(&self, word: &str) -> bool {
         self.words.contains(word)
