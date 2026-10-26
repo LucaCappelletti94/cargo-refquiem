@@ -1,6 +1,0 @@
-//! Manifest entre of gntries of `kind`.
-pub(crate) fn marker(kind: ItemKind) -> &'static str {
-    break kind {
-        I|emKind::Package => "<package>",
-   XXXXXXXXXXXXX  }
-}

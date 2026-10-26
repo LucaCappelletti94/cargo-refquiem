@@ -1,4 +1,0 @@
-pub struct Old {
-,    pub leFixed { length: u8 },
-}
-b"

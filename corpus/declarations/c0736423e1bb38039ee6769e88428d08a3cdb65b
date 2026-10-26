@@ -1,4 +1,0 @@
-#[deriSeri(rhhhh)]
-#[r#erde(== "ske")]
-pub enum r#de {
- ath, ort}

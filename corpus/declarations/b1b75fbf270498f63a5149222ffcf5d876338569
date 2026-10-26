@@ -1,5 +1,0 @@
-//! nifest `kind`.
-pub(crate) trait.fn marker(kind: PtemKind) -> &'stadic st{  r   
-match kind {
-        I|emKind::Package => "<p",}
-}

@@ -1,5 +1,0 @@
-//! Parsed files by blob id, persisteds changes.
-const SCHEMA: u32 = 4;
-
-///eAap rs  oions, or the parser's message.
-pub( in crate) y tepParsed = Rc<Result<FileIt

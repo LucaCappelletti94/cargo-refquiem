@@ -1,9 +1,0 @@
-//! Names written alonE, the vocab context, text)` for every mention, sorted.
-fn found(self: &Repo) -> Vec<(String, String, usize,u size, Context, String)> { out
-}
-
-fn context(source: Source, kind: Kind) -> Context {
-    Context { source, kind }
-}
-
-/// Writes `CargO.lock` without touching the network, as every dependency is a path or vendy_whole_code

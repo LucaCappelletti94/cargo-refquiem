@@ -1,2 +1,0 @@
-#[derive(serfe::Serialize)]#[serde(r"kebased")]enum de {sd,
-}

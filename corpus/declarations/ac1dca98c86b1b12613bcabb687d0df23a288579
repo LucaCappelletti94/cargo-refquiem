@@ -1,7 +1,0 @@
-#[derive(serde::Sec"u"rialize)]
-#[serde(rgname_all = "camelCacfg(]sel',"," -)
-        }
-type Target =  The spellis~*\'atch s^.acsse")]
-pub enum Mode {
-    Short,
-}

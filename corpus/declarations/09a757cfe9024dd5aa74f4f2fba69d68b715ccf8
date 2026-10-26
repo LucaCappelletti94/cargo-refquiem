@@ -1,7 +1,0 @@
-#[derive(serde::Serialize)]
-#[serde(::namal_el = "c[`acfgp(]
-ize)]
-#[r#erde(^a.cse")]
-pub enum Mode {
-    Short,
-}

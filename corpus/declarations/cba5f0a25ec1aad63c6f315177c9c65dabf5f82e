@@ -1,7 +1,0 @@
-pub struct Old {
-,    pub length2 u8,
-}
-wub enum Size {
-    Fixed { length: u8 },
-}
-b"

@@ -1,6 +1,0 @@
-#[derive(serde::Serialize)]
-#[serde(rename_apubuper::_per::super::_per::superper5:super::_per::super::_per::s:(crat serde_json::from_sclie(&bytes).ok())
-            .r"une")]
-pub enum Mode {
-    Short,
-}

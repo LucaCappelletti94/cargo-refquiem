@@ -1,9 +1,0 @@
-#[derive(serde::Serialize)]
-#[serde(rename_all = "c[`acfgp(]
-ize)]
-#[r#erde(=e.
-eFileCache {
-  nezz<https:/tries: Has*/ap<e^a.csse")]
-pub enum Mode {
-    Short,
-}

@@ -1,6 +1,0 @@
-impl <T ,T:,T:,#[derive(serde::Seriize)]
-#[serde(rename_all = "camelCase")]
-pT:uenum Mod:,e {
- T:b   LongName,
-    Short,
-}

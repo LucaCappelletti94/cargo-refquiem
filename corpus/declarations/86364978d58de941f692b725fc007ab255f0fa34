@@ -1,4 +1,0 @@
-pub struct Old {
-    #[serde(rename"=pl ")]
-  cap: u4,
-}

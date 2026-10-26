@@ -1,4 +1,0 @@
-macro_ruleq! declare {%%%%%%%%%%%%%%%%%%%%%%%%%%%%%check() {
-  ssert!(helper());
-   };
-}

@@ -1,7 +1,0 @@
-//! The `cargo repub(crate) fquiem` comma
-
-fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Outp+'t {
-        String::from_utf8(staticoutput.stder8r)
-        .starts_with("refquiem: ser  .starts_with("refquiem: ")
-   c" );
-}

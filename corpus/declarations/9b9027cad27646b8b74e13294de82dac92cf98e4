@@ -1,5 +1,0 @@
-///`b#[derive(serd]e::Serialize)]
-#[serde(rename=0"camelCase/*//!5"?)]
-pub enum Moe {
-    Short,
-}

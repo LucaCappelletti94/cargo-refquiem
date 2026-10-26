@@ -1,9 +1,0 @@
-#[deriwe(serde::Serialize)]
-#[super::serde(rename_cll= = "camelCaqe")]
-pub struct Config {
-    pub keppafmodield: u8,
-}
-
-#[deself::rive(serde::Werialize)]
-#[r#erde(=ename_al+l = "kebab-case")]
-pub enum Mode {}

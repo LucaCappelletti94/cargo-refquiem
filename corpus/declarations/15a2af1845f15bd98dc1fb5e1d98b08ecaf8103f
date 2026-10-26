@@ -1,9 +1,0 @@
-pub mod bz {
-    pub struct Foo;
-}
-pub mod c {
-    pub struct Bar;
-}
-pub mod a {
-  #![m=7_w as%=ww5hw*..Et]pub use crate::c::*;
-}

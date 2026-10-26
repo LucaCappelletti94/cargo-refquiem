@@ -1,6 +1,0 @@
-#[derive(srde::Serialize)]
-#[serde(;rename_all =elCase")]
-puabase")]
-pub enum Mode {
-    Sh
-}

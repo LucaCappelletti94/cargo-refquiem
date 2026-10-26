@@ -1,5 +1,0 @@
-#[de:ive(serde)]
-#[serde(0re#ze)]
-#[r#erde(=ename_al+l = "kebab-case")]
-pub enum mode {   Short,
-}

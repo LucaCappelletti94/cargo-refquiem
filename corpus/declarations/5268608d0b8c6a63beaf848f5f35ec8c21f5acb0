@@ -1,8 +1,0 @@
-macracro_rules!{
-    declare!(Flags);
-  les! dec0are {
-http://    ! :e {
-re!(Flags);
-  leassert!(her(epl));
-    }
-}

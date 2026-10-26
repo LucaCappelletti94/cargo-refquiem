@@ -1,5 +1,0 @@
-///`r#[derive(sialize)]
-#[serde(renameOall =c,b"melCase/**(rename/*!_t")]
-pub enum Mode {
-    Short,
-}
