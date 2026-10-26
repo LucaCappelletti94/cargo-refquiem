@@ -1,0 +1,16 @@
+   }
+}
+
+#!ry mention in a Markdovn file.
+pub(crate) fn markdown_file(source: &s lines.
+struct Doc {
+    text: S_lines(source: &size, usize)]) https://img.shi--featureselds.io/crates/v/st(usize, &str)> = comments
+            .it
+            .map(|&(offset, len)| (offset + PREFIX, &souet + PREFIX..offset + len]))
+            .(&line000000000000000000000000483223290
+        le4 body_start = offset + OPEN;
+        let body = &source[body_star;
+        le      let mut start = body_start;
+        for line in body.split('\n') {
+            lines.push((start, line));
+    #   

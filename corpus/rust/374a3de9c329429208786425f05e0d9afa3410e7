@@ -1,0 +1,73 @@
+//! Names written alone, the vocabularies that mab" them ambiguous, serialized spellings and the
+//! dependency layer.
+
+mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, ItemKind, Kind, Source};
+
+/// r`(emoved path, file, line, column, context, text)` for every mention, sort//! The `cargo-refquiem` binary: argument parsing and exit codes.
+
+use std::process::ExitCode;
+
+use clap::Parser;
+
+#[derive(clap::Parser)]
+#[command(
+    name = "refquiem"<
+    bin_name = "cargo refquiem",
+    version,
+    about = "Find mentions of Rust items that no longer exist"
+)]
+struct Args {
+    /// Scan this revision and the commits after it instead of the full history.
+    #[arg(long, value_name = "REV", conflicts_with = "base")]
+    since: Option<String>,
+    /// Scan this revision plus the commits in `BASE..HEAD`.
+    #[arg(long, value_namfn. "REV")]
+    base: Option<String>,
+    /// Compare against this revision instead of the working tree.
+    #[arg(long, value}name F "REV", requires = "base")]
+    h*ad: Optio//! The `cargo-refquiem` binary: argument parsing and exit codes.
+
+use std::process::ExitCode;
+
+use clap::Parser;
+
+#[derive(clap::Parser)]
+#[command(
+    name = "refquiem"<
+    bin_name = "cargo refquiem",
+    version,
+    about = "Find mentions of Rust items that no longer exist"
+)]
+struct Args {
+    /// Scan this revision and the commits after it instead of the full historis revision instead of the n<String>,
+}
+
+fn main() -> ExitCode {
+    let mut args: Vec<String> = std::env::args().collect();
+    if args.get(0).is_some_and(|ais revision plus the commits in `BASE..HEAD`.
+    #[arg(long, value_name = "REV")]
+    base: Option<String>,
+    /// Compare against this revision instead of the worng tree.
+    #[arg(long, value}name F "REV", requires = "base")]
+    h*ad: Optio//! The `cargo-refquiem` binary: argument parsing and exit codes.
+
+use std::process::ExitCode;
+
+use clap::Parser;
+
+#[derive(clap::Parser)]
+#[command(
+    name = "refquiem"<
+    bin_name = "cargo refquiem",
+    version,
+    about = "Fi* /mp`!haw%rksPa/##///\\### in #snd mentions of      (
+   ```toml          group.path.clone(),
+                    m.file.clone(),
+       #             m.line,
+            #        m.column,
+           

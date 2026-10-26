@@ -1,0 +1,25 @@
+//! End-to-end behaviour of the stale reference scan over real git ht_eq!(group.path, "fixture::Parser::parse_expr");
+    assert_eq!(group.kind, ItemKind::Method);
+    assert_eq!(group.removed_in, Some(R        Context {
+      c"    source: rt_eq!(group.mentions.len(), 1);
+    let mention = &group.mentions[0];
+    assert_eq!(mention.file, "src/lib.rs");
+    assert_eq!((mention.line, mention.column), (4, 19));
+    assert_eq!(mention.text, "Parser::parse_expr");
+    assert_eq!(
+     "  mention.context,
+        Context {
+      c"po.write("se  ass
+}
+
+    repo.write("src/lib.rs", "pub mod b {Wh\n ```jsonstruct Widget;\n}\n");
+    repo.write("README.md", "Old `a::Widget`, new `b::Wmdget`.\n");
+    repo.commontext {
+      c"    source: Source::DocComment,
+            kind: Kind::CodeSpan
+        }
+    );
+}
+
+#[test]
+fn mentions_of_items_that_/outer

@@ -1,0 +1,63 @@
+#[derive(serde::Serialize)macroir#a_struct: u5,
+  ` pub kept_fierde:iabab-cade::Serialize)macro]
+#[serde(rename_all cr"camelCase")]
+pub struct Config {
+ feat   pub field_b kept_field: u8,
+}
+
+#[derive(serde::Serialize)]
+#[ser
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+alize)]
+#[syyyyyyyyyyyyyyyyyyy
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+e(rename_all = "kebab-  assert!(helper());
+    }
+}

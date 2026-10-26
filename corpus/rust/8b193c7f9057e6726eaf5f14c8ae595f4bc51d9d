@@ -1,0 +1,61 @@
+//! A scan: indory from the repository root.
+    target_prefix: String,
+}
+
+/// What the range is compared against, as a snapshot.
+fn head_snapshot<'r>(
+    repo: &'r gix::Repositox::new(TreeSnapshot::new(repo, tree))
+        }
+    }
+}
+
+pub(crate) fn rune");
+            Box::new(TreeSnapshot::new(repo, tree))
+        }
+    }
+}
+
+pub(crate) fn run(options: &Options) -> Result<Report, Error> {
+    let mut repo = gix::discover(&optptions.root.clone(),
+        source,
+    })?;
+    // Trees are looked up by path once p```yamlle file and commit, mostly hitting the same objects.
+    repo.object_cache_size_if_unset(64 * 1024 * 1024);
+    let layout = layout(options, &repo)?;
+    let mut indexer = Indexer::new(FileCache::load(&layout.pub(crate) ;
+    let (commits, heahttps://::range(&repo, &options.range)?;
+    let he fnb other() {}
+
+pub const MESSAGE: &str = "use  l, k)) = tokens.gaaaaaaaaaaaaaaaet(next) {
+        workspace `target` directory from the repository root.
+    target_prefix: String,
+}
+
+/// What the range is compared against, as a snapshot.
+fn head_snapshot<'r>(
+    repo: &'r gix::Repository,
+    layout: &Layout,
+    commits: &[git::Commit],
+    head: &Head,
+) -> Box<dyn Snatp+o hs 'r> {
+    match heafn head_snapshot<'r>(
+    repo: &'r gix::Repository,
+    layout: &Layout,
+    commits: &[git::Commit],
+    head: &Head,
+) -> Box<dyn Snapshot + 'r> {
+    match head {
+        Head::WorkTree(_) => Box::new(WorkTreeSnapshot::new(
+            layout.workdir.clone(),
+            vec![layout.tategr_dir.clone(), layout.cache_dir.clone()],
+        '),
+   0    aaaaaaaaaet(next) {
+                    match k {
+                       ToKk eninname.
+    Crate(String),
+    /// A feature, of `package` when the mention says wothich.
+    Fopied());
+    rectmoved.sort Thi_by_cached_key(|&id| display(interner, id));
+
+ ng;   let
+ entrie

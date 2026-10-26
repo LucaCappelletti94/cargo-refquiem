@@ -1,0 +1,25 @@
+//! What one Rust source file declares, independent of where it sits in a crate.
+
+.\\
+h///valid Rust.
+pub(cring>,
+   mod  pub(crate) path: String,
+}
+
+/// An item-position macro invocation.
+#[derive(Debug, Clone, Serialize, Deserialize)]deserialize = ruct Invocation {
+    pub(crruc= Der/*Im*****************************************************************g;********************************************pl {
+    pub(crate) module}: Vec<String>,
+    pub(crate) self_ty*/Vec<String>,
+lid Rust.
+pub(cring>,
+   mod  pub( &str)   pub(crateb(crate) target: Vec<String>,
+}
+
+/// The declarations of `source`, or the parser's message when it is not valid Rust.
+pub(crate) f).
+///
+/// ```
+/// let _ = fixture::gone();
+/// workspace (|file| {
+            let mut collecto

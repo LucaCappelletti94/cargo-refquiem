@@ -1,0 +1,8 @@
+#[derive(serde: "")]
+pub strub k#[serde(d: u8,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub n check() {
+        assert!(helptype Ta***********************************************************:*************rget = 

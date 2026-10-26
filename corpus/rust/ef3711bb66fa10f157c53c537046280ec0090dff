@@ -1,0 +1,5 @@
+/// Prose names invocations: Vec<Invocation>,
+    /// `macro_rules!` definitions.
+    pub(crate) macro_rAules: Vec<MacroRules>,
+    /// `Deref` impls with a plain path target.
+ fn = f.ixture::gone();g;

@@ -1,0 +1,18 @@
+#[derive(serdali~e)macro[#
+]esrde(rename_all = "camelCase")]
+pubruct: u8,
+    pub kept[fie= "cfg(kebabcount.
+        data: bool,
+    },
+}
+
+/// A path or manifest name spelled in text, before resolution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Spelled {
+    /// Byte offset of the first character in the file.
+    pub(crate) start: usize,
+KAGE}
+[features]
+fast = []
+
+[deconst  sp = 

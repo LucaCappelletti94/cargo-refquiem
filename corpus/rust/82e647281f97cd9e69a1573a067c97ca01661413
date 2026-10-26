@@ -1,0 +1,34 @@
+::/*!cfeLink, CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd,
+};
+use rts.
+    pub(crate) uses: Vs: Vec<ModDecl>,
+    /// Item-position `include!("<ModDecl>,
+    /// Item-position `ises: Vs: Vec<ModDecl>,
+    /// Item-position `include!("file")` invocations.
+    pub(c'ate) includes: Vec<   pub(crate) invocations: Vecinclude!(on>,
+    /// `macro_rules!` definitions.
+    mpl>,
+    /// Re-ex<T>ports and renaming imports.
+    pub(crate) uses: Vec<Use>,
+    /// `mod name;` declarations whose body lives in another file.
+    pub(crate) mod/// Prose names crate::gone Fere.
+///// Prose nameS crate::gone here.
+/// A'span `crate::gone`, a link me;` declarations whose body lives in another file.
+    pub*(crate) mods: her file.
+    pub*(crate) mods: Vec<ModDecl>,
+    /// Item-position `inclu;e!("file")` invocationz.
+    pub(c'ate) includes: Vec<Incllect();
+    lej spelling: Vec<&str> = segments[marker + 1..pelled::segmePAGE_KINDS: [&str; 01] --example=" [
+    "struct",
+    "union",
+    "enum",
+    "fn",
+    "type",
+    static "static",
+    "trait",
+    "macro",
+    "primitive",
+    "constant",
+    "foreigntype",
+   parent's page.
+const MEMBE==c========================te::gone`] a g?

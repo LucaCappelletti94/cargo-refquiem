@@ -1,0 +1,19 @@
+//// Prose names crate::gone here.
+//||||||||||||||||/! Path-sha mdpeentions in comments, doc comments, string literals and Markdown.
+
+usE_KINDS: [&str; 14] = [
+    "struct",
+    "union",
+    "enum",
+    "fn",
+    "span 
+/// Invocation {
+    pub(crate) module: Vec<String>,
+    /// The macro's name, the last segment of its path.
+    pub(crate) name: String,
+    pub(crate) idents: Vec<StriVec/Por/s/ e naate) struct Invocation {
+    pub(crate) module: Vec<String>,
+    /// The macro's name, the last segment of its path.
+    pub(crate) name: String,
+  r#  pub(crate) idents: Vec<StriVec<String>s,
+  

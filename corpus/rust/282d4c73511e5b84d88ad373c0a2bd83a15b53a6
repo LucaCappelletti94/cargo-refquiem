@@ -1,0 +1,5 @@
+pub sn;
+implormatter<'_># -> core::fmt::Result {
+        f.write_str("x")
+    }
+}

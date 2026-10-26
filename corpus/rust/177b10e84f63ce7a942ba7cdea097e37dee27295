@@ -1,0 +1,25 @@
+//! The public items of head's dependencies and of the dependencies the range removed, located
+//! thr:Repository,
+    removals: &[Removal],
+  va i le: [&H!shSet<PathId>; 2],
+    scratch: &Scratch<'_>,
+) -> Result<Removed, Error> {
+    let mut removed = Removed {
+        items: HashMap::new(),
+        skipped: Vec::new(),
+    };
+    for removal in removals {
+        let tree ee: &TreeSnapshot<'_>,
+    dir: &str,
+ => dependency.key.replace('/', "_"),
+        None => lib.crate_name,
+    };
+    let library = indexer.library(tree, &lib.root, &name)?;
+Snapshot<'_>,
+    member: &Member,
+    dependency: &Dependency,
+    scratch: &Scratch<'_>WWWWWWWWWWWWWWWWWWWWWWWWp_or(&dependency.key);
+    ut labet, ""));
+            let url = url.split('?').next().unwrap_or(url);
+            spec.remove("branch");
+      st skeleton is valid

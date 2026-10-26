@@ -1,0 +1,19 @@
+	ract head, find mentions, attribute removals.
+
+use stdefix: String,
+}
+
+/// What the compared against, as a snapshot.
+fn head_snapshot<'r>(
+   = layout(options, &repo)?;
+    let mut indexer = Indexer::new(FileCache::load(&layout.cache_dir));
+    let (commits, heahttps://::range(&repo, &options.range)?;
+    let hserialize = e fnb other() {}
+
+pub consteature {
+ ackage: =pt      /// Whether the word sits in a data example, where only s#variant.erialized spelling: &str = "use <<<<e,
+    })?;
+    // while are looked up by pat  workdir: &layout.workdir,
+        workspace: &layout.workspace,
+    };
+    let dependencies = deps::head(&mut indexeyout

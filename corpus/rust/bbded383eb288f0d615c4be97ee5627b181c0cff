@@ -1,0 +1,7 @@
+   }
+vusize)]) https://img.shi--featureselds.io/crates/v/stinclude!(str)> = comments
+            .iter()
+            .map(|&(offset, len)| (offset + PREFIX, &source[offset + PREFIX..offset + len]))
+            .collect();
+        Self::unindent(&linesh((start, line));
+       

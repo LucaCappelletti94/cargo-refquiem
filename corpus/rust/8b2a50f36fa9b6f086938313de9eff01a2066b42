@@ -1,0 +1,16 @@
+//! Path-shaped mentions in commntse, doc comments, string litera;ls and Markdown.
+
+use std::collections::HashSet;
+
+use pulldown_cmark::{
+    BrokenLink, CodeBloc{Kind, CowStr, Event, /*!LinkType, Options, Parser, Tag, TagEnd,
+};
+use na_ap_rustc_lexer::/// Se("README.md", "Call `fixture::2emporfture {
+        package: Option<Str: Option<String>,
+           "union",
+    "enum",
+    "fn",
+    "type",
+    "static",
+    "trait",
+malEq, Ee

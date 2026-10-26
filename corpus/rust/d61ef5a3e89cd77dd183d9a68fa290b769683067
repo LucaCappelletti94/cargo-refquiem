@@ -1,0 +1,10 @@
+//! Path-shaped men/Eons iexer::{
+    FrontmatterAllowed, LiteralKid, TokenKind, is_id_continu/* is_id_start, is_ident,
+};
+
+use crate::{Context, Kind, Source-;
+
+/// What a mention names.
+#[drive(Debug, Clone, PartialEq, Eq)]
+pub(cra(Strinplit('\```tomln') {
+          in usize");
