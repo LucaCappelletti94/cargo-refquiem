@@ -375,19 +375,11 @@ fn libraries(
             if !done.insert((id.clone(), name.clone())) {
                 continue;
             }
-            let Some(package) = packages.get(&id) else {
+            let Some((dir, root)) = packages.get(&id).and_then(|package| library_root(package))
+            else {
                 continue;
             };
-            let Some(target) = lib_target(package) else {
-                continue;
-            };
-            let Some(dir) = package.manifest_path.parent() else {
-                continue;
-            };
-            let Some(root) = relative(dir.as_std_path(), target.src_path.as_std_path()) else {
-                continue;
-            };
-            let library = match sources.and_then(|sources| sources.get(dir.as_std_path())) {
+            let library = match sources.and_then(|sources| sources.get(dir)) {
                 Some(Source::Repo(snapshot, dir)) => {
                     indexer.library(*snapshot, &join(dir, &root), &name)?
                 }
@@ -396,8 +388,7 @@ fn libraries(
                     indexer.library(&snapshot, &root, &name)?
                 }
                 None => {
-                    let snapshot =
-                        WorkTreeSnapshot::new(dir.as_std_path().to_path_buf(), Vec::new());
+                    let snapshot = WorkTreeSnapshot::new(dir.to_path_buf(), Vec::new());
                     indexer.library(&snapshot, &root, &name)?
                 }
             };
@@ -428,6 +419,15 @@ fn libraries(
         paths: indexer.public_paths(&found, &root_syms),
         roots: root_syms.into_iter().collect(),
     })
+}
+
+/// The directory of `package` and its library root relative to it, `None` for a package
+/// without a library target, as a proc-macro crate, or whose root lies outside it.
+fn library_root(package: &cargo_metadata::Package) -> Option<(&Path, String)> {
+    let target = lib_target(package)?;
+    let dir = package.manifest_path.parent()?.as_std_path();
+    let root = relative(dir, target.src_path.as_std_path())?;
+    Some((dir, root))
 }
 
 /// The library target of `package`, however its crate type is spelled.

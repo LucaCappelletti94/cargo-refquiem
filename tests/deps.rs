@@ -576,6 +576,46 @@ fn an_item_a_dependency_macro_generates_stays_alive_while_a_member_keeps_its_cra
 }
 
 #[test]
+fn a_dependency_without_a_library_target_leaves_its_siblings_indexed() {
+    let repo = Repo::new();
+    repo.vendor("helper", "1.0.0", "pub struct Thing;\n");
+    // Named to sort after `helper`, so the traversal reaches the proc-macro crate first.
+    repo.vendor("zz_derive", "1.0.0", "");
+    repo.write(
+        "vendor/zz_derive-1.0.0/Cargo.toml",
+        "[package]\nname = \"zz_derive\"\nversion = \"1.0.0\"\nedition = \"2021\"\n\n[lib]\nproc-macro = true\n",
+    );
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"a\", \"b\"]\n",
+    );
+    let member = |name: &str, dependencies: &str| {
+        format!(
+            "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n{dependencies}"
+        )
+    };
+    repo.write(
+        "a/Cargo.toml",
+        &member("a", "\n[dependencies]\nhelper = \"1\"\nzz_derive = \"1\"\n"),
+    );
+    repo.write(
+        "b/Cargo.toml",
+        &member("b", "\n[dependencies]\nhelper = \"1\"\n"),
+    );
+    for file in ["src/lib.rs", "a/src/lib.rs", "b/src/lib.rs"] {
+        repo.write(file, "");
+    }
+    lock(&repo);
+    repo.commit("both members use helper");
+    repo.write("b/Cargo.toml", &member("b", ""));
+    lock(&repo);
+    repo.write("README.md", "`helper::Thing`\n");
+    repo.commit("b drops helper");
+
+    assert_eq!(found_by_path(&repo), []);
+}
+
+#[test]
 fn a_removed_entry_is_labeled_by_the_package_that_owned_it() {
     let repo = Repo::new();
     repo.vendor("helper", "1.0.0", "pub struct Thing;\n");
