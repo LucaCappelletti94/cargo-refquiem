@@ -11,7 +11,7 @@ use gix::ObjectId;
 use toml::{Table, Value};
 
 use crate::git::{Snapshot, TreeSnapshot, WorkTreeSnapshot, relative};
-use crate::index::{Definition, Indexer};
+use crate::index::Indexer;
 use crate::intern::{PathId, Sym};
 use crate::manifest::{self, Dependency, Manifests, Member, TargetKind, join};
 use crate::{Error, HashMap, HashSet, Skipped};
@@ -61,8 +61,6 @@ pub(crate) struct Layer {
     pub(crate) roots: HashSet<Sym>,
     /// Identifiers their item-position macros may turn into items.
     pub(crate) macro_idents: HashSet<Sym>,
-    /// Their `#[macro_export]` macros by name.
-    pub(crate) macro_rules: Vec<(Sym, Definition)>,
 }
 
 /// The items of removed dependencies.
@@ -143,7 +141,7 @@ pub(crate) fn head(
         })
         .collect();
     roots.extend(renamed);
-    libraries(indexer, &metadata, roots, Some(&sources))
+    libraries(indexer, &metadata, &roots, Some(&sources))
 }
 
 /// The public paths of the `removals` that neither set of `alive` paths has. A removal whose
@@ -292,7 +290,7 @@ fn fetched(
     let layer = libraries(
         indexer,
         &metadata,
-        vec![(root.pkg.clone(), root.name.clone())],
+        &[(root.pkg.clone(), root.name.clone())],
         None,
     )?;
     let paths = layer.paths;
@@ -345,10 +343,15 @@ fn locked(lock: &Table, member: &str, package: &str) -> Option<(String, Option<S
 /// The public paths of the `roots` packages, each by the name its dependent spells it, with
 /// the libraries they re-export from indexed to resolve those re-exports. A package listed in
 /// `sources` reads its library root from that source, every other from its manifest directory.
+///
+/// The `#[macro_export]` macros the indexed libraries define are registered, and the libraries
+/// are indexed again while that gives an invocation a definition it lacked, as diesel's
+/// `bitflags::bitflags!` needs the macros of `bitflags`. Head's layer and a removed
+/// dependency's are then expanded alike.
 fn libraries(
     indexer: &mut Indexer,
     metadata: &Metadata,
-    roots: Vec<(PackageId, String)>,
+    roots: &[(PackageId, String)],
     sources: Option<&HashMap<PathBuf, Source<'_>>>,
 ) -> Result<Layer, Error> {
     let packages: HashMap<&PackageId, &cargo_metadata::Package> =
@@ -363,56 +366,64 @@ fn libraries(
         .iter()
         .map(|(_, name)| indexer.interner.sym(name))
         .collect();
-    let mut queue = roots;
-    let mut done = HashSet::new();
-    let mut found = Vec::new();
-    while let Some((id, name)) = queue.pop() {
-        if !done.insert((id.clone(), name.clone())) {
-            continue;
-        }
-        let Some(package) = packages.get(&id) else {
-            continue;
-        };
-        let Some(target) = lib_target(package) else {
-            continue;
-        };
-        let Some(dir) = package.manifest_path.parent() else {
-            continue;
-        };
-        let Some(root) = relative(dir.as_std_path(), target.src_path.as_std_path()) else {
-            continue;
-        };
-        let library = match sources.and_then(|sources| sources.get(dir.as_std_path())) {
-            Some(Source::Repo(snapshot, dir)) => {
-                indexer.library(*snapshot, &join(dir, &root), &name)?
+    let mut found;
+    loop {
+        let mut queue = roots.to_vec();
+        let mut done = HashSet::new();
+        found = Vec::new();
+        while let Some((id, name)) = queue.pop() {
+            if !done.insert((id.clone(), name.clone())) {
+                continue;
             }
-            Some(Source::Disk(dir)) => {
-                let snapshot = WorkTreeSnapshot::new(dir.clone(), Vec::new());
-                indexer.library(&snapshot, &root, &name)?
-            }
-            None => {
-                let snapshot = WorkTreeSnapshot::new(dir.as_std_path().to_path_buf(), Vec::new());
-                indexer.library(&snapshot, &root, &name)?
-            }
-        };
-        if let Some(node) = nodes.get(&id) {
-            for first in library.use_roots() {
-                let first = indexer.interner.name(first);
-                if let Some(dep) = node.deps.iter().find(|dep| dep.name == first) {
-                    queue.push((dep.pkg.clone(), dep.name.clone()));
+            let Some(package) = packages.get(&id) else {
+                continue;
+            };
+            let Some(target) = lib_target(package) else {
+                continue;
+            };
+            let Some(dir) = package.manifest_path.parent() else {
+                continue;
+            };
+            let Some(root) = relative(dir.as_std_path(), target.src_path.as_std_path()) else {
+                continue;
+            };
+            let library = match sources.and_then(|sources| sources.get(dir.as_std_path())) {
+                Some(Source::Repo(snapshot, dir)) => {
+                    indexer.library(*snapshot, &join(dir, &root), &name)?
+                }
+                Some(Source::Disk(dir)) => {
+                    let snapshot = WorkTreeSnapshot::new(dir.clone(), Vec::new());
+                    indexer.library(&snapshot, &root, &name)?
+                }
+                None => {
+                    let snapshot =
+                        WorkTreeSnapshot::new(dir.as_std_path().to_path_buf(), Vec::new());
+                    indexer.library(&snapshot, &root, &name)?
+                }
+            };
+            if let Some(node) = nodes.get(&id) {
+                for first in library.use_roots() {
+                    let first = indexer.interner.name(first);
+                    if let Some(dep) = node.deps.iter().find(|dep| dep.name == first) {
+                        queue.push((dep.pkg.clone(), dep.name.clone()));
+                    }
                 }
             }
+            found.push(library);
         }
-        found.push(library);
+        let rules: Vec<_> = found
+            .iter()
+            .flat_map(|library| library.macro_rules.iter().cloned())
+            .collect();
+        let added = indexer.use_dependency_macros(&rules);
+        if !added || found.iter().all(|library| library.unexpanded.is_empty()) {
+            break;
+        }
     }
     Ok(Layer {
         macro_idents: found
             .iter()
             .flat_map(|library| library.macro_idents.iter().copied())
-            .collect(),
-        macro_rules: found
-            .iter()
-            .flat_map(|library| library.macro_rules.iter().cloned())
             .collect(),
         paths: indexer.public_paths(&found, &root_syms),
         roots: root_syms.into_iter().collect(),

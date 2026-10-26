@@ -161,7 +161,6 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         workspace: &layout.workspace,
     };
     let dependencies = deps::head(&mut indexer, &*head_snapshot, &scratch)?;
-    indexer.use_dependency_macros(&dependencies.macro_rules);
     let head_index = indexer.index(&*head_snapshot, &layout.workspace, true)?;
     indexer.use_head_macros(&head_index);
 
