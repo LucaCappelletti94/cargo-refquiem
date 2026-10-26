@@ -267,6 +267,82 @@ fn sql_2023_claims_exact_uppercase_key_words_in_prose_and_code_spans() {
     }
 }
 
+/// `(file, line, text, (spelling, vocabulary))` of a mention.
+type Hint = (String, usize, String, Option<(String, String)>);
+
+#[test]
+fn uppercase_hints_name_the_exact_case_entry_an_eligible_bare_mention_misses() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn array_agg() {}\npub fn my_flag() {}\npub fn gone_away() {}\n",
+    );
+    repo.commit("public names");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// array_agg();\n/// ```\npub struct Kept;\n",
+    );
+    repo.write(
+        "README.md",
+        "Run array_agg and `array_agg`.\n`fixture::array_agg`\nSet my_flag and `my_flag`.\n`gone_away`\n",
+    );
+    repo.write(
+        "domain.toml",
+        "format-version = 1\nkind = \"natural-language\"\ncase = \"sensitive\"\nwords = [\"MY_FLAG\"]\n",
+    );
+    repo.commit("remove names");
+    let domain = std::fs::canonicalize(repo.path().join("domain.toml"))
+        .unwrap()
+        .display()
+        .to_string();
+    let options = Options::new(repo.path().to_path_buf());
+    let hints = || {
+        let mut out: Vec<Hint> = refquiem::run(&options)
+            .unwrap()
+            .groups
+            .iter()
+            .flat_map(|group| group.mentions.iter())
+            .map(|m| {
+                (
+                    m.file.clone(),
+                    m.line,
+                    m.text.clone(),
+                    m.uppercase
+                        .as_ref()
+                        .map(|hint| (hint.spelling.clone(), hint.vocabulary.clone())),
+                )
+            })
+            .collect();
+        out.sort();
+        out
+    };
+    let sql = || Some(("ARRAY_AGG".to_owned(), "sql@2023".to_owned()));
+    let row = |file: &str, line, text: &str, hint| (file.to_owned(), line, text.to_owned(), hint);
+    repo.write(
+        ".refquiem.toml",
+        "[vocabularies]\nbuiltins = [\"sql@2023\"]\nfiles = [\"domain.toml\"]\n",
+    );
+    assert_eq!(
+        hints(),
+        [
+            row("README.md", 1, "array_agg", sql()),
+            row("README.md", 1, "array_agg", sql()),
+            row("README.md", 2, "fixture::array_agg", None),
+            row("README.md", 3, "my_flag", None),
+            row(
+                "README.md",
+                3,
+                "my_flag",
+                Some(("MY_FLAG".to_owned(), domain.clone()))
+            ),
+            row("README.md", 4, "gone_away", None),
+            row("src/lib.rs", 2, "array_agg", None),
+        ]
+    );
+    repo.write(".refquiem.toml", "[vocabularies]\n");
+    assert!(hints().iter().all(|(.., hint)| hint.is_none()));
+}
+
 #[test]
 fn a_bare_allow_entry_keeps_serialized_names_alive() {
     let repo = Repo::new();

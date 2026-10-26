@@ -68,6 +68,10 @@ def places: if length == 1
 def footer($mention):
   "[👎 Report a wrong review](https://github.com/LucaCappelletti94/cargo-refquiem/issues/new?template=wrong-review.yml&title=\("Wrong review on \($reviewed)" | @uri)&version=\($version | @uri)&review=\($review_url | @uri)&mention=\($mention | @uri)) [❤️ Support refquiem](https://github.com/sponsors/LucaCappelletti94)";
 def plural($n; $one; $many): "\($n) \(if $n == 1 then $one else $many end)";
+# A code span holding any text, its fence longer than every backtick run inside.
+def code: ([scan("`+") | length] | max // 0) as $run
+  | ("`" * ($run + 1)) as $f
+  | if $run > 0 then "\($f) \(.) \($f)" else "\($f)\(.)\($f)" end;
 '
 
 # Deleted lines accept LEFT comments, added and context lines accept RIGHT comments.
@@ -134,8 +138,11 @@ def group:
      candidates, headline,
      mentions: [.mentions[]
        | need(type == "object" and (.file | name) and (.line | int) and (.column | int)
-         and (.text | str) and (.replacement == null or (.replacement | line)))
-       | {file, line, column, text, replacement}]};
+         and (.text | str) and (.replacement == null or (.replacement | line))
+         and (.uppercase == null or (.uppercase | type == "object"
+           and (.spelling | name) and (.vocabulary | line) and (.vocabulary | length > 0))))
+       | {file, line, column, text, replacement,
+          uppercase: (if .uppercase == null then null else .uppercase | {spelling, vocabulary} end)}]};
 .[0]
 | need(type == "object" and (.groups | type == "array") and (.unused_markers | type == "array")
   and (.skipped | type == "array") and (.base == null or (.base | commit)))
@@ -198,7 +205,10 @@ def headlined($base):
   inline: ([($report.groups | to_entries[] | .key as $id | (.value | headlined($report.base)) as $h
         | .value.mentions[]
         | {groups: [$id], path: .file, line, column,
-           text: "\($h), is still mentioned here.", replacement}),
+           text: ("\($h), is still mentioned here."
+             + (if .uppercase == null then ""
+               else " Write \(.uppercase.spelling | code) to mark it as \(.uppercase.vocabulary | code)." end)),
+           replacement}),
       ($report.unused_markers[]
         | {groups: [], path: .file, line, column,
            text: "This `refquiem: allow(\(.name))` marker suppresses nothing.",

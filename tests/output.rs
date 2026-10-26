@@ -248,13 +248,22 @@ fn json_prints_the_report_with_snake_case_keys() {
     let mention = &group["mentions"][0];
     assert_eq!(
         keys(mention),
-        ["column", "context", "file", "line", "replacement", "text"]
+        [
+            "column",
+            "context",
+            "file",
+            "line",
+            "replacement",
+            "text",
+            "uppercase"
+        ]
     );
     assert_eq!(mention["replacement"], "Call `fixture::kept`.");
     assert_eq!(mention["file"], "README.md");
     assert_eq!(mention["line"], 1);
     assert_eq!(mention["column"], 7);
     assert_eq!(mention["text"], "fixture::gone");
+    assert_eq!(mention["uppercase"], serde_json::Value::Null);
     assert_eq!(
         mention["context"],
         serde_json::json!({"source": "markdown", "kind": "code_span"})
@@ -264,6 +273,46 @@ fn json_prints_the_report_with_snake_case_keys() {
         serde_json::json!([{"file": "src/lib.rs", "line": 1, "column": 20, "name": "Nothing"}])
     );
     assert_eq!(report["skipped"], serde_json::json!([]));
+}
+
+#[test]
+fn every_output_carries_the_uppercase_hint_of_a_mention() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn array_agg() {}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "Run `array_agg`.\n");
+    repo.write(
+        ".refquiem.toml",
+        "[vocabularies]\nbuiltins = [\"sql@2023\"]\n",
+    );
+    repo.commit("drop array_agg");
+
+    let json = cargo_refquiem(repo.path(), &["--json"], None);
+    let report: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(
+        report["groups"][0]["mentions"][0]["uppercase"],
+        serde_json::json!({"spelling": "ARRAY_AGG", "vocabulary": "sql@2023"})
+    );
+    let human = String::from_utf8(cargo_refquiem(repo.path(), &[], None).stdout).unwrap();
+    assert!(
+        human.contains(
+            "  README.md:1:6  Markdown code span, write ARRAY_AGG to mark it as sql@2023\n"
+        ),
+        "{human}"
+    );
+    let github =
+        String::from_utf8(cargo_refquiem(repo.path(), &["--github"], None).stdout).unwrap();
+    assert!(
+        github.contains(", is still mentioned here, write `ARRAY_AGG` to mark it as `sql@2023`\n"),
+        "{github}"
+    );
+    let markdown =
+        String::from_utf8(cargo_refquiem(repo.path(), &["--markdown"], None).stdout).unwrap();
+    assert!(
+        markdown.contains("| `README.md:1:6`, write `ARRAY_AGG` to mark it as `sql@2023` |"),
+        "{markdown}"
+    );
 }
 
 #[test]

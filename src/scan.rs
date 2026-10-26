@@ -18,7 +18,8 @@ use crate::parse::SERDE_MARKER;
 use crate::text::{self, Named, Spelled};
 use crate::{
     Context, Error, Group, HashMap, HashSet, ItemKind, Kind, Mention, Options, Position, Range,
-    RemovedIn, Report, Source, Suggestion, UnusedMarker, entry, manifest, stdlib, suggest,
+    RemovedIn, Report, Source, Suggestion, UnusedMarker, Uppercase, entry, manifest, stdlib,
+    suggest, vocabulary,
 };
 
 /// What the commits of the range declare beyond head, each distinct tree stored once.
@@ -816,6 +817,7 @@ fn find_mentions(
                 text: source[path.start..path.end].to_owned(),
                 context: path.context,
                 replacement: None,
+                uppercase: matcher.uppercase(&path, removed),
             });
         }
     }
@@ -1138,33 +1140,40 @@ fn ranked(
     keyed.into_iter().map(|(_, id)| id).collect()
 }
 
+/// Words under one case rule, each with its category and the first selected file holding it.
 #[derive(Default)]
 struct VocabularyWords {
-    entries: HashMap<String, Category>,
+    entries: HashMap<String, (Category, usize)>,
     technical: bool,
 }
 
 impl VocabularyWords {
-    fn insert(&mut self, word: String, category: Category) {
+    fn insert(&mut self, word: String, category: Category, file: usize) {
         self.technical |= category == Category::Technical;
         self.entries
             .entry(word)
-            .and_modify(|kind| {
+            .and_modify(|(kind, _)| {
                 if category == Category::Technical {
                     *kind = Category::Technical;
                 }
             })
-            .or_insert(category);
+            .or_insert((category, file));
     }
 
     fn applies(&self, text: bool) -> bool {
         !self.entries.is_empty() && (text || self.technical)
     }
 
-    fn claims(&self, word: &str, text: bool) -> bool {
+    /// The file holding `word` when its category applies to the context.
+    fn source(&self, word: &str, text: bool) -> Option<usize> {
         self.entries
             .get(word)
-            .is_some_and(|category| text || *category == Category::Technical)
+            .filter(|(category, _)| text || *category == Category::Technical)
+            .map(|&(_, file)| file)
+    }
+
+    fn claims(&self, word: &str, text: bool) -> bool {
+        self.source(word, text).is_some()
     }
 }
 
@@ -1176,6 +1185,8 @@ struct Vocabularies {
     sensitive: VocabularyWords,
     ascii: VocabularyWords,
     unicode: VocabularyWords,
+    /// The canonical paths of the selected custom files, by the index the words keep.
+    files: Vec<String>,
 }
 
 impl Vocabularies {
@@ -1190,6 +1201,8 @@ impl Vocabularies {
             ..Self::default()
         };
         for file in files {
+            let index = selected.files.len();
+            selected.files.push(file.path.display().to_string());
             let words = match file.case {
                 config::Case::Sensitive => &mut selected.sensitive,
                 config::Case::AsciiInsensitive => &mut selected.ascii,
@@ -1205,10 +1218,31 @@ impl Vocabularies {
                         }
                     }
                 }
-                words.insert(word, file.kind);
+                words.insert(word, file.kind, index);
             }
         }
         selected
+    }
+
+    /// The exact-case entry `word` would match in uppercase where `kind` lets it apply.
+    fn uppercase(&self, word: &str, kind: Kind) -> Option<Uppercase> {
+        let text = kind == Kind::Text;
+        if !text && kind != Kind::CodeSpan {
+            return None;
+        }
+        let spelling = word.to_uppercase();
+        if spelling == word {
+            return None;
+        }
+        let vocabulary = if self.sql.as_ref().is_some_and(|sql| sql.contains(&spelling)) {
+            vocabulary::id(config::Builtin::Sql2023).to_owned()
+        } else {
+            self.files[self.sensitive.source(&spelling, text)?].clone()
+        };
+        Some(Uppercase {
+            spelling,
+            vocabulary,
+        })
     }
 
     fn claims(&self, word: &str, kind: Kind) -> bool {
@@ -1396,6 +1430,18 @@ impl<'a> Matcher<'a> {
             Named::Binary(name) => self.entries.stale(&[ItemKind::Binary], name, scope),
             Named::Example(name) => self.entries.stale(&[ItemKind::Example], name, scope),
             Named::Name { word, data } => self.stale_name(word, *data, path.context, own),
+        }
+    }
+
+    /// The uppercase hint of a bare name `path` that names the removed item `removed`.
+    fn uppercase(&self, path: &Spelled, removed: PathId) -> Option<Uppercase> {
+        match &path.named {
+            Named::Name { word, data: false }
+                if self.interner.kind(removed) != ItemKind::Serialized =>
+            {
+                self.vocabularies.uppercase(word, path.context.kind)
+            }
+            _ => None,
         }
     }
 

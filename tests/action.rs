@@ -828,6 +828,31 @@ fn a_name_mentioned_once_names_the_place_in_its_sentence() {
 }
 
 #[test]
+fn an_inline_comment_carries_the_uppercase_hint_of_its_mention() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn array_agg() {}\n");
+    repo.write(
+        ".refquiem.toml",
+        "[vocabularies]\nbuiltins = [\"sql@2023\"]\n",
+    );
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    repo.write("README.md", "Run `array_agg`.\n");
+    repo.commit("drop array_agg");
+    let report = scan(&repo, &["--since", "HEAD~1"]);
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(&gh, "review", false, payload.path(), &report);
+    assert_eq!(status, "posted");
+
+    let inline = comment_call(&gh.log(), "README.md", "1", "RIGHT");
+    assert!(
+        inline.contains(", is still mentioned here. Write `ARRAY_AGG` to mark it as `sql@2023`."),
+        "{inline}"
+    );
+}
+
+#[test]
 fn a_removal_comment_links_the_removed_name_to_the_base_and_its_replacement_to_head() {
     let report = single_mention_scan();
     let base: serde_json::Value = serde_json::from_str(&report).unwrap();
