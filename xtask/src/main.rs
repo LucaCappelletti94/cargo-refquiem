@@ -81,8 +81,8 @@ fn main() -> ExitCode {
     }
 }
 
-/// Writes the standard library layers and the English, SQL, WASI, WebAssembly and Android
-/// word lists under `data/`.
+/// Writes the standard library layers and the English, SQL, WASI, WebAssembly, Android and
+/// `UIKit` word lists under `data/`.
 fn vocab() -> Result<(), Error> {
     let data = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -93,7 +93,8 @@ fn vocab() -> Result<(), Error> {
     sql(&data.join("sql"))?;
     wasi(&data.join("wasi"))?;
     wasm(&data.join("wasm"))?;
-    android(&data.join("android"))
+    android(&data.join("android"))?;
+    uikit(&data.join("uikit"))
 }
 
 /// Writes `<layer>.fst`, every suffix of two or more segments of every public path reachable
@@ -211,6 +212,10 @@ const WASM_REPOSITORY: &str = "https://github.com/WebAssembly/spec";
 
 /// Where AOSP publishes the Android framework, whose public API it describes in signature files.
 const AOSP_FRAMEWORKS_BASE: &str = "https://android.googlesource.com/platform/frameworks/base";
+
+/// Where .NET for iOS keeps its bindings of the Apple SDKs, whose attributes carry the
+/// Objective-C names.
+const MACIOS_REPOSITORY: &str = "https://github.com/dotnet/macios";
 
 /// A reader of the files of `repository` at tag `pinned`, through a partial clone whose
 /// blobs arrive on demand, so only the files read are downloaded.
@@ -384,11 +389,7 @@ fn android(out: &Path) -> Result<(), Error> {
                     .next()
                     .unwrap_or_default();
                 let simple = name.rsplit('.').next().unwrap_or_default();
-                // A single word such as `Builder` names too many Rust types to claim.
-                let mut chars = simple.chars();
-                if chars.next().is_some_and(|c| c.is_ascii_uppercase())
-                    && chars.any(|c| c.is_ascii_uppercase())
-                {
+                if is_compound_type(simple) {
                     words.insert(simple.to_owned());
                 }
             }
@@ -400,16 +401,7 @@ fn android(out: &Path) -> Result<(), Error> {
                 .rsplit(|c: char| !(c.is_alphanumeric() || c == '_'))
                 .next()
                 .unwrap_or_default();
-            let lower = name
-                .chars()
-                .take_while(|c| !c.is_ascii_uppercase())
-                .collect::<String>();
-            if lower.len() < name.len()
-                && lower.starts_with(|c: char| c.is_ascii_lowercase())
-                && lower
-                    .chars()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
-            {
+            if is_camel_case(name) {
                 words.insert(name.to_owned());
             }
         }
@@ -442,27 +434,220 @@ fn without_annotations(line: &str) -> String {
         }
         let mut tail = &after[end..];
         if tail.starts_with('(') {
-            let (mut depth, mut quoted) = (0_usize, false);
-            let close = tail.char_indices().find_map(|(at, c)| {
-                match c {
-                    '"' => quoted = !quoted,
-                    '(' if !quoted => depth += 1,
-                    ')' if !quoted => {
-                        depth -= 1;
-                        if depth == 0 {
-                            return Some(at);
-                        }
-                    }
-                    _ => {}
-                }
-                None
-            });
-            tail = close.map_or("", |at| &tail[at + 1..]);
+            tail = closing_paren(tail).map_or("", |at| &tail[at + 1..]);
         }
         rest = tail.trim_start();
     }
     out.push_str(rest);
     out
+}
+
+/// The byte offset of the parenthesis closing the one `text` opens, skipping quoted text.
+fn closing_paren(text: &str) -> Option<usize> {
+    let (mut depth, mut quoted) = (0_usize, false);
+    text.char_indices().find_map(|(at, c)| {
+        match c {
+            '"' => quoted = !quoted,
+            '(' if !quoted => depth += 1,
+            ')' if !quoted => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(at);
+                }
+            }
+            _ => {}
+        }
+        None
+    })
+}
+
+/// Whether `name` is a type name of two or more words, such as `NativeActivity`.
+///
+/// A single word such as `Builder` names too many Rust types to claim.
+fn is_compound_type(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars.next().is_some_and(|c| c.is_ascii_uppercase()) && chars.any(|c| c.is_ascii_uppercase())
+}
+
+/// Whether `name` is a camelCase member name of two or more words, such as `onCreate`.
+fn is_camel_case(name: &str) -> bool {
+    let lower = name.len()
+        - name
+            .trim_start_matches(|c: char| !c.is_ascii_uppercase())
+            .len();
+    lower < name.len()
+        && name.starts_with(|c: char| c.is_ascii_lowercase())
+        && name[..lower]
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+}
+
+/// Writes `words.fst`, the compound Objective-C class and protocol names and the camelCase
+/// selector heads that the .NET binding of `UIKit` declares, and the binding's MIT `LICENSE`,
+/// which must accompany any copy.
+fn uikit(out: &Path) -> Result<(), Error> {
+    let pinned = include_str!("../../data/uikit/MACIOS").trim_ascii();
+    let show = pinned_files(MACIOS_REPOSITORY, "macios", pinned)?;
+    let source = without_comments(&show("src/uikit.cs")?);
+    let mut words = BTreeSet::new();
+    for attribute in ["Export", "Bind"] {
+        for arguments in attribute_arguments(&source, attribute) {
+            if let Some((selector, _)) = arguments
+                .trim_start()
+                .strip_prefix('"')
+                .and_then(|quoted| quoted.split_once('"'))
+            {
+                let head = selector.split(':').next().unwrap_or_default();
+                if is_camel_case(head) {
+                    words.insert(head.to_owned());
+                }
+            }
+        }
+    }
+    for (attributes, name) in interface_declarations(&source) {
+        let has = |attribute| attribute_arguments(&attributes, attribute).next().is_some();
+        // Categories extend another type, and static holders gather C# fields.
+        if (has("BaseType") || has("Protocol")) && !has("Category") && !has("Static") {
+            let objective_c = ["BaseType", "Protocol"]
+                .into_iter()
+                .flat_map(|attribute| attribute_arguments(&attributes, attribute))
+                .find_map(|arguments| named_string(arguments, "Name"))
+                .unwrap_or(&name);
+            if is_compound_type(objective_c) {
+                words.insert(objective_c.to_owned());
+            }
+        }
+    }
+    create_dir(out)?;
+    let count = write_set(&out.join("words.fst"), words.iter().map(String::as_str))?;
+    let license = out.join("LICENSE");
+    std::fs::write(&license, show("LICENSE")?).map_err(|source| Error::Write {
+        path: license,
+        source,
+    })?;
+    println!("uikit@27.1: {count} words");
+    Ok(())
+}
+
+/// C# `source` without its comments, with each raw `"""` string reduced to `""`.
+fn without_comments(source: &str) -> String {
+    let mut out = String::with_capacity(source.len());
+    let mut rest = source;
+    while let Some(at) = rest.find(['"', '/']) {
+        out.push_str(&rest[..at]);
+        let from = &rest[at..];
+        let (kept, skipped) = if let Some(raw) = from.strip_prefix(r#"""""#) {
+            (
+                "\"\"",
+                raw.find(r#"""""#).map_or(raw.len(), |end| end + 3) + 3,
+            )
+        } else if let Some(quoted) = from.strip_prefix('"') {
+            let end = quoted.find('"').map_or(quoted.len(), |end| end + 1) + 1;
+            (&from[..end], end)
+        } else if from.starts_with("//") {
+            ("", from.find('\n').unwrap_or(from.len()))
+        } else if let Some(block) = from.strip_prefix("/*") {
+            ("", block.find("*/").map_or(block.len(), |end| end + 2) + 2)
+        } else {
+            ("/", 1)
+        };
+        out.push_str(kept);
+        rest = &from[skipped.min(from.len())..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The attribute text and C# name of every `interface` declaration in comment-free `source`.
+///
+/// Statements end at `;`, `{` and `}` outside attribute brackets. Bracket depth restarts at
+/// each preprocessor line, so a malformed attribute in a disabled branch stays contained.
+fn interface_declarations(source: &str) -> Vec<(String, String)> {
+    let mut declarations = Vec::new();
+    let mut statement = String::new();
+    let mut depth = 0_usize;
+    for line in source.lines() {
+        if line.trim_start().starts_with('#') {
+            depth = 0;
+            continue;
+        }
+        let mut quoted = false;
+        for c in line.chars() {
+            match c {
+                '"' => quoted = !quoted,
+                '[' if !quoted => depth += 1,
+                ']' if !quoted => depth = depth.saturating_sub(1),
+                ';' | '{' | '}' if !quoted && depth == 0 => {
+                    if c == '{'
+                        && let Some(declaration) = interface_declaration(&statement)
+                    {
+                        declarations.push(declaration);
+                    }
+                    statement.clear();
+                    continue;
+                }
+                _ => {}
+            }
+            statement.push(c);
+        }
+        statement.push('\n');
+    }
+    declarations
+}
+
+/// The attribute text and name of the `interface` that `statement` declares.
+fn interface_declaration(statement: &str) -> Option<(String, String)> {
+    statement.match_indices("interface").find_map(|(at, _)| {
+        let before = statement[..at].chars().next_back();
+        if before.is_some_and(|c| !(c.is_whitespace() || c == ']')) {
+            return None;
+        }
+        let after = &statement[at + "interface".len()..];
+        let name = after.trim_start();
+        if name.len() == after.len() {
+            return None;
+        }
+        let end = name
+            .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .unwrap_or(name.len());
+        (end > 0).then(|| (statement[..at].to_owned(), name[..end].to_owned()))
+    })
+}
+
+/// The argument text of each `attribute` that opens a C# attribute list or follows a comma
+/// in one, empty for an attribute written without arguments.
+fn attribute_arguments<'a>(text: &'a str, attribute: &'a str) -> impl Iterator<Item = &'a str> {
+    text.match_indices(attribute).filter_map(move |(at, _)| {
+        if !text[..at].trim_end().ends_with(['[', ',']) {
+            return None;
+        }
+        let after = &text[at + attribute.len()..];
+        if after.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+            return None;
+        }
+        let arguments = after.trim_start();
+        if arguments.starts_with('(') {
+            closing_paren(arguments).map(|end| &arguments[1..end])
+        } else {
+            Some("")
+        }
+    })
+}
+
+/// The string that `arguments` assigns to `key`, as in `Name = "UIGraphicsPDFRenderer"`.
+fn named_string<'a>(arguments: &'a str, key: &str) -> Option<&'a str> {
+    arguments.match_indices(key).find_map(|(at, _)| {
+        let before = arguments[..at].chars().next_back();
+        if before.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+            return None;
+        }
+        let value = arguments[at + key.len()..]
+            .trim_start()
+            .strip_prefix('=')?
+            .trim_start()
+            .strip_prefix('"')?;
+        value.split_once('"').map(|(value, _)| value)
+    })
 }
 
 /// Runs `program` in `dir` and returns its standard output.

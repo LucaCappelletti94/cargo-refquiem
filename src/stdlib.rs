@@ -104,6 +104,15 @@ impl Vocabulary {
         }
     }
 
+    /// The compound Objective-C type names and camelCase selector heads of `UIKit` in the
+    /// Xcode 27.1 SDK.
+    pub(crate) fn uikit_27_1() -> Self {
+        Self {
+            words: fst::Set::new(&include_bytes!("../data/uikit/words.fst")[..])
+                .expect("data/uikit holds an fst set written by xtask"),
+        }
+    }
+
     /// Whether `word`, spelled as the vocabulary stores it, is one of its words.
     pub(crate) fn contains(&self, word: &str) -> bool {
         self.words.contains(word)

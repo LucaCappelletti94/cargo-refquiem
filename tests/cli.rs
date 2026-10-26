@@ -37,7 +37,8 @@ fn vocabulary_catalog_ignores_project_state_outside_a_repository() {
             "sql@2023",
             "wasi@preview1",
             "wasm@3.0",
-            "android@36"
+            "android@36",
+            "uikit@27.1"
         ]
     );
     assert_eq!(
@@ -78,6 +79,16 @@ fn vocabulary_catalog_ignores_project_state_outside_a_repository() {
             "case": "sensitive",
             "source": "https://android.googlesource.com/platform/frameworks/base",
             "source_version": "android-16.0.0_r4",
+        })
+    );
+    assert_eq!(
+        catalog[5],
+        serde_json::json!({
+            "id": "uikit@27.1",
+            "kind": "technical",
+            "case": "sensitive",
+            "source": "https://github.com/dotnet/macios",
+            "source_version": "dotnet-10.0.1xx-xcode27.1-10018",
         })
     );
     let output = cargo_refquiem(dir.path(), &["vocabularies"]);
