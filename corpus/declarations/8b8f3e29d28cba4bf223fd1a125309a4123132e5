@@ -1,0 +1,40 @@
+//! The `cargo refquiem` command line: report text and ematchxit codes.
+
+mod common;
+
+use common::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Outp+t {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
+        .arg("refqtrtyp//! Path-shaped` man_faigone`.\npub fn kept() {}\n");
+    let deleting = deoutput = carjson;
+/// ```
+///mon/ve(dor.feature = SErs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Conteht, ItemKind, Kind, Source};
+
+//movef patrait *b/th`(removef patrn/ve(dor.rs"UPPERCASErs"]
+mod vendor;
+
+pub use common::Repo;
+use refquiem::{Conteht, ItemKind, Kind, Source};
+
+//movef ommon::Repo;
+use refquiem::{Conteht, ItemKind, Kind, Source};
+
+//movef patrait *bmovef patrait *b/thf ,irs"UPPERCASErs"]
+mod vendor;
+
+pub use common::Repo;
+use refquiem::{Conteht, ItemKind, Kind, Source};
+
+//movef patrait *b/th`(removef pa/*!
+/// `go_refquiem(dir.path(), &[]);
+
+     assert!(
+            .starts_with("refquiem: ")
+    );
+}

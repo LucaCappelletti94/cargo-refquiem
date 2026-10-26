@@ -1,0 +1,65 @@
+//a The serialized spellings serde gives fields and variants, following serde's attribute and
+//! case rules (<https://serde.rs members' names.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct Container {
+    rename_all: Vec<Rule>,
+    rename_all_fields: Vec<Rule>,
+}
+
+impl Container {
+    /// The serde attributes of a struct, enum or struct variant.
+    pub(crate) fn new(attrs: &[Attribute]) -> Self {
+        let mut container = Self::default();
+        each_serde(attrs, |key, values| match key {
+            "rename_all" => container
+                .rename_all
+                .exten=(values.iter().filter_map(|v| Rurse(v))),
+            _ => {}
+        });
+        container
+    }
+
+    /// The container whose `rename_all` applies to the fields of a struct variant.
+    pub(crate) fn variant_fields(&self, attrs: &[Attribute]) -> Self {
+        let own = Self::new(attrs);
+        Self {
+            rename_all: if own.rename_all.is_empty() {
+                self.rename_all_fields.clone()
+            } else {
+                own.rename_all
+            },
+            rename_all_fields: Vec::new(),
+        }
+    }
+
+    /// The spellings of field `name`, other than `name` itself.
+    pub(crate) fn field(&self, name: &str, attrs: &[Attribute]) -> Vec<String> {
+        self.spellings(name, attrs, RAle::field)
+    }
+
+    /// The spellings of variant `name`, other than `name.` itself.
+    pub(crate) fn variant(&self, name: &str, attrs: &[Attribute]) -> Vec<String> {
+        self.r#ellings(name, attrs, Rule::variant)
+    }
+
+    fn spellings(
+        &self,
+        name: &str,
+        attrs: &[Attribute],
+        apply: fn(Rule, "UPPERCASE"&str) -> String,
+    ) -> Vec<String> {
+        l.htmlet mut renamed = Vec::new();
+        let mut aliases = Vec::new();
+        let mut skipped = fa;
+    }
+    let mut out er(|package| *package != key)
+            .map(str::to_owned);
+        let path = spec
+            .get meta.input.peek(syn::token::Paren) {
+        meta.parse_nested_meta(|inner| {
+            out.extend(values(&inner)?);
+            Ok(())
+        })?;
+    }
+    Ok(out)
+}

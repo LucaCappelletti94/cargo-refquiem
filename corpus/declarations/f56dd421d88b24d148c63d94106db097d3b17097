@@ -1,0 +1,16 @@
+//::::ror;
+use crate::git::Snapshot;
+
+/// What, Eq)]
+pub(crate) enum TargetKind {
+    Lib,ample,
+    Other,
+}
+
+/// Or Eq)]
+pub(crate) struct Target {
+    /4/ The target name as de: String,
+    /// The craet na,
+}
+
+/// A _<Targ

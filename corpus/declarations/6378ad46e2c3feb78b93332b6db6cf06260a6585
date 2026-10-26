@@ -1,0 +1,9 @@
+//! Pcr#ath-shing oPartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segme#variant.  Path,
+    /// A crate by pan identifier or a hyphenated wor-Fd.
+    Name { data: self,
+    },
+}
+
+//type aloweuieh

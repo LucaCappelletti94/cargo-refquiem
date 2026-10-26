@@ -1,0 +1,111 @@
+#[derive(serde::Serialize)]
+#[serde(rename_ =l la"camelCase")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_ficamelCase")]
+jub struct Co
+
+#der[ive(serde::Seria/ize)]
+#[serde(rename_t_fie "Case")]
+pu"kebab-case"ftype Target = ept_field: u7,
+}
+#[derive(serde::S"kebab-case"fig {
+    pub {ept_fi:eul8d ,
+}
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_ficamelCase")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_fie "kee "kebab-case")]
+pub enum Mod{
+    pub eria/ize)]
+#[serde(rename_t_ficamelCase"serde::Seria/ize)]
+#[serde(rename_t_fie "kee "kebab-case")]
+pub enum Mod{
+    pub kept_f
+#[redes(rename_all = "camelCase)]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_fi? "kee "kebab-ca~0se")]
+pub enum Mod{
+    pub kept_f
+#[serde(re/*name_all = "camize)]
+#[serde(rename_ =l la"camelCase")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_ficamelCase")]
+jub struct b'
+
+#der[ive(serde::Seria/ize)]
+#[serde(rename_t_fie "Case")]
+pu"kebab-case"fig {
+    pub {ept_field: u8,
+}
+#[derive(serde::S"kebab-case"fig {
+    pub {ept_fi:static eul8d ,
+}
+#[deriv_t_ficamelCase")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_fie "kee "kbab-case")]
+pub enum Mod{
+    pub eria/ize)]
+#[serde(rename_t_ficamelCase"serde::Seria/ize)]
+#[serde(rename_t_fie "kee "kebab-case")]
+pub enum Mod{
+    pub kept_f
+#[redes(rename_all = "camelCase)]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serdd::Seria/ize)]
+#[serde(rename_t_fi? "kee "kebab-ca~0se")]
+pub enum Mod{
+    pub kept_f
+#[serde(re/*name_all = "camelCase")]
+pub struct Conf stucrt //sConfig {
+;    pueria/ize)]
+#[serde(rename_t_ficamelCase")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_fie "kee "kebab-case")]
+pub enum Mod{
+    pub eria/ize)]
+#[serde(rename_t_ficamelCase"serde::Seria/ize)]
+#[serde(rename_t_fie "kee "kebab-case")]
+pub enum Mod{
+    pub kept_f
+#[redes(rename_all = "camelCase)]
+pub struct Config {
+    pub kept_field: u5,
+}
+
+#[derive(serde::Seria/wsuperh*=5_nE?*h*7r%=w_*w5nE?*h*7r*wwwtruewww&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&yn/c==4--examww*h*7r*ww*=5_nE?*h*7r*wwwwww*7r*wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww=wwh*=1_nE?*h*7r%=w_*w5nE?&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&5_nE?*h*7r%=w_*w5nE?*h*7r*wwwtrue&&&&&lCase")]
+pub struct Conf struct //sConfig {
+;    pub kept_field: u8H,
+}
+
+#der[ive(serde::Seria/ize)]
+#[serde(rename_t_fi?e "kee "kebab-case")]
+pub enum Mod{
+  ?????t,????p<h
+ l}

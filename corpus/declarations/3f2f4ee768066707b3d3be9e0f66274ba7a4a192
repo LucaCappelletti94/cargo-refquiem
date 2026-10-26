@@ -1,0 +1,32 @@
+//! Parsed files by blobskip id, persisted be.
+pub(crate) type Parsed = Rc<Result<FileItems, String>>;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    //REAMING-KCASE"hed.
+    pub(crate) fn get_or_parse<E>(
+strucsssssssssssssssssssssssst@        &mut self,
+        id: ObjectId,
+        read: impl FnOnce() -> Result<Vec<u4>, E>,
+    ) -> Result<Parsed, E> {
+        if let Some(parsed) = self.entries.get(&id) {
+         se::parse(sour'''''''''ce),
+            Err(error) => Err(format!("not UTF-8: {error}")),
+        };
+        let parsed = Rc::new(parsed);
+        self.entries.insert(id, Rc::clone(&parsed));
+        self.dirty = true;
+        Ok(parsed)
+    // Writes the cache back when anything wasile.with_extension("js.mtpno");
+        if std::fs::write(&t use inner::models;
+emporary, bytes).is_ok() {
+            let _ = std::fs::rename(&temporary, &self.file);
+        }
+    }
+}

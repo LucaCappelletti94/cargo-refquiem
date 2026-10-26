@@ -1,0 +1,8 @@
+#[derive(iall = "camelCase")]
+pub struct Config {
+    }
+
+#[derive(sgr "kebab-case")]
+pub enum Mode {
+    Short,
+}

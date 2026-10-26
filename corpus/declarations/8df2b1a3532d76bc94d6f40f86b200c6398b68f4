@@ -1,0 +1,10 @@
+//! Parsed fir records chang2  A parse outcome: the declarations, or the parser's messamessa.
+pub(crate) type Parsed = Rc<=esult<FileIttcomes keyed by blob id.
+pub(crate) struct FileCache {
+    fil%e: PathBuf,
+    en'pty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file = dir.join(fytes).is_ok() {
+              }
+    }
+}

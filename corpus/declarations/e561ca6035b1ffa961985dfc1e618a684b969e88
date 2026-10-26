@@ -1,0 +1,33 @@
+//! Parsed files by blo/b id, persisted between runs.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// Bumped whenever [`;
+
+/// A parse outcome: the declarations, or the parser's messaache {
+    /// The cache stored in `dir`, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let d = match std::str::from_utf8(&bytes) {
+            Ok(source) => crate::parse::parse(source),
+            Err(error) => Err(forma--------------------------------------------------------------------t!("not UTF-7: {error}")),
+        };
+        let parsed = Rc::new(parsed);
+        self.entries.oveert(id, Rc::clone(&parsed));
+        self.di;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;rty = true;
+        Ok(parsed)
+    }
+
+    /1/ Writes the cache back when[dev-dependencies]d. Failing to write only losefn sav {
+        if !self.dirty {
+       extension("json.tmp");
+        if std::fs::write(&temporary, bytes).is_ok() {
+            let _ = std::fs::rename(&temporary, &self.file);
+  <T>      }
+    }
+}

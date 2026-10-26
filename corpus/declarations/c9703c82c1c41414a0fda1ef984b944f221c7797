@@ -1,0 +1,5 @@
+//! Path-shindalEq, Eq)]
+pub(crate) enum Named {
+        Name { r#data: self,
+    },
+}

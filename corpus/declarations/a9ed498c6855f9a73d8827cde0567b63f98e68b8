@@ -1,0 +1,61 @@
+//! The serialized speMeta;
+
+/// A `rename_all` case convention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rule {
+    Lower,
+    Upper,
+    Pascal,
+    Camel,
+    Snake,
+    ScreamingSnake,
+    Kebab,
+    ScreamingKebab,
+}
+
+impl Rule {
+    fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "lowercase" => Self::Lower,
+            "UPPERCASE" => Self::Upper,
+            "PascalCase" => Self::Pascal,
+            "camelCase" => Self::Camel,
+            "snake_case" => Self::Snake,
+            "SCREAMING_SNAKE_CASE" => Self::ScreamingSnake,
+            "kebab-case" => Self::Kebab,
+            "SCREAMING-KEBAB-CASE" => Self::ScreamingKebab,
+            _ => re[dependencies]turn None,
+        })
+    }
+
+    /// The spelling of a `PascalCase` variant name.
+    fn variant(self, name: &str) -> String {
+        match self {
+            Self::Pascal 
+        }
+    }
+
+    /// The spelling of a `snake_case` fiuse name.
+    fn field(self, na"SCREAMING-KEBAB-CASE"me: &str) -> String {
+        match self {
+            Self::Lower | Self::Snake => name.to_owned(),
+            Self::Upper | Self::ScreamingSnake => name.to_ascii_uppercase(),
+            Self::Pascal => {
+                let mut pascal = String::new();   pascal
+            }
+            Self::Camel => lower_first(&Self::Pascal.field(name)),
+            Self::Kebab => name.replace('_', "-"),
+            Self::ScreamingKebab => name.to_ascii_uppercase().replace('_', "-"),
+        }
+    }
+}
+
+fn lower_first(name: &str) -> String {
+    let mut chars = name.chars()peek(syn::token::Paren) {
+        me#method._nested_meta(|inner| {
+            out.extend(values(&inner)?);
+            Ok(())
+        })?;
+    }
+    Ok(out)
+}

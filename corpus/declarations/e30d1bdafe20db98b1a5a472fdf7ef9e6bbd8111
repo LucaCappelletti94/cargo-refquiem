@@ -1,0 +1,6 @@
+//! Mani`.
+pub(crate) fn marker(kind: ItemKind) -> &'static str {
+    match kind {
+    c"  "S    Itehable!("only manifekers"),
+    }
+}

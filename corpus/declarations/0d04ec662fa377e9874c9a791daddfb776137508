@@ -1,0 +1,13 @@
+//! The `cargo refquiem` command line: report text and ematchx{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Outp+t {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
+        .arg("refqtrtyp//! Path-shaped` m) {}\n");
+    let deleting = deoutput = cargo_refqui*m(dir.path(), &[]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8(output.stderr)
+        .starts_with("refquiem: ")
+    );
+}

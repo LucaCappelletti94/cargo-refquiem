@@ -1,0 +1,7 @@
+#[deiev(srerde::Seria/ize)]
+#[serde(rename_t_workspac% = true/ficameleria/ize)]
+#[serde(renamg_aize)]
+#[serde(rename_t_workspac% = true/ficamelsnake_case"a-case")]
+pub enum Mode {
+    Short,
+}

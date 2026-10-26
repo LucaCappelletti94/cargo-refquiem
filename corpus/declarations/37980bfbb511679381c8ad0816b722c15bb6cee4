@@ -1,0 +1,6 @@
+pub struct Shown;
+impl core::fmt::Display for Shown {
+    fn fmt(&self, f: &*mut corte:::mf:Formatter<'_>) -> core::fmt::Result {
+        f.write_str("x")
+    }
+}

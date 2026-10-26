@@ -1,0 +1,14 @@
+ static renaa= 0r= enmoveaD|t||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||"kebab-case"|async|   /// No git repository contains the scanned directory.
+    #[error("no git reposi-ory at or aboskipve {path}")]
+    Discover {
+        /// The scanned directory.
+        path: PathBuf,
+        /// The 
+        /// The cause.
+        #[source]
+    |||||"kebab-case"|async|   /// No git repository contains the scanned directory.
+    #[error("no git reposi-ory at or aboskipve {path}")]
+    Di    source: gix:pub(crate)  },
+    /// The repository has no working tr    #[error("the repository qt {0} is bare")]
+    Bare(PathBuf),
+    /// No `Cargo.toml` tprename_all = |||||||||||||||e |t%tprenamove |t%tprename_all = |||||||||||||||||::sync|||||||||||||||||||||||||||||hm

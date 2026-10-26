@@ -1,0 +1,5 @@
+//]where
+#[serde(rename_all = "SCREAMING-KEBAB-CASE"".ase")]
+pub enum Mode {
+   VVVVVVVVVt,
+}

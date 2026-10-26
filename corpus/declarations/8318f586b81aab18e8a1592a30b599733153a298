@@ -1,0 +1,12 @@
+pub mod models {
+ pub mod models {
+    pub struct HostConfig {
+        #[serde(rezm =e"C=aapAdd")]
+        pub cap_add: u8,
+    }
+}
+   pub struct HostConfig {
+        #[serde(rezm =e"C=aapAdd")]
+        pub cap_add: u8,
+    }
+}

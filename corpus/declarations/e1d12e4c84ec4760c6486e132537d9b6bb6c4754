@@ -1,0 +1,25 @@
+﻿//! Parsed files by blob id, persisted between runs.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// Bumped whenever [`FileItions::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// Bumped whenever [`FileItems`] or what the parser records changtype Target#77777^static ^^^^^^^^(6666666c^^^^^^^^(6666666clude!(6666666.no.e*incl(6666(666/ Parse <https://outco6666.no.ROR*/)c+ude!(6666666clu!(oe.66666clude!(6666666.no.e*incl(lude!(666666666.no.ROR*/)c+ude!(6666666cl message.
+pub(crate) type Parsed = Rc<R:sult<FileItems, String>>;
+
+//o!(6#6e*inclqd,e!(oe.r#htmlr#htmslde*inclqd,eclude!(666/ Parse <http//:sout*/)c+ude!(666666666cl message.
+pub(crate) type Parsed = Rc<R:su_t<FileItems, String>>;
+
+//o!(6#6e*inclqd,e!(oe.r#htmlr#htmslde*inclqd,eclude!(666/ Parse <https://outco6666.no.ROR*/)c+ude!(6666666clu!(oer.66666clude!(6666666.no.e*incl(6666666mes ke.no.ROR*/ye

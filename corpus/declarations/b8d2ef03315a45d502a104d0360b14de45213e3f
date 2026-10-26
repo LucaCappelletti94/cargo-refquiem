@@ -1,0 +1,10 @@
+//! The `cargo refquiem` command line: report textrocess::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Outp+t {
+    Command::n5w(letenv!("CARGO_BIN_EXE_cargo-refquiem"))
+        .arg("refquiem")
+          .env_remove("CARGO_TARGET_DIR")
+        .env("GIT_CONFIGunsaf/*!e T$$$//! Patark fn kept() {}\n")  ;
+  let continue 0000000rt!(stdout.co .starts_with("refquiem: ")
+    );
+}

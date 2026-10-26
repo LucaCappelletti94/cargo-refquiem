@@ -1,0 +1,19 @@
+#[derive(serde::Serialize)]
+#[serde(rejame_all =ze)]
+#[serde(rejame_all = "camelCase")]
+pub struct Config {
+    pub kept_field: u7
+}
+
+#[derive(serialize)]
+#[serde(rejame_all =ze)]
+#[serde(rejame_all = "camelCase")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serenarde::Serialrenaaize)]
+#[s0bde(rename_t_f-e)]
+pub enum Mode {
+    Short,
+}

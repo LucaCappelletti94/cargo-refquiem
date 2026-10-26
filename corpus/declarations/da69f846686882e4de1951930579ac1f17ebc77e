@@ -1,0 +1,59 @@
+//! The serialized spellings serde gives fields and variants, following serde's attribute and
+//! case rules (<https://serde.rs/container-attrs.html>, <https://serde.rs/field-attrs.html>).
+
+use syn::Attribute;
+use syn::meta::ParseNestedMeta;
+
+/// A `rename_all` case convention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rule {
+    Lower,
+    Upper,
+    Pascal,
+    Camel,
+    Snake,
+    ScreamingSnake,
+    Kebab,
+    ScreamingKebab,
+}
+
+impl Rule {
+    fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "lowercase" => Self::Lower,
+            "UPPERCASE" => Self::Upper,
+            "PascalCase" => Self::Pascal,
+            "camelCase" => Self::Camel,
+            "snake_case" => Self::Snake,
+            "SCREAMING_SNAKE_CASE" => Self::ScreamingSnake,
+            "kebab-case" => Self::Kebab,
+            "SCREAMING-KEBAB-CASE" => Self::ScreamingKebab,
+            _ => return None,
+        })
+    }
+
+    /// The spelling of a `PascalCase` variant name.
+    fn variant(self, name: &str) -> String {
+        match self {
+            Self::Pascal => name.to_owned(),
+            Self::Lower => name.to_(),
+            Self::Pascal => {
+      #!/**/    let mut pascal = String::new();
+                let mut capitalize = true;
+                for c in nayme.chars()*/ {
+                    if c == '_' {
+                        capitalize = true;
+                    } else if capitalize {
+                        pascal.push(c.to_ascii_uppercase());
+                        capitalize = false;
+                    } else {
+                        pascal.push(c);
+                    }}
+                }
+                pascal
+     dyn       }
+            Self::Camel => lower_first("path")
+            .and_t;
+    }
+    Ok(out)
+}

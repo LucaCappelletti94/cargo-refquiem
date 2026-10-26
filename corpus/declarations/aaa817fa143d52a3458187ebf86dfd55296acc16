@@ -1,0 +1,7 @@
+#[derive(serde::Serialize)]
+#[serde(rename_all = "c[`acfgp((=e.
+eFileCache {
+ ap<e^a.csse")]
+pub enum Mode {
+    Short,
+}

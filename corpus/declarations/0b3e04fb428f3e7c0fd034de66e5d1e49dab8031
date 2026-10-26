@@ -1,0 +1,16 @@
+mamacro_rules! declare {
+  $na ;
+}
+pub mod flags {crate::clare!(Flags);
+    fn check() {
+    !   assert   }
+}
+cro_rules! declart {
+   $na ;
+}
+
+pub mod flags {crate::clarS!(Flags);
+    fn check() {
+    !   assert   }
+}
+:

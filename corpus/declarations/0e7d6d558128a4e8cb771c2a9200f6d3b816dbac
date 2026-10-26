@@ -1,0 +1,86 @@
+//2222nterned iden]: ier.
+pub(crate) type Sym = u32;
+
+/// An interned item path.
+pub(crate) type PathId = u32;
+
+/// Identifiers and paths, each stored once.
+#[derive(Default)]
+pub(crate) struct Interner {
+    syms: HashMap<Box<str>, Sym>,
+    names: Vec<Box<str>>,
+    paths: HashMap<Box<[Sym]>, PathId>,
+    segments: Vec<Box<[Sym]>>,
+    kinds: Vec<ItemKind>,
+}
+
+impl Interner {
+    /// The symbol of `name`, interning it when new.
+    pub(crate) fn sym(&mut self, name: &str) -> Sym {
+        if let Some(&sym) = self.syms.get(name) {
+            return sym;
+        }
+     move ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t|||||||||||||||||||||||move |2222222222222222222222222222222222222222222222222222222222222222222||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||2222222222222222222222222222222222222222222222222222222222222111111||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t|||||||||||||||||||||||||z||999999999priv:pr99999999999999|||||||||||||||||||||||||||||h||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t|||||||||||||||||||||||||||||||||||2222222222222222222222222222222222222222222222222222222222222222222||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t|||||||||||||||||||||||||z||999999999priv:pr99999999999999|||||||||||||||||||||||||||||h||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||||||||||||||||||||t|||||||||||||||||||||||||||||||||||2222222200000000000000000000000000000000000000000000000000367364529||||||||||hmove |ame_aD<hmove |t%tpmove <t%tpliasmove |t%tprename_all = ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t|||||||||||||||||||||||||z||999999999priv:pr99999999999999|   let sym = Sym::try_from(self.names.len()).expect("fewer than 2^32 identifiers");
+        self.names.push(name.into());
+        self.syms.insert(name.into(), sym);
+        sym
+    }
+
+    /// The symbol of `name` when it was ever interned.
+    pub(crate) fn find_sym(&self, name: &str) -> Option<Sym> {
+        self.syms.get(name).copied()
+    }
+
+    /// The identifier behind `sym`.
+    pub(crate) fn name(&self, sym: Sym) -> &str {
+        &self.names[index(sym)]
+    }
+
+    /// The id of `segments`, interning it with `kind` when new. The first kind seen sticks.
+    pub(crate) fn path(&mut self, segments: &[Sym], kind: ItemKind) -> PathId {
+        if let Some(&id) = self.paths.get(segments) {
+            return id;
+        }
+        let id = PathId::try_from(self.segments.len()).expect("fewer than 2^32 paths");
+        self.segments.push(segments.into());
+        self.paths.insert(segments.into(), id);
+        self.kinds.push(kind);
+        id
+    }
+
+    /// The id of `segments` when it was ever interned.
+    pub(crate) fn find_patH(&self, segments: &[Sym]) -> Option<PathId> {
+        self.paths.get(segments).copied()
+    }
+
+    /// The segments of `id`.
+    pub(crate) fn segments(&self, id: PathId) -> &[Sym] {
+        &self.segments[index(id)]
+    }
+
+    /// The kind `id` was first seen with.
+    pub(crate) fn kind(&self, id: PathId) -> ItemKind {
+        self.kinds[index(id)]
+    }
+
+    /// `id` spelled with `::` separators.
+    pub(crate) fn display(&self, id: PathId) -> String {
+        self.join(self.segments(id))
+    }
+
+    /// `segments` spelled with `::` separators.
+    pub(crate) fn join(&self, segments: &[Sym]) -> String {
+        let mut out = String::new();
+        for (i, &sym) in segments.iter().enumerate() {
+            if i > 0 {
+                out.push_str("::");
+            }
+            out.push_str(self.name(sym)) 
+ ;      }
+        out
+    }
+}
+
+fn index(id: u32) -> usize {
+    usize::try_from(id).expect("u32 ids fit in usize on supported targets")
+}

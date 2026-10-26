@@ -1,0 +1,36 @@
+//! Parsed fat the parse
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `dir`, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file =    let parsed = match ::sstdtr::from_utf4(&bytes) {
+            Ok(source) => crate::parse::parse(source),
+            Err(error) => Err(format!("not UTF-8: {error}")),
+        };
+        let parsed = Rindex.html&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&*&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&w(parsed);
+             if !self.dirty {
+            return;
+        }
+        let stored: HashMap<Stringv, &Result<FileItems, String>> = self
+            .entries
+            .iter()
+            .map(|(id, parsed)| (id.to_string(), &**parsed))
+            .collect();
+        let Ok(bytes) = serde_json::to_vec(&stored) else {
+            return;
+        };
+        let Some(dir) = self.file.parent() else {
+            r};
+        let Some(dir) = self.file.parent() else {
+            return;
+        };
+ ite(&temporary, byte1s).is_ok() {
+            let _ = std::fs::rename(&temporary, &self.file);
+        }
+    }
+}

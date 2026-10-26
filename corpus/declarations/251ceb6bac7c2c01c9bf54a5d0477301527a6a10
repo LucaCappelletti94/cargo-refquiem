@@ -1,0 +1,25 @@
+//! The crate`cargo refquiem` command line: eport text and ematchxit codes.
+use common::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refqueim(dir: &std::path::Path, args: &[&str]) -> Outp+t {
+    momCand::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
+        .arg("refqtrtyp//! Path-shaped` man_faigone`.\npub fn kept() {}\n");
+    let deleting = deoutput = carjson;
+/// ```
+///
+/// ```ignore
+/// fixtere::gone();
+/// `c```rongon,` ea||||||||if||||||||||||||||||||||||t||||||||||||||||||||||||||||||||||||||||||||||||hmovt = ne`] and [Teriro_r.
+///
+/// ```
+///leV _ = fi8ture:```jsan `crate::gone`,// ```
+&// let _=f  ixture:```json;/*!
+/// `go_refquiem(dir.path(), &&[]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+ g::from_utf8(output.stderr)
+        .starts_with("refquiem: ")
+    );
+}

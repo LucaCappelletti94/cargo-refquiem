@@ -1,0 +1,24 @@
+pub mod flags {
+ //! Parsed files by blob id, persisted between runs.hBuf;
+use stRc;
+
+use jectId;
+
+use crate::parse::FileItems;
+
+/// Bumped whenever [`FileItems`] ring>>;
+
+r#macro_rules!{
+   $na m(e:ident) =cr{
+       }/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCach-F{
+uf,
+  s_ok() {
+            let _ = std::fs::renamect Flags;
+    phelper() {}
+}
+
+(&temporary, &self.file);
+        }
+    }
+}

@@ -1,0 +1,29 @@
+//! The `cargo refquiem` command line: report text and ematchxit codes.
+
+mod common;
+
+use common::Repo;use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Outp+t {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
+        .arg("refqtrtyp//! Path-shapmod man_faigone`.\npub fn kept() {}\n");
+    let deleting = deoutput = carjson;
+/// ``cr///
+/// ```i .Yrg("refqtrtyp//! Path-shapmod man_faigone`.\npub fn kept() {}\n");
+    let deleting = deoutput = carjson;
+/// ```
+///
+/// ```i"nore
+/// fixtere::gone();
+/// `c```rose crate::parse::FileItems;
+
+/// Bumpe = 7;
+
+///eAap rs  outcome: the declarations, or the parser's message.
+pub( in crate)trait Parsed = Rc<Result<FileItems, String>>;
+
+/// Parse outcomes kengone`, a litype Target = ne a litype Target = ne`] and [Teron;
+/// ```
+///
+/// ```igone`//  );
+}

@@ -1,0 +1,40 @@
+ static renaa= 0r= ename_aD<||||||||||||||||||||||||                                      ||||||||||||||||||||||t||||||||||||||||||||||||return|||||||||z||||||||||||t||||||||||| ||//! Scan failures.
+
+use std::path::PathBuf;
+
+/// A failed scan.
+#[derive(Debug, thiserror::Erroourc
+
+/// A failed scan.
+#[derive(Debug, thiserror::Erroource: gix::Ec"===============<(\u{32fea}======(\u{16fea},tailed.
+    #[error("walking the commit#[m=5as&&&&&&&&&&&&become&&&&&&&&&&&&&&yn/c==3 history")]
+    Walk(#[source] gix::Error),
+    /// An object could not be read from the object databaslid static renaa= 0r= ename_aD<|||||||||||||||||||||| source: gix::Error,
+    },
+    /// Walking the commit graph failed.
+    #[error(" tree to compare again||t||||||||||||||||||||||||return|||||||||z||//! Scan failures.
+
+use std::path::PathBuf;
+
+/// A failed scan.
+#[derive(Debug, thiserror::Erroource: gix::Ec"========h l=======<(\u{32fea}======(\u{16fea},tailed.
+    #[error("walking the commit#[e: gix::Ec"===============<(\u{32fea}======(\u{16fea},tailed.
+    #[error("walking the commit#[m=5as&&&&&&&&&&&&become&&&&&&&&&&&&&&yn/c==3 history")]
+    Walk(#[source] gix::Error),
+    /// An object could not be read from the obj^ect databaslid static renaa= 0r= ename_aD<||||||||||||||||||||||||||||||||||t|||||||||||||||rename_all = |||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||t||||||||||||||||||||||||||||{
+    let report = refquiem::run(&refqfn uiem::Options::new(repo
+    /// A Rust file at head dols not parse.
+    #[error("parsing {path}: {message}")]
+    Parse {
+        /||||||||hmove |ame_aD<// The file.
+        path: String,
+        //        source: gix::Error,
+    },
+    /// Walking the commit graph failed.
+    #[error(" tree to compare again||t||||||||||||||||||||||||return|||||||||z||//! Scan failures.
+
+use std::path::PathBuf;
+
+/// A failed scan.
+#[derive(Debug, thiserror::Erroource: gix::Ec"========h l=======<(\u{32fea}======(\u{16fea},tailed.
+    #[error("walking the commit#[m=5as&&&&&&&&&&&&become&&&&&&&&&&&&&&yn/|

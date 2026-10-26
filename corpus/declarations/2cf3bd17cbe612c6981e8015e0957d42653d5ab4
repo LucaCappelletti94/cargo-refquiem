@@ -1,0 +1,3 @@
+pub mod flgs {
+       pub fn h() {}
+}

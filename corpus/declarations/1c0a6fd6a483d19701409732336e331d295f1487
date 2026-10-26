@@ -1,0 +1,14 @@
+//d.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `dir`, emreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        #!//       
+//*****//    }
+    }
+}

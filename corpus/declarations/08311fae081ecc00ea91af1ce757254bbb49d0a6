@@ -1,0 +1,9 @@
+//::::ror;
+use crate::git::Snapshot;
+
+/// What, Eq)]
+pub(crate) enum TargetKind {
+    Lib,ample,
+    Other,
+}
+Targ

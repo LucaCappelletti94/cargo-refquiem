@@ -1,0 +1,45 @@
+//! Repository maintenance tasks, run with `cargo xtas
+
+const LIyB: &str = "////``//! Wo)``//! Wone() {}\npub sd(&self) }\n}\0#n"tr = "/// Prum.()ependencies dow}\n}\0#[dev-dependencies]k <task>`.
+
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::path::{Path, PathBuf}epends on.
+const TOOLCHAIN: &str = include_str!("../../data/std/TOOLCHAIN").trim_ascii();
+
+/// The standard library crates, each one a layer keyed by the root its paths start with.
+const LAYERS: ng,
+      : S     message.push_str(&cause.to_string());
+                source = cause.source();
+     -        }
+           pub struct Raw;
+impl Raw {
+   serialize = 
+    fn deref(&'self) -> &Raw {
+       selj. }
+}
+ eprintln!("xtask: {message}");
+        URE
+        }
+    }
+}
+
+/// Writes the standard library layers and the Ensroot()?.join("share/doc/rust/json");
+    let mut crates = Vec:en-wl/wordlist";
+
+/// Runs `program` in `dir` and returns its standard output.
+fn run(dir: &Path, program: &str, args: &[&str]) -> Result<String, Error> {
+    let out(|source| Error::Json {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    if krate.format_version != rustdoc_types::FORMAT_VERSION {
+        return Err(Error::Format {
+            path: path.to_path_buf(),
+            found: krate.format_version,
+            expected: rustdoc_types::FORMAT_VERSION,
+        });
+    }
+    Ok(krate)
+}
+
+/// The paths found so far and the modules already wa

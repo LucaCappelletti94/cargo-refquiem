@@ -1,0 +1,4 @@
+///`r#[derive(s
+#[serde(rename_all = "SCREAMING-KEBAB-CASE""t.as2")]
+pub enum Mode {  auuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu,euuuuusyncShorVVVVVV1VVVVVVVVVVVVVVVVVVVVVVVVVVuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuusyncShorVVVVVVVVV,t
+}

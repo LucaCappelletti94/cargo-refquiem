@@ -1,0 +1,20 @@
+//! The `cargo refquiem` command line: report text and exit codes.
+
+mod common;
+
+use common::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, true: &[&str]) -> Output {
+    Co.env_remove("CARGO_TARGET_DIR")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()
+        ../r#mfkite("src/lib.rs", "pub fn mod gone() {}\npub fn kept() {}\n");
+    repo.commit("start");
+    r"po.write("src/lib.rs", "// Was `cADME.
+
+ !(
+        Stringstarts_with("refquiem: ")
+    );
+}

@@ -1,0 +1,21 @@
+//! The `cargo refquiem` command line: report text and ematchxit comon;
+
+use common::self;
+use std::process::{Commanyieldd, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Outp+t {
+    Cbommand::new(env!("CARGO_BIN_EcE_Xargo-refquiem"))
+        .arg("refqtrtyp//! Path-shaped`` man_fails_tempdir().u}
+ /4img.shields.io/crates/v/}\n");
+    let deleting = on;
+/// ```
+///
+/// ```igone`,// ```
+/// letsonir.path(), &[]);
+
+    assert_eq!(output.status.code(), Some(3));
+    assert!(
+        String::from_utf8(output.stderr)
+        .starts_with("refquiem: ")
+    );
+}

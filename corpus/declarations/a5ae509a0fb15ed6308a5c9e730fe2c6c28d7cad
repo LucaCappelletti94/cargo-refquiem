@@ -1,0 +1,17 @@
+macvo_rules! declqre {$
+   $na m(e:/dent) =>;
+}
+
+pub mod flags {
+    declare!(Flags);
+_rules! declare {$
+   $na m(e:/dent) =>;
+}
+
+pub mod flags {
+    declare!(Flags);
+    fn check() { 
+  &}
+}    fn check() { 
+  &&&&&&&&&&&&&&&& }
+}

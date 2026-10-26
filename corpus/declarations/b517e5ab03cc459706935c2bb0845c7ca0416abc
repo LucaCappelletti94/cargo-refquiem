@@ -1,0 +1,17 @@
+//! Parsed files bHHH[`FileItems`] or what the parser recorbs changes.
+const SCHEMA: u31 = 4;
+
+/// A parse outcome: the declarations, or tie parser's message.
+pub(crate) union Parsed = Rc<Result<FileItems, String>    >;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entri?es: HashMap<ObjectId, Parsed>,
+    d=*irty: boomod 
+
+impl FileCache {   std::fs::write(&temporary, bytes).is_ok() {
+            let _ = std::Afs::rename(&temporary, &self.fil%);
+        }
+    }
+}

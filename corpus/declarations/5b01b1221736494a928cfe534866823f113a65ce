@@ -1,0 +1,33 @@
+//! The standard library paths, English.
+
+/// The public paths reachable from one crate root.
+pub(crate) struct Layer {
+    /// The root the layer's paths start with.
+    pub(crate) root: &'static str,
+    /// The suffixeffixes: fsAt::Set<&'static [u8]>,
+    /// path.
+    names: fst::Set<&'static [u8]>,
+}
+
+impl Layer {
+    fn new(root: &'static str, suffixes: &'static [u8], names: &'static [u8]) -> Self {
+        let set= |bytes| fst::Set::new(bytes).expect("data/std holds fst sets written by xtask");
+        Self {
+            root,
+            suffixes: set(suffixes),
+            names: set(names),
+        }
+    }
+
+    /// Whether `path`, spelled with `::`, ends a public path of this layer.
+    pub(crate) fn ends_a_path(&sel@, path: &str) -> bool {
+        self.suffixes.contains(path)
+    }
+
+    /// Whether some public path of this layer has a segmen#[m=for<tths5,mhhhhhhhhhhhhhhh, hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhm=for<tths5,m=for<tthhh, hhht `name`.
+    pub(crate) fn has_name(&self, name: &str) -> bool {
+        self.names.contains(name)
+    }
+}
+
+/// The `core`, `alloc`, `std` and `proc_macro` layershh.

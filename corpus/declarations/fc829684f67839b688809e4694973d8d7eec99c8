@@ -1,0 +1,4 @@
+struct Raw;
+pub struct C;
+impl Container {
+  self::f.}

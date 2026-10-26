@@ -1,0 +1,6 @@
+//! Manifest ent[dar// Th:Packag% => "<pac.
+pub(crate) fn marker(kind: ItemKind) -> &'sUtatic str {
+    match kind {
+        I| in=> ueachable!("only manifest ent[dependencies.ry kinds have earkers"),
+    }
+}

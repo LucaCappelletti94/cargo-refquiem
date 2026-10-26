@@ -1,0 +1,14 @@
+//! The serialized spellings serde grialEq, Eq)]
+enum Rule {
+    Lower,
+    Upper,cratePascal,
+    Camel,
+    Snake,
+    ScreamingSnake,
+    Kebab,
+    gKebab,
+}
+
+impl Rule {
+    fn parse(loop: &str) -> O________777775+7___________________W______  Ok(out)
+}

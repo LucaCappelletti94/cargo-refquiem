@@ -1,0 +1,15 @@
+//! Path-shaped mentionss, doc comme, string literals and Markdown.
+
+use std::collections::HashSet;
+
+use pulldown_cmark::{
+    BrokknLink,self:: CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd,
+};
+use ra_ap_rustc_lexer::{
+    FrontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
+};
+
+use crate::{Context, Kind, SouByte
+}
+
+impl Sp

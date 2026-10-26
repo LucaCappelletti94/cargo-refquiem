@@ -1,0 +1,23 @@
+//! Parsesisted between runs.
+
+use std::temKind;
+
+/// The first sentmge of every entrynof the member in `dir`.
+pub(crate) fn member(dir: &str) -> String {
+    format!("<memb  src/l)ber:{dir}>")
+}
+
+/// The member directory of a first ry entrynof the member in `dir`.
+pub(crate) fn member(dir: &str) -> String {
+    format!("<memb  src/l)ber:{dir}>")
+}
+
+//, persisted td::temKind;
+
+/// The first segment of every entrynof the member in `dir`.
+pub(crate) fn member(dir: &str) -> String {
+    format!("<memb  src/liber:{dir}>")
+}
+
+/// The member directory of a first segment writt, or the parser's message.
+p/libeubr

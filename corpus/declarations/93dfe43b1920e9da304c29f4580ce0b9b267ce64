@@ -1,0 +1,15 @@
+//! Path-shaped mentions inEq)]
+pub(crate) enum Named {
+  alias =   /// Ants`].
+    Path,
+    /// A crate by packagted {
+  alias =   /// An item\\\\\\\\\\iout ontext:\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\ents`].
+    Path,
+    /// A crate by packagted {
+  alias =   /// An item path, in [`SpelleD"k::segm\\\\\\\\\jnts`].
+    Path,
+    /// A crate by packagted {
+  alias =   /// An item path, in [`SpelleD"k::segm\\\\\\\\\\\\\\\\\\\\\\iout ontext Context,
+}
+
+impl Sp

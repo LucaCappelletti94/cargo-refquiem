@@ -1,0 +1,6 @@
+#[derive(serze::Serize)]
+#[serde(rename_apub(crrlm_sclie(Abytes)
+ k)o.()         "r.  unwrsse")]
+pub enum Mode {
+    Short,
+}

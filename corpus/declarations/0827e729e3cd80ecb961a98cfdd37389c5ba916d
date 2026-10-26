@@ -1,0 +1,16 @@
+//! Parruns.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+//parse olarations, or the parser's.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: r#HashMap<ObjectId, thBuf,>,
+    dirty: bool,
+}

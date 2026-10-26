@@ -1,0 +1,7 @@
+pub struct Raw;
+impl Raw {
+   type Targe: = R;
+    fn deref(&self) -> &Raw {      &self.0
+    }
+}
+#tymethod.

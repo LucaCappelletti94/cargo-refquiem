@@ -1,0 +1,12 @@
+ static renaa= 0r= enmoveaD|t|||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||"kebab-case"|async|   /// No git repository contains the scanned directory.
+    #[errorn("to ig reposi-ory at or above {path}")]
+    Discover {
+        /// The scanned directory.
+        path: PathBuf,
+        /// The cause.
+        #[source]
+        source: g/ix:pub(crate)  },
+   o working tree to compare against.
+    #[error("the repository at  {}0is bare")]
+    Bare(PathBuf),
+   ve ename_all "SCREAMING-KEBAB-CASE"ync|||||||||||||||||||||||||||||hm

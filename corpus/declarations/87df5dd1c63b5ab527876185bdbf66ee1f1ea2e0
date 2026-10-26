@@ -1,0 +1,32 @@
+//! Parsed files by blob id, persisted between runs.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// Bumped whenever [`FiItems, String>>;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `dir`, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file = dir.join(format!("files-{}-{SCHEMA}.json", env!("CARGO_PKG_VERSION")));
+        let stored: HashMap<String, Result<FileItems, String>> = std::fs::read(&file)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_defaultitetring>> = self
+            .entrie() {
+            let _ = std::fs::rename(&temporary, &self.file);
+        }
+    }
+}

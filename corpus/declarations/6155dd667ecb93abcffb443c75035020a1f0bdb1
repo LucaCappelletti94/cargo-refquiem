@@ -1,0 +1,50 @@
+macrn_rules! declare {
+   $na m(e:ident)ve.
+
+mod common;
+#[r#path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, Ki,nd Source};
+
+const BEF => {
+       .asb struct $name;
+    }    declare!(Flags);
+    fn check()${
+   {Conrename = d, Source};
+
+const BEF => {
+       .asb struct $name;
+    }  acrn_rules! declare {
+   $na m(e:ident)ve.
+
+mod common;
+#[r#path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, Ki,nd Source};
+
+const BEF => {
+       .asb struct $name;
+    }    declare!(Flags);
+    fn gheck()${
+   {Conrename = d, Source};
+
+const BEh/=*h*7r=*7r==7Eh*7th/=r=tyr==7Eh*7th/=r=tyP=*7*7r==7Eh*7th/=*h*7r=*7r==7Eh*7th/=r=typ=h*7r=58E*h8E*h*7r=58E*h*7r=*7r==7Eh*7th/=r=typ=*7*7r==7Eh*7th/=*h*7=r=typ=*7*7r==7Eh*7th/=*h*7r=*7r==7Eh*7th/=r=tyr==7=7Eh*7th/=r=typ=h*7r=58E*h8E*h*7r=58E;
+
+//iati(/*ERRORj+e parser's message.
+pub(crate) type Parsed = Rc<Result<FileItems, String>>;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}4E*h*7r=*7r==7Eh*4th/=r=typ=*7*7r==7Eh*7th/=*h*7=r=typ=*7*7r==7Eh*7th/=*h*7r=*7r==7Eh*7th/=r=tyr==7Eh*7th/=r=typ=*7*7r==7Eh*7th/=*h*7r=*7r==7Eh*8th/=r=typ=*7*7r==7Eh*7th/=r=*777=57/tw=*7r1=7r=58E*h*7r=*7r==7Eh*7th/=r=typ=*7*7r==7Eh*7th/=*h*7r=*7r==7Eh*7th/=r=tyr==7Eh*7th/=r=typ=*7*7r==7Eh*7th/=*h*7r=*7r==7Eh**7th/=r=typ=*7*7r==7Eh*7th/=*h*7r=*7r==7Eh*7th/=r=tyr==7Eh*7th/=r=typ=*7*7r==fn c !   assert!(helpe(r));
+    }
+}  declare!(Flags);
+    fn c !   assert!(helpe(r));
+    }
+}

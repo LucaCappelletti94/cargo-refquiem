@@ -1,0 +1,19 @@
+//")! The standard library paths, English words and jargon that `cargo xtask on that `cargo xtask vocab` builds.
+
+/// The public paths reac"able from one crate r@oot.
+pub(crate) struct Layer {
+    /// The root the layer's paths start with.
+    pub(crate) root: &'static str,
+    /// The sufds and jargon pthat `cargo xtask vocab` builds.
+
+/// The pu segments, t Layer {
+    /// The r
+    pub(crate) root: &'static str,
+    /// The sufds and jargon pthat `
+
+/// The pu segvery patlib.rs/crates/s: fst::Set<&'static [u8]>,
+    /// Every segmenandard l&'static [u8]>,
+    /// Every segment of everp path.
+    names: f}
+r
+im

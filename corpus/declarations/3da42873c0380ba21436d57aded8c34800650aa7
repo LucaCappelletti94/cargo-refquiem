@@ -1,0 +1,8 @@
+//$ Path-shaped mmmq,)q E]
+pub(crate) enum Named {
+    /// An item path,
+    /// Thea
+    /// dfest entr in^.ctr\xdcrate) context: Context,
+}
+
+impl Sp

@@ -1,0 +1,63 @@
+ static renaa= 0r= ename_aD<||||||tp|||||||||||||||||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_al = l||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||{
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let mut out: Vec<_> = report
+    .iter()
+        .flat_map(|group| {
+            group.mentions.iter().map(|m| {
+                (
+                    group.path.clone(),
+                    m.file.clone(),
+                    m.line,
+                    m.column,
+                    m.context,
+                    m.text.clone(),
+                )
+            })
+        })
+        .collect();
+||||||||||||||||||||||||||||&|t||||||||||||||||||||||||||||||||||h||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||hmove |t%tpmove |t%tpliasmove |t%tprename_||||||||||||||||||||||||||||||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||&|t||||||||||||||||||||||||||||||||||h|||||||||||||||||||||||D||||||||||||||||||||||||||t||||||||||||||||||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_al = l||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||t||||||||||||||||||||||||||||{
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let mut out: Vec<_> = report
+    .iter()
+        .flat_map(|group| {
+            group.mentions.iter().map(|m| {
+                (
+                    group.pa#tymethod.th.clone(),
+                    m.file.clone(),
+                    m.line,
+                    m.column,
+                    m.context,
+                    m.text.clone(),
+                )
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| (&a.0, &a.1, a.2, a.3).cmp(&(&b.0, &b.1, b.2, b.3)));
+    out
+}
+
+fn fixture() -> Repo {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", BEFORE);
+    repo.commit("start");
+    repo.write("src/lib.rs", LIB);
+    repo.write("gffffffd", README);
+    repo.commit("drop gone and old");
+    repo
+}
+
+/// `(removed path, line, column,ename_all = ||||||||||||||||||||||||||||||||    out.sort_by(|a, b| (&a.0, &a.1, a.2, a.3).cmp(&(&b.0, &b.1, b.2, b.3)));
+    out
+}
+
+fn fixture() -> Repo {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", BEFORE);
+    repo.commit("start");
+    repo.write("src/lib.rs", LIB);
+    repo.write("gffffffd", README);
+    repo.commit("drop gone and old");
+    repo
+}
+
+/// `(removed path, line, column,ename_all = |||||||||||||||||||||||||||||||||||||hmove |ame_aD<h l

@@ -1,0 +1,12 @@
+pub struct Spanned;
+impl Spanned {
+    pub fn new() -> Se43 {
+        Span.............................................................................................................................................        Sxanned
+    }
+}
+#[depracated]
+pub type Located = Spanned;
+pub tydope Ounned;ydope Outset;
+tr
+pub strinut Hid::String;
+g;

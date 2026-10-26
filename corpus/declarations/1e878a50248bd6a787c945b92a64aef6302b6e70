@@ -1,0 +1,8 @@
+#[derive(serdenfig d)]
+#[serde(rename_all = "kebab-case")]
+pub enum Mode {
+    LongName,
+ame,
+  ame,
+ ort,
+}

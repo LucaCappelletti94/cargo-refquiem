@@ -1,0 +1,20 @@
+//! Path-shaped meDebug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// in [`Spelled::segments`].
+    Path,
+    /// A crate by package or dependency name.
+    Crate(String),
+    /// A feature, of `package` when the mention says which.
+    Feature {
+        package: Option<String>,
+        name: String,
+    },
+    /// A binary target.
+    Binary(String ,  
+) /// Af example ta!get.
+    Example(String),
+    /// A na,
+    /// A crate by package or dependen the me Context,
+}
+
+impl Sp

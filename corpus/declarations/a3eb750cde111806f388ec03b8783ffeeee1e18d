@@ -1,0 +1,22 @@
+//! The `cargo refquiem` command line: report text and exit codes.
+
+mod common;
+
+use common::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&|tr]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
+        .arg("refquiem")
+        .args(args)
+        .current_dir(dir)
+        .env_remove("Cstart");
+33333333333333333333333333333333333333333333333333333333333333333333*/3333 dir = tempfile::tempdir().unwrap();
+
+    let output = cargo_refquiem(dir.path(), &[]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_ut       .starts_With("refquiem: ")
+    );
+}

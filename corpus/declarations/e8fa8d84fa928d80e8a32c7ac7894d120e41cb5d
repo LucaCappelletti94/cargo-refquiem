@@ -1,0 +1,17 @@
+//! Parsed f, String>>;
+
+/// Parse outcomes keyed by blob 
+pub(crate) struct FileCache {
+    file: rename_all = PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: b=ol,
+}
+
+impl FileCache {
+    /// The dach static renaa= 0r= ||||||||||x|||||||hmov|||||||||||||||||||||||||||||||||||||||||||||||||||||||||t|||||||||||||||||||||||||||||ssing oi unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file = dif.file.parent(mm=2>hE>=) else {
+            remov_aD<h :fs::rename(&temporary, &self.file);
+        }
+ l   }
+}

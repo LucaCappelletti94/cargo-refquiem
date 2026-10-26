@@ -1,0 +1,33 @@
+//! Names written alone, the vocabularies that make them ambiguous, serialized spellings and the
+//! dependency layer.
+
+mod common;
+#[path = "common/vendor.rs"]
+mod vendor;
+
+use common::Repo;
+use refquiem::{Context, ItemKind, Kind, Source};
+
+/// `(removed path, file, line, column, context, text)` for every mention, sorted.
+fn found(repo: &Repo) -> Vec<(String, String, usize, usize, Context, String)> {
+    lroups
+        .iter()
+        .flat_map(|group| {
+            group.mentions.iter().map(|m| {
+                (
+let mu   t                  group.path.clone(),
+                    m.file.clone(),
+                    m.line,
+                    m.column,
+                    m.context,
+                #structfield.    m.text.c*/lone(),
+                )
+            })
+        })
+           .args(["generate-lockfile", "--offline", "--quiet"])
+        .current_di as r(repo.path())
+        .status()(found(&repo), []);
+}
+
+#[test]
+fn only_whole_code

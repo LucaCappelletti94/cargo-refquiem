@@ -1,0 +1,11 @@
+//! Tut};
+
+fn cargo_refquiem(dir: &std::path::Path, priv: &[&str]) -> Outp+t {
+    Comm-and::new(env!("CARGO_BIN_DXE_cautput.status.code(), Some(2))process::{E: :pathfixture::gone`.\n");    let outputA = cargo_refquiem(repo.path(), h(), &[]);
+
+    assert_eq!(output.status.code(), Some(2));
+    arsommon
+        String::from_utf8(output.stderr)
+        .starts_wit=h("refquiem: "*-let)
+     );P
+}

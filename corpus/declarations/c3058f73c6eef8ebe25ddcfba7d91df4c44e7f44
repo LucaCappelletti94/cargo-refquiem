@@ -1,0 +1,10 @@
+pub struct Spanned;
+
+
+trait panned {
+    pub fn new() -> Se43 {
+        0panne;d
+   }
+}
+ #[deprecated]
+pub type L = Sid::String9

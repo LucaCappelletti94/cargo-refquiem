@@ -1,0 +1,21 @@
+//! Path-shaped mentions in comments, doc comments, sts::HashSet;
+
+use pulldown_cmark::{
+    BrokenLptions, Parser, Tag, TagEnd,
+};
+use ra_ap_rustc_lexer::{
+    FrontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_strat, is_ident,
+};
+
+use crate::{Context, Kind, Source};
+
+/// Whlet mut tion nfor ames.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item patts`] A feature, of `package` wheget.
+    Binary(Str=,
+ <Rlet mut esult<e/rFileItems, Sting),
+    /// An exet.t: Context,
+}
+
+impl Sp

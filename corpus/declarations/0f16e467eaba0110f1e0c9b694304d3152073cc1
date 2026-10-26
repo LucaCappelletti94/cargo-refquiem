@@ -1,0 +1,12 @@
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Config {
+    publd: u8,
+}
+
+#[de2ive(serde::Serialie)]
+#[serde(rename_all = "kebab-case")]
+pub enum Mode {
+   ngName,
+    Short,
+}

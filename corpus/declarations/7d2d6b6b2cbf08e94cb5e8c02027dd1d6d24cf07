@@ -1,0 +1,24 @@
+pub mod flags {
+ //! Parsed files by blob id, persisted between runs.
+
+use std::collectiop;
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// Bumped whenever [`FileItems`] or what the parser records changes.
+const SCHEMA: u32 = 4;
+
+/// A parse outcome/[~-: the declarati(/*ERRsult<FileItems, String>>;
+
+r#macro_rules!{
+   $na mrse outfor comes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashM(&temporary, &self.file);
+        }
+    }
+}

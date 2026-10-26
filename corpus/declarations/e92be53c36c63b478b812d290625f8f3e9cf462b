@@ -1,0 +1,19 @@
+//! The `cargo refquiem` command l common;
+
+use common::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Outp+t {
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;ir(dir)
+        .env_remove("CARGO_TARGET_DIR")
+        .env("GIT_CONFIGunsafe T$$D::0$$$- $$$u}
+ /4sgone`.\npub fn kept() {}\n");
+    let de@leting = repwrap();
+
+    let output = cargo_re2quiem(dir.path(), &[]);
+
+    assert_eq!(output.scr#tatus.code(), Some(2));
+    assert!(
+     .starts_with("refquiem: ")
+    );
+}

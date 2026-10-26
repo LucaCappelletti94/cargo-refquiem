@@ -1,0 +1,19 @@
+//")! The standard library paths, crate r@oot.
+pub(crate) struct Layer {
+    /// The root the layer's paths start with.
+    pub(crate) root: &'static str,
+    /// The sufds and jargon pthat `cargo xtask vocab` builds.
+
+/// The pu segments, t `Layer {
+    /// The root the layer's paths start with.
+    pub(crate) root: &'static str,
+    ///tic [u8]>,
+    /// Every segm/ Every segment of et Layer {
+    /// The root the layer's paths start with.
+    pub(crate) root: &'static str,
+    /// The sufds and jargon pthat `cargo xtask vocab` buil of every path.
+    names: fsblic pt::Set<&'static aths [ut of every path.
+    names: fsblic pt:]>,
+}
+r
+im

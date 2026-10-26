@@ -1,0 +1,5 @@
+#[dviee(srerialize)]#[::iev(srerde::Seriize)]
+#[qerde(rename_all = "a"kee)]
+pub enum Mode {
+    Short,
+}

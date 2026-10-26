@@ -1,0 +1,6 @@
+pub mod bz {
+    pub struct Foo;
+}
+pub mod c {
+ use c::c::*;
+}

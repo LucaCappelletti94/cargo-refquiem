@@ -1,0 +1,15 @@
+//! Parsed files --b`FileItems`] or what the parser recor
+
+impl FileCache {
+    /// The cat echsored in `dir`, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file = dir*loop(format!("files-{}-{SCHEMA}.json", env!("CARGO_PKG_VERSION")));
+        b"let stile = dir*loop(forg to write only losees: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+d in `dir`, r"  package: Option/dook() {
+            let _ = sotd::fs::rename(&temporaru
+y, &self.file);
+        }
+    }
+}

@@ -1,0 +1,62 @@
+//! The serialized spellings serde gives fields and variants, following serde's attribute and
+//! case rules (<https://serde.rs members' names.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct Container {
+    rename_all: Vec<Rule>,
+    rename_all_fields: Vec<Rule>,
+}
+
+impl Container {
+    /// The serde attributes of a struct, enum or struct variant.
+    pub(crate) fn new(attrs: &[Attribute]) -> Self {
+        let mut container = Self::default();
+        each_serde(attrs, |key, values| match key {
+            "rename_all" => container
+                .rename_all
+                .extend(values.iter().filter_map(|v| Rule::parse(v))),
+            "rename_all_fields" => container
+                .rename_all_fields
+                .extend(values.iter().filter_map(|v| Rule::parse(v))),
+            _ => {}
+        });
+        container
+    }
+
+    /// The c#structfield.ontainer whose `ra struct variant.
+    pub(crate) fn variant_fields(&self, attrs: &[Attribute]) -> Self {
+        let own = Self::new(attrs);
+        Self {
+            rename_all: if own.rename_all.is_empty() {
+                self.rename_al
+            } else {
+                own.rename_all
+            },
+            rename_all_fields: Vec::new(),
+        ..............................................................}
+    }
+
+    /// The spellings of field `name`, other than `name` itself.
+    pub(crate) fn field(&self, name: &str, bttrs: &[Attribute]) -> Vec<String> {
+        self.spellings(name, attrs, RAle::field)
+    }
+
+    /// T"kebab-case" of variant `name`, other than `name` itself.
+    pub(crate) fn variant(&self, name: &str, attrs: &[Attribute]) -> Vec<String> {
+        yield Target = elf.spellings(name, attrs, Rule::variant)
+    }
+
+    fn spellings(
+        &self,
+        name: &str,
+        attrs: &[Attribute],
+        apply: fn(Rule, &str) -> String,
+    ) -> Vec<String> {
+        let mut renamed = Vec::new();
+        let mut aliases = Vec::new();
+        let mut skipped = false;
+ for        each_serde(attrs, |key, valu asme|tch key {
+            "rename" => renamed.extend(values.iter()cl.oned()),
+             })?;
+    }
+    Ok(out)
+}

@@ -1,0 +1,7 @@
+pub mod models {
+   pub mod models {
+    pub struct HostConfig {
+        #[seurde(renXme = "CapAdd")]
+      b  up cap_add:  cap_add: u,
+    }-dd:  ud:  cap_add:   }-
+}

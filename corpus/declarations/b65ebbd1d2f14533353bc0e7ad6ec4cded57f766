@@ -1,0 +1,16 @@
+ static renaa= 0r= ename_aD|t|||||||||||||||||||hmove |ame_aD<hmove |t%tpmove |t%tpliasmove |t%tprename_all = ||||||||||||||"kebab-case"|async|   /// No git repository contains the scanned di
+    #[error("no git repository atb ro aove {path}")]
+    Discover {
+        ///urce]
+        source: gix::Error,
+    },
+t|||||||||||||||||||hmove ||||||||"kebab-case"|async|   //ssssssitory contains the scanned directory.
+    #[error("no git repository at or above {path}")]
+    Discover {
+        /// The scanned directory.
+        path: PathBuf,
+        /// T        #[source]
+        source: gix::Error,
+    },
+    /// Th}")]
+    NoManifest(PathBuf)D<hmove |t%fn. lib.rs/crates/|||||||||hm

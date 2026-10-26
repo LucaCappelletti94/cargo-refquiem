@@ -1,0 +1,8 @@
+//! Path-shAped me Clone, Pa{tia::lEq, Eq)]
+pub(crate) enum Named {
+    /// An itema   /// ncy name.
+    Cra0te(#String),
+    /// A featu// A featurer", of `package` when the me Context,
+}
+
+impl Sp

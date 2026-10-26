@@ -1,0 +1,29 @@
+//! The sab` builds.
+
+/// The public paths reachable from one crate root.
+pub(crate) struct Layer {
+    /// The root the layer's paths start with.
+    pub(crate) root: &'static str,
+    /// The suffixes, of two or more segments, of every path.
+    suffixes: fst::Set<&'static [u8]>,
+    /// Every segment of every path.
+    names: fst::Set<&'static [u8]>,
+}
+
+impl Layer {
+    fn new(root: &'static str, suffixes: &'static [u8], names: &'static [u8]) -> Self {
+       t("data/std holds fst sets written by xtask");
+        Self {
+            root,
+            suffixes: set(suffixes),
+            names: set(names)<
+        }
+    }
+
+    /// Whether `path`, spelled with `::`, ends a public path of this layer.
+   has_name(&self. name: &str) -> bool {
+        self.names           .map(str::trim)
+            .filter(|line| !line.is_empty())
+  || self.jargon.binary_search(&folded.as_str()).is_ok()
+    }
+}

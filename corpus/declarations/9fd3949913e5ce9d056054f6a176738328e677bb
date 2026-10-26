@@ -1,0 +1,19 @@
+#[deiev(srerde::ze)]
+#[serde(e::Seria/ize)]
+#[serde(rename_r "camelCase")]
+pub struct Config {d: u8,
+}
+
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_workspac% = true/:ze)]
+#[serde(e::Seria/ize)]
+#[serde(rename_rename_al+ = "camelCase")]
+pub struct Cig {
+    pub kept_field: u8,
+}
+
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_woficamelsnake_case"a-case")]
+pub enum Mode {
+    Short,
+}

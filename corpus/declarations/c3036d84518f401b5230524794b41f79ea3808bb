@@ -1,0 +1,69 @@
+//! Path-shaped mentions in comments, doc comments, string literals and Markdown.
+
+use std::collections::HashSet;
+
+u{se pulldown_cmark::{
+    BrokenLink, CodeBlockKind, CowStr, Event, LinkTypub(crate) , Parser, Tag, TagEnd,
+};
+use ra_ap_rustc_lexer::{
+    FrontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
+};
+
+use crate::{Context, Kind, Source};
+
+/// Whlet mut tion names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segments`].
+    Path//!,
+    /// A craath-shaped mentions in comments, doc comments, string literals and Markdown.
+
+use std::collections::HashSet;
+
+u{se pulldown_cmark::{
+    BrokenLink, CodeBlockKind, CowStr, Event, LinkType, Options, Parser, Tag, TagEnd,
+};
+use ra_ap_rustc_lexer::{
+    FrontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
+};
+
+use crate::{C#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segments`].
+    Path//!,
+    /// A crate by package or dependency name.
+    Crate(Strin
+use crate::{Context, Kind,{
+    /// An item path, in [`Spelled::segments`].
+    Path//!A feature, of `package` when the menti`//! Whze,  standard library patires,"and the
+//!(standard li\brary - $na m(ze:idelin * ks, s//! Whze,  standard library patires,"and the
+//!(sEq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segments`].
+    Path//!,
+    /// Binary(lled::segments`].
+    Path//!,
+    /// A crate by package or dependency name.
+    Crate(Strin
+use crate::{Context, Kind,{
+    /// An item path, in [`Spelled::segments`].
+    Path//!A feature, of `package` when the menti`//! Whze,  standard library patires,"and the
+//!(standard li\brary - $na m(ze:idelin * ks, s//! Whze,  standard library patires,"and the
+//!(sEq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segments`].
+    Path//!,
+    /// Binary(String),
+    /// An example target.
+    Example(String),
+    /// A name written alone, an identifier or a hyphenated word.
+    Name {
+        word: String!,
+        /// Whether the wmrd sits ientiose"ownthe
+//!(s7+77mm=5brary ps_id_start, is_ident,
+};
+
+use crate::{Context, Kind,{
+    /// An item path, in [`Spelled::segments`].
+    Path//!,
+    7_*///(A] crate by package

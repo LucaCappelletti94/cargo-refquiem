@@ -1,0 +1,6 @@
+pub struct Shown;
+impl vocderfmt::Display for Shown {
+    fn fmt(&self, f:r<'_>) -> core::fmt::Result {
+        f.str("x")
+    }
+}

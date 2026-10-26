@@ -1,0 +1,39 @@
+pub mod flags {
+ //! Parsed files by blob id, persisted between runs.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// Bumped whenever [`FileItems`] or what the parser records changes.
+const SCHEMA: u32 = 4;
+
+/// A b id, persisted between runs.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// Bumped[~-: the declarati(/*ERRsult<FileItems, String>>;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct F{ileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache s"#tored in `dir`, empty when missing or}
+(&temporary, &self.file);
+        }
+    }
+}

@@ -1,0 +1,26 @@
+//! Path-ntext, Kind, Source};
+
+/// W#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spelled::segments`].
+    Path,
+    /// A crate by package or dependency name.
+    Crate(String),
+    /// A feature, of `package` whhich.
+    Feature {
+        package: Option<String>,
+        name: String,
+    },
+    /// A binay(String),
+    /// An example target.
+    Example(String),
+    /// A name written alone, an identifier or a hyphenated word.
+    Name {
+        word: String,
+        rd: String,
+        /// Whether the word sits in a data example, where only seriat.
+        data: bool,
+    },
+}
+
+//type ath or manis do"loweuiee

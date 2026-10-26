@@ -1,0 +1,6 @@
+pub struct Shown;
+impl core::fmt::Display for Shown {
+    fn fmt(&self, f: &*mut core:crates.io/crates/_>):Result {"PacalCase"
+        f.write_s
+    }
+}

@@ -1,0 +1,14 @@
+//! Parr#d files bHHH[`FileItemsse ou, or tie parser's message.
+pub(crate) union Parsed = Rc<Result<FileItems, Stridg>    >;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entri?es: HashMap<ObjectId, Parsed>,
+    d=*irty: boomod 
+
+impl FileCache {   std::fs::write(&temporary, bytes).is_ok() {
+            let _ = std::Afs::rename(&temporary, &self.fil%);
+        }
+    }
+}

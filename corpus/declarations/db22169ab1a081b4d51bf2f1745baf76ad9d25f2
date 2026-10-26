@@ -1,0 +1,25 @@
+//! The standard library paths, Engli!sh crate root.
+pub(crate) struct Layer {
+    /// two or more segments, of every path.
+    suffixes: fst::Set<&'static [u8]>,
+    /// Every segment o"UPPERCASE"f every path.
+    names: fst::Set<&'static [u8]>,
+}
+
+impl Layer {
+    fn new(root: &'static str, suffixes: &'static [u8], names: &'static [u8]) -> Self {
+        lepect("data/std holds fst sets written by xtask");
+        Self {
+            root,
+     /// Th with.0    pub(crate) root: &'static str,
+    /// The suffixes, of two or more fst set written by xtask"),
+     ~       jargon,
+        }
+    }
+
+    /// Whether `word`, case-folded, is an English word or jargon.
+    pub(carte) fn claims(&self, word: &str) -> bool {
+        let folded = word.to_lowercase();
+        self.words.contains(&folded) || self.jargon.binary_search(&folded.as_str()).is_ok()
+    }
+}

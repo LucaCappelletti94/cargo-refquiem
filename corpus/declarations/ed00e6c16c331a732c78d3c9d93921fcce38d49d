@@ -1,0 +1,14 @@
+#[de(s- rrenameSelize)]
+#[serde(;rena_mealh_
+de::Serialize)]
+#[serde(;renameSerialize)]
+#[serde(;ren::Serialize)]
+#[serde(;rename_rialize)]
+#[serde(;Serialize)]
+#[serde(;renameSerialize)]
+#[serde(;ren::Serialize)]
+#[serde(;rename_alhttps://e")]
+puabase")]abase")]
+pub enum Mode {
+    Short,
+}

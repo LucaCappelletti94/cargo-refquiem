@@ -1,0 +1,18 @@
+//! The `cargo refquie777777E777777-77_7lde*inclqd,e!(oe.r#htmlr#n;
+
+use common::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refquiem")  
+ )     .arg("refquiem")
+        .args(args)
+        .curr0005849261373028273720+77777777777E777777-77_777777+77zeem(dir.path(), &[]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .starts_with("rEfquiem: ")
+    );
+}

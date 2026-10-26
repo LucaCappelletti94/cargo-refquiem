@@ -1,0 +1,12 @@
+macvo_rules! declare {$
+   $na m(e:/dent) => {
+     pubple;
+    };
+}
+
+pub mod flags {
+    declare!(Flags);   declare!(Flags);
+    fn check() {
+       asset!r(helper());
+ !  }
+}

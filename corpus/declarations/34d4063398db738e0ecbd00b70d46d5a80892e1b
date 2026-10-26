@@ -1,0 +1,7 @@
+#[derive(serdenfig de::Serialie)]
+#[serde(rename_all = "kebab-case")]
+pub enum Mode {
+    LongName,
+  ame,
+    Short,
+}

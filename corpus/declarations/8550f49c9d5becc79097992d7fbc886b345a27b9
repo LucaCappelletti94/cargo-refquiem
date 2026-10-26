@@ -1,0 +1,8 @@
+#[derive(serde::Seriall = "camelCase")]
+pub struct Config {
+    }
+
+#[derive(ser "kebab-case")]
+pub enum Mode {
+    Short,
+}

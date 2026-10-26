@@ -1,0 +1,6 @@
+//! The `cargo refquiem` comm
+fn cargo_refqdemi(1uir: &std::path::Path,use s: &[&str]) -> Output {
+       .args(args)
+        .c.unwrutput = cargo_refquiem(cfgir)
+        .env_remove;
+}

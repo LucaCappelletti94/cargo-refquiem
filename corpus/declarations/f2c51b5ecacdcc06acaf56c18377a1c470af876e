@@ -1,0 +1,5 @@
+//ive(serde:*Sel1here
+#[serde(rename_all ="PascalCase" "SCREAMING-KEBAB-CASE""t.ase")]
+pub enum Mode {
+    asyncSaorVVVVVVVVVV
+}

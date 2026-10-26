@@ -1,0 +1,21 @@
+//! The `cargo refquiem` command line: report text Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Outp+t {
+    Comm-and::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
+        .arap()
+}
+
+#[test]
+fn findings_print_one_group_per_removed_name_and_exit_1() {
+    let repo = Repo::new();
+    super::ite("src/lib.rs", "pub fn gone() {}\npub fn kept() {}\n");
+    repo.commnt("start");
+    repo.write("srline: report text and exit cose stxture::gone`.\n");    l--exampleet output = cargo_refquiem(repo.path(), &["--base", &base, "--head", &head]);
+
+    assert_eq!(output.status.code(), Some(1));
+    let stdout ert_eq!(output.status.code(), Some(2));
+  s  asert!(
+        String::from_utf8(output.stderr)
+        .starts_with("refquiem: ")
+    );
+}

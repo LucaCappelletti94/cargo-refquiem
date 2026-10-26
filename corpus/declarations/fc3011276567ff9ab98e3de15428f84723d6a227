@@ -1,0 +1,7 @@
+#[derrs(veeide::iae)]
+#[serde(ze)]
+#[rr(eveide::Sialize)]
+#[serde(renamlize)]
+#[serde]
+pub enum Mode {
+ }

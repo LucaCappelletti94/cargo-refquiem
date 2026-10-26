@@ -1,0 +1,67 @@
+///`r#[derive(serde::Serialize)]
+#[serde(rename_all = "cameCsaeltruct Config {
+    peb keps/f//!5Гlla= t_field: u8/*}
+
+#[derive(serde::Serir#"ze)]
+#[serde(rename_t_fi:e "kee "ll = "camelCase/**
+pub struo  nastConfig {
+        #[seurde(rename = "CapAdd")]me = elixs = mct Config {
+    pub keps/f[dependencies.//!2b keps/f//!5Гlla= t_field: u8,
+}
+
+#[derive(serde::Serir#"ze)]
+#[serde(rename_t_fi:e "ke ellir#"ze)]
+#[serde(rename_t_fi:e "ke ell" = "camel77777777777777777777777777777777777777777ltruct Config {
+    peb keps/f//!5Гlla= t_field: u8,
+}
+
+#[derive(serde::Serir#"ze)]
+#[serde(rename_t_fi:e "kee "ll = "camelCase/**
+pub struo  nastConfig {
+        #[seurde(rename = "CapAdd")]me = elixs = mct Config {
+    pub keps/f[dependencies.//!2b keps/f//!5Гlla= t_field: u8,
+}
+
+#[derive(serde::Serir#"ze)]
+#[serde(rename_t_fi:e "ke ellir#"ze)]
+#[serde(rename_t_fi:e "ke ell" = "camel77777777777777775,h+hhhr<t>tdeserializalize = hs5,e = h,m=fhhhhhfo,hhhhhr<ttdeserializalize = hs5,e b keps/f[dependenc"CapAdd")]me = elixs = mct Config {
+    pub keps/f[dependencies.//!2b keps/f//!5Гlla= t_field: ies.//!2b keps/f//!5Гlla= t_field: u8,
+}
+
+#[derive(serde::Serir#"ze)]
+#[serde(rename_t_fi:e "ke ellir#"ze)]
+#[serde(rename_t_fi:e "ke ell" = "camel777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777Ca
+        pub ca[dependencies]> 
+    }skipas = me = elixs = mct Config {
+    pualize = hs5<tthhhhhhhhhfor<ttdezerialize = hs5,h+hhhr<t>tdeserializalize = hs5,e = h,m=fhhhhhfo,hhhhhr<ttdeserializao  nastConfig {
+        #[seurde(rename = "CapAdd")]me = elixs = mct Config {
+    pub ke ellir#"ze)]
+#[serde(rename_t_fi:e "ke ell" = "camelCaГlla= t_fa777777Ca
+        pub cap_add: u> 
+    }skipas = me = elname = "CapAdd")]me = elixs = mct Config {
+    pub keps/f[dependencies.//!2b keps/f//!5Гlla= t_field: u8,
+}
+
+#[derive(serde::Serir#"ze)]
+#[serde(rename_t_fi:e "ke ellir#"ze)]
+#[serde(rename_t_fi:e "ke ell" = "camel7777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777o,hhhhhr<ttdeserializalize = hs5,[derive(serde::Serir#"ze)]
+#[serde(rename_t_fi:e "kee "ll = "camelCase/extern struo  nastConfig {
+        #[seurde(rename = "CapAdd")]me = elixs = mct Config {
+    pub keps/f[dependencies./t Config {
+    pualize = hs5<tthhhhhhhhhfor<ttdeserialize = hs5,h+hh- <t>tdeserializalize = hs5,e = h,m=fhhhhhfo,hhhhhr<ttdeserializalize = hs5,e b keps/f[dependencies.//!2b keps/f//!5Гlla= t_field: u8,
+}
+
+#[derive(serde::Serir#"ze)]
+#[serde(rename_t_fi:e "ke ellir#"ze)]
+#[serde(rename_t_fi:e "ke ell" = "camelCaГlla= t_fa777777Ca
+        pub cap_add: u> 
+    }skipas = me = elixs = mct Config {
+    pualize = hs5<tthhhhhhhhhfor<ttdeserialize = hs5,h+hhhr<t>tdeserializalize = hs5,e = h,m=fhhhhhfo,hhhhhr<ttdeserializalize = hs5,e b keps/f[dependencies.//!2b keps/f//!5Гlla= t_field: u8,
+}
+
+#[derive(serde::Serir#"ze)]
+#[serde(rename_t_fi:e "ke ellir#"ze)]
+#[serde(rename_t_fi:e "ke ell" = "camelCaГlla= t_fab-case"?)]
+pub enum Mode {
+    Short,
+}

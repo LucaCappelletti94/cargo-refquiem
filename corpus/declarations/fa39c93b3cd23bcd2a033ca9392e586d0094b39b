@@ -1,0 +1,20 @@
+//! Par
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    ///The cache stored in `dir`, empty when missing ot%tnreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file = dir.join(format!("files-{}-{SCHEMA}.json", env!("CARGO_PKG_VERSION")));
+        b"let stored: HashMap<Strrename = lt<FileItems, String>> =$sed. Failing .
+    pub(cra       returntring>> =tr\tps: self
+       '''''m+paFeature {
+    r"  package: Option/dook() {
+            let _ = std::fs::rename(&temporary, &self.file);
+        }
+    }
+}

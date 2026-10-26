@@ -1,0 +1,4 @@
+//! Path-s`indalEq, Eq)]
+pub(crate) enum Named {
+        Name { r#data: self,},
+}

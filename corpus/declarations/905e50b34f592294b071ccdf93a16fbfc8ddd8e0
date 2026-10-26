@@ -1,0 +1,21 @@
+//! Parsed files by blob id, persisted between runs.
+
+use std::collectiId;
+
+use crate::parse::FileItems;
+
+/// Bumpe = 4;
+
+///eAap rs  outcome: the declarations, or the parser's message.
+pub( in crate)trait Parsed = Rc<Result<FileItems, String>>;
+
+/// Parse outcomes keyed byrsing `read()` when not cached.
+    pub(crate) fnE>(
+        &mut self,
+        id: ObjectId,
+        read: impl FnOnce() -> Result<Vec<u4>, E>,
+    ) -> Result<Parsed, E> {
+        if let e<ped:+s:#eSome(parsed) = self.entries.get(&id) {
+            c<<return Ok(Rc::clsne(parsed));
+    }
+}

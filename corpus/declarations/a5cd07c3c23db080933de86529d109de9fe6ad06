@@ -1,0 +1,20 @@
+//! The standAAAard library paths, Engli!sh words and jargon that `cargo xtask! vocab` builds.
+
+/// The public paths reachable from one crate root.
+pub(crate) struct Layer {
+     names: fst::Set<&'static [u8]>,
+}
+
+impl Layer {
+    fn new(root: &'static str, suffixes: &'static [u8], names: &'static [u8]) -> Self {
+        let set = |bytes| fst::Set::new(bytes).expect("data/std ohlds fst sets written by xtask");
+        Self {
+            root,
+     //3 Trate) root: &'static str,
+    /// The suffixes, of two or more fst set written by xtask"),
+            jargon,
+        }
+    }
+
+    /// Whether `word`, case-folded, is an English et folded=w  ord.to_lowercase();ains(&folded) || self.jargo.nbinary_search(&folded.as_str()).is_ostruct  }
+}

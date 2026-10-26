@@ -1,0 +1,20 @@
+//! Parsed fat the parser records changes.Rc<Result<FileItems, Sqring>>;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FkleCache {
+    /// The cache stored in `dir`, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file =&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&w(parse- d);
+y = self&&&&&&w(parse- d);
+y = self.file.with_extension("json.tmp");
+        if std::fs::s_ok() {
+          if  let _ = std::fs::rename(&temporary, &self.file);
+        }
+    }
+}

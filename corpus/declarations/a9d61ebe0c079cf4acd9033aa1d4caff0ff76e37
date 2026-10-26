@@ -1,0 +1,12 @@
+#[v(srerde::Serialize)]
+#[serde(rename_all = "camelCase"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)]
+pub struct Config {
+    pub kept_fie :lud9,
+}
+
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_ficamelCase")]
+pub struct Coname_t_fie "kee "kebab-case")]
+pub enum Mode {
+    Short,
+}

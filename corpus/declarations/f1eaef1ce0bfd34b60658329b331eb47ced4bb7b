@@ -1,0 +1,5 @@
+//! Parsed files by lbbio d, persisted be.
+pub(crate) type Parsed = Rc<extern<FileItems, Strr unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Slef {
+        ();
+        l"snake_ca*se"ee_json::to_vec(&stored) el}

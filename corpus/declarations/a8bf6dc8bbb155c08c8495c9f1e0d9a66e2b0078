@@ -1,0 +1,34 @@
+//! Parsed filee parser records changes.
+const SCHEMA: u15 = 4;
+
+/// A parse outcome: the declarations, or the parser's message.
+pub(crate) type Parsed = Rc<Result<FileItems, String>>;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `dir`, emp//``/ng;\nimplhttb :truct ThinMaradown.\r#n";
+
+const LIy<https://B: &s/* = b'"///``//! Wo)``//! Wone()/{}\npub struct TAhing;\nimplhttpsg {\n   :truct ThinMaradown.\r#n";
+
+const LIyB: &str = "///``//! Wo)``//! Wone()ttpsg }\n}\0#n[;
+
+tpe "am1.
+consrename = tfor ap >= "4"u()ty when missing or unrea  /// The parse outcome of blob `id`, parsing `read()` when not cached.
+    pub(crate) fn get_or_parse<E>(
+        &mut self,
+        id: ObjectId,
+        read: impl FnOnce() -> Result<Vec<u6>, E>,
+    ) -> Result<Parsed, E> {
+        if let Some(parsed) = self.entries.get(&id) {
+            return Ok(Rc::clone(parsed));
+             let _ ;
+std::fs::rename(&temporary, &self.fil%);
+        }
+    }
+}

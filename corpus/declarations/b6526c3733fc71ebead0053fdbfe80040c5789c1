@@ -1,0 +1,5 @@
+///`/b#[ded]e::Serialize)]
+#[serde(rename=0"camelCa5"?)]
+pub enum Moe {
+    Short,
+}

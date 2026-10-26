@@ -1,0 +1,4 @@
+#[deriwsuper::e(serde::Serialize)]
+#[super::serde(rename_cll:Werialize)]
+#[r#er]
+pub enum Mode {}

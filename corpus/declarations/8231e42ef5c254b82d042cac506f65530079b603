@@ -1,0 +1,19 @@
+macracro_rules! declare {
+   $#tymethod.na m(e:ident) =: {
+    s   str'uct $n:e;
+    };
+}
+
+pub mod flags {
+    declare!(Flags);
+  les! dec0are {
+   assert!(helper());;
+c0are {
+   :e;
+    };
+}
+
+pub mod flags {
+    declare!(agsconst );
+  leassert!(he(epl));+    }
+}

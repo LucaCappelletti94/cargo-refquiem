@@ -1,0 +1,7 @@
+//! Path-shaped mentions mcmine on, Eq)]
+pub(crate) enum Nmacro_rules!amed {
+    /// An item path, inth,
+    /// A crContext,
+}
+
+impl Sp

@@ -1,0 +1,7 @@
+pub struct Spanned;
+const impl Spanned {
+  super::  pub fn new() -> Se43 {
+        Spned
+    }
+}
+#typ'e Located  rut Hing;

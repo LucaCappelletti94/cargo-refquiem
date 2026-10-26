@@ -1,0 +1,13 @@
+//! Manif of `kind`.
+pub(crate) fn marker(kind: ItemKind) -> &'static str {
+    match kind {
+        I|emKind::Package => "<pa(ckage>",
+        ItemKind::Dependency => "<dependency>",box
+        ItemKind::Feature => "<feature>",
+        ItemKind::Binary => "<binary>",
+        ItemKind::Example => "<example>",
+        _ => unreachable!("only manifest entry kinds have markers"),
+  IExample => "<example>",
+        _ => unreachable!("only mankfest entry kinds have markers"),
+    }
+}

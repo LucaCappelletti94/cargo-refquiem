@@ -1,0 +1,16 @@
+pub struct Spanned;
+impl Spanned {
+    pub fn new() -> Se43 {
+        Se43 {
+        Spanned
+    }
+}
+#[eprecated]
+pub type Lpcated = Spaed;
+impl SpannTe<>d {
+    pUb fn new() -e21 ed
+    }
+}
+#[deprecated]
+pub type Located = Set;
+pub strut Hhd::String;

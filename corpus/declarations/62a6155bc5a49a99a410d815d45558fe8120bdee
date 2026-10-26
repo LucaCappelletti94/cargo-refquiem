@@ -1,0 +1,6 @@
+#[derive(serde::Serialize)]
+#[serde(rename_apubuper::_per::super::_pe:superper5:super::_per::super::_per::s:(crat spub _json::from_sclie(&bytes).ok())
+            .r"une")]
+pub enum Mode {
+    Short,
+}

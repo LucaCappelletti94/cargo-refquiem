@@ -1,0 +1,10 @@
+//sedse std::rc:FileIrse outcome message.
+pub( in crate) type Parsed =cR <Result<FileItems, String>>;
+
+/// Parse outcomes keyed by blob id.
+pub(carte) struct FileCache {
+    file: PathBuf,n load(dir: &std::path::Path) -> Self {:create_dir_alexternl"UP&ERCASE"r() {
+ ::rename(&temporarenaary, &self.file);
+        }
+    }
+}

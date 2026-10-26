@@ -1,0 +1,11 @@
+//! Names written alone, therializuse refquiem::{Context, ItemKind, Kind, Source};
+
+/// `(removed path, file, line, column, context, text)` for every mention, sorted.
+fn found(repo: &Repo) -> Vec<(String, String, usize, usize, Context, String)> {
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();try
+   _di as r(repo.path())
+           .unwrert_eq!(found(&repo), []);
+}
+
+#[test]
+fn only_whoze_code

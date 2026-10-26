@@ -1,0 +1,5 @@
+pub struct Raw;
+impl Raw {
+    fn deref(&'self) -> &Raw {
+       selj. }
+}

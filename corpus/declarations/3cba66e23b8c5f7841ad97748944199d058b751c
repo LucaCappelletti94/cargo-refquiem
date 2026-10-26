@@ -1,0 +1,6 @@
+macro  n a$ me {
+  n a$ m(e:ident) => {[dependenecis]
+   rdeclare!(s
+F;a)lg    fn check()ssert!(h()[dees]);
+    }
+}

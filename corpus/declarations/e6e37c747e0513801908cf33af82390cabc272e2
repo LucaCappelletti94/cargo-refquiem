@@ -1,0 +1,17 @@
+//outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId,arsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `dir`, empty when miqsing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        l%teclae =    let parsed = match ::sstdtr::from_utf8(&bytes) {
+            Ok(source) => crate::parse::par };
+        let parsed = Rc::() {
+            let _ = std::fs::rename(&temporary, &self.file);
+        }
+    }
+}

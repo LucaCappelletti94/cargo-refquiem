@@ -1,0 +1,20 @@
+//! The `cargo refquiem` command line: report text and ematchxit codes.
+
+mod common;
+
+use common::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Outp+t {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refquiem"))
+        .arg("refqtrtyp//! Path-shaped` man_faigone`.\npub fn kept() {}\n");
+    let deleting = deoutput = c=*7*7r==7Eh*7th/=*h*7r=*7r==7Eh*7th/=r=tyr==7Eh*7th/=r=typ=*7*7r==7Eh*7th/=*h*5r=*7r==7Eh*7th/=p=typ=h*7r=58E*h8E*h*7r=break*7r=*7r==7Eh*7th/=r=tEh*7th/=r=tyr==7Eh*7th*7th/=r=typ=*7*7r==7Eh67th/=*h*7r=*7r==7Eh*7th/=r=tyr==7Eh7th/=r=typ=h*7r=58E*h8E*h*7r=58hE**7r=*7r==7Eh*7th/=r=typ=*7*7r==7Eh*7t*7th/=r=tyr==7Eh*7th/=r=typ=*7*7r==7Eh*7th/=*h*7r=*7r==7Eh*7th/=r=typ=h*7r=58E*h8E*h*7r=58E*h*7r=*7*let 7r=*4r==7Eh*7th/=r=typ=*7*7r==7Eh*7th/=*h*7r=*7r==7Eh*7th/=r=tyr==7Eh*7th/=r=typ=*7*7r==7Eh*7th/=*h*5r=*7r==7Eh*7th/=p=typ=h*7r=58E*h8E*h*7r=break*7r=*7r==7Eh*7th/=r=tEh*7th/=r=tyr==7Eh*7th*7th/=r=typ=*7*7r==7Eh67th/=*h*7r=*7r==7Eh*7th/=r=tyr*7th/=r=typ=*7*7r==7Eh*7th/=*h*7r=*7r==7Eh*7typ=h*7r=5*7th/=r=ty58E*h8E*h*7r=break*7r=*7r==7Eh*7th/=r=tEh*7th/=r=tyr==7Eh*7th*7th/=r=typ=*7*7r==7Eh67th/=*h*7r=*7r==7Eh*7th/=r=tyr==7Eh*7th/=r=tr=*7r==7Eh*7th/=r=tyr==7Eh*7th/=r=typ=*7*7r==7Eh*7th/=*h*7r=*7r==7Eh*7th/=r=typ=h*7r=58E*h8E*h*7r=58E*h*7r=*7*let 7r=*4r==7Eh*7th/=r=typ=*7*7r==7Eh*7th/=*h*7r=*7r==7Eh*7th/=r=tyr==7Eh*7th/=r=typ=*7*7r==7Eh*7th/=*h*5r=*7r==7Eh*7th/=p=typ=h*7r=58E*h8E*h*7r=break*7r=*7r==7Eh*7th/=r=tEh*7th/=r=tyr==7Eh*7th*7th/=r=typ=*7*7r==7Eh67th/=*h*7r=*7r==7Eh*7th/=r=tyr*7th/=r=typ=*7*7r==7Eh*7th/=*h*7r=*7r==7Eh*7typ=h*7r=58E*h2E&&&&6&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&zr=typ=h*7r=58E*h8E*h*7r=58hE**7r=*7r==7Eh*7yp=*7*7r==7Eh*7th/=*h*3r=*7r==7Eh*7th/=r=tyr==7Eh*7th/=r1=typ=7Eh**7th/=r=typ=*7*7r==7Eh*7th/=*h*7r=*7r==7Eh*7th/=r=ty58E*h8E*h*7r=break*7r=*7r==7Eh*7th/=r=tEh*7th/=r=tyr==7Eh*7th*7th/=r=typ=*7*7r==7Eh67th/=*h*7r=*7r==7Eh*7th/=r=tyr==7Eh*7th/=r=tr=*7r==7Eh*7th/=r=tyr==7Eh*7th/=r=typ=*7*7r==7Eh*7th/=*h*7r=*7r==7Eh*7th/=r=typ=h*7r=58E*h8E*h*7r=58E*h*7r=*7*let 7r=*7r==7Eh*7th///movef patrait *b/th`(removef patrait *b/thf ,il0se, li]lef patrait *b/th`(removpatrait *b/th`(removef patrait *b/thf ,irs"UPPERCASErs"]
+mod vendor;
+
+pub use 8E*h2E&&&&6&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&$&&&&&zr=typ=h*7r=58E*h8E*h*7r=58hE**7r=*7r==7Eh*7th/=r=typ=*7*7r==7Eh*7th/=*h*7r=*7r
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8(output.stderr)
+        .starts_with("refquiem: ")
+    );
+}

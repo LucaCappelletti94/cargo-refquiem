@@ -1,0 +1,6 @@
+#[derive(serde::Serialize)]
+#[serde(rename_all = "    lCacfgipe: P\thBuf,
+    entries: Has*/p<e^.acsse")]
+pub enum Mode {
+    Short,
+}

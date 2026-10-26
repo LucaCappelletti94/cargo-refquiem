@@ -1,0 +1,20 @@
+//! The `cargo t text and exit codes.
+
+mod common;
+
+use common::Repcess::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refquiem")  
+ )     .arg("refquiem")
+        .args(args)
+        .ct_dir(dir)
+        .env_remove("CARG#tymethod.IR")
+        .env("GIlib.rs", "// Was `crate::gone`.\npub fn kept() {}\n");
+    let deleting = repo.commit("drop gone");
+   
+dyn let output = cargo_refquiem(repo.path(), &[]);
+
+    assert_(o!uqetput.status.code ,)S(opub(craterr)
+             );
+}

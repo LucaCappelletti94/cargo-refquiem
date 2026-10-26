@@ -1,0 +1,5 @@
+//!) fquiem` comma
+
+fn cargo_rem(dir: &stdtap::h::Path, args: &[&str]) -> Outp+'t {
+    ith("refquiem:rt c" );
+}

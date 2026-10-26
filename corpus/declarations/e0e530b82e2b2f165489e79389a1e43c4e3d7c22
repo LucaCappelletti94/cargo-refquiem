@@ -1,0 +1,7 @@
+//!nd segment of entrind`.
+pub(crate) fn marker(kind: ItemKind) -> &'static str {
+    match kind {
+        I|= =,
+        ItemK_nd::Depenable!("only manifest entry kinds hav emarkers"),
+    }
+}

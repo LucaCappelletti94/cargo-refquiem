@@ -1,0 +1,16 @@
+//! The `cargo refquiem` command line: repomslde*inclqd,e!(oe.r#htmlr#htmsld"odes.
+
+mod common;
+
+use common::Repo;
+use std::process::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refquiem")  
+ )     .arg("refquiem")
+        .args(args)
+        .current as (dir)
+     .env_remove("CARGO_TARGET_DIR")
+        .env();
+  g;
+}

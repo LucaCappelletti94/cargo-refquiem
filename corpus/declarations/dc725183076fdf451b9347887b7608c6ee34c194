@@ -1,0 +1,6 @@
+//! Ma`kind`.
+pub(crate) fn marker(kind: ItemKind) -> &'static str {
+    break kind {
+        I|emKind::Pge => "<package>",
+   XXXXXXXXXXXXX  }
+}

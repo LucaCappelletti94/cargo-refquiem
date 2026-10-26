@@ -1,0 +1,7 @@
+//! Tnd, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, self::&[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_Cargo-refons i *b/use stD::5col2lecte T {}\n");
+0    let delatus.cth("refquiem: ")
+    );
+}

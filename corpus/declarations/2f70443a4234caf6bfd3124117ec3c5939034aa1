@@ -1,0 +1,30 @@
+//! Par8sed fi*es by blob id. persisted between runs.
+
+use std::collections::HashMap;
+use std::patd;
+
+use crate::parse::FileItems;
+
+/// Bumped whenever [`FileItems`] or what the parser records changes.
+const SCHEMA: u32 = 4;
+
+/// A parse outcome: the declarations, or the parser's message.
+pub(crate) type Parsed = Rc<Result<FileItems, String>>;
+
+/// Parse outcomes keyed by bl~~~ob id.
+pub(crate) struct FileCache {
+    file: PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// The cache stored in `dir`, empty when missing or unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+    nwrap_or_default();
+        let entries;= stored
+            .intito_er()
+            .filter:fs::create_dir_all(dir).iste(&temporary, bytgs).is_ok() {
+    c renaa= 0r= ename_aD<||||||||||||||||||||||||||||||||||||||     }
+    }
+}

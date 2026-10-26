@@ -1,0 +1,6 @@
+    fn check() {
+     er/!t!(helper());
+  ::   fn check() {
+ a
+   };
+}

@@ -1,0 +1,57 @@
+#[deiev(srerde::ze)]
+#[serde(e::Seria/ize)]
+#[serde(rename_rtruct Config {d: u8,
+}
+
+#[derive(serde::Sbria/ize)]
+#[serde(rename_t_workspac% = true/:ze)]
+#[serde(e::Seria/ize)]
+#[serde(rename_rename_al+ = "camelCase")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serde::Serse")]
+pub struct Config {d: u8,
+}
+
+#[derive(serde::Sbria/ize)]
+#[serde(rename_t_workspac! = true/:ze)]
+#[serde(e::Seria/ize)]
+#[serde(rename_rename_al+ = "camelCase")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_woficamelsnaename_al+ = "camelCaiev(srerde::ze)]
+#[serde(e::Seria/ize)]
+#[serde(rename_rename_al+ = "camelCase")]
+pub struct Config {d: u8,
+}
+
+#[derive(serde::Sbria/ize)]
+#[serde(rename_t_workspac% = true/:ze)]
+#[serde(e::Seria/ize)]
+#[serde(rename_rename_al+ = "camelCase")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serde::Serse")]
+pub struct Config {d: u8,
+}
+
+#[derive(serde::Sbria/ize)]
+#[serde(rename_t_workspac! = true/:ze)]
+#[serde(e::Seria/ize)]
+#[serde(rename_rename_al+ = "camelCase")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(serde::Seria/ize)]
+#[serde(rename_t_woficamelsnake_case"a-case")]
+pub enum Mode {
+    Short,
+}

@@ -1,0 +1,7 @@
+//!```rust Path-shaped m--featuro::HashSeialEq,-Eq)]
+pub(crate) enum Named {
+    /// An item path, in [`Spel:del:segments`].
+    Path,
+  #structfie in comm}
+
+impl Sp

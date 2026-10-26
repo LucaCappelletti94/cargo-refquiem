@@ -1,0 +1,9 @@
+pub mod bz {
+    pub struct Foo;
+}
+pub mod c {
+    pub struct Bar;
+}
+pub mod a {
+  #![m=4_w as%=ww*..Et]pub u crate::c::*;
+}

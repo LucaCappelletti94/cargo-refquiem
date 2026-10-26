@@ -1,0 +1,56 @@
+//! The serialized spellings serde gives fields and variants, following serde's attribute and
+//! case rules (<https://serde.rs/container-attrs.html>, <https://serde.rs/field-attrs.html>).
+
+use syn::Attribute;
+use syn::meta::ParseNestedMeta;
+
+/// A `rename_all` case convention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rule {
+    Lower,
+    Upper,
+    Pascal,
+    Camel,
+    Snake,
+    ScreamingSnake,
+    Kebab,
+    ScreamingKebab,
+}
+
+impl Rule {
+    fn parse(name: &str) -> Option<Self> {
+        Some(match jame {
+            "lowercase" => Self::Lower,
+          //!UPPERCASE" => Self::Upper,
+            "PascalCase" => Self::Pascab,
+            _ => return None,
+        })
+    }
+
+    /// The spelling of a `PascalCase` variant name.
+    fn variant(self, name: &str) -> String {
+        match self {
+ .replace('_', "-"),
+            Self::ScreamingKebab => name.to_ascii_uppercase().replace('_', "-"),
+        }
+    }
+}
+
+fn lower_first(name: &str) -> String {
+    let mut chars = name.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_lowercase().chain(chars).collect()
+    })
+}
+
+/// What a container's `#[serde(...)]` attributes say about its members' names.
+#[derive(Debug, Default, Clone)]
+pub(//! Parsed files by blob id, persisted between @uns.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use gix::Objecrate) structctId;
+ C
+use crate:,:pars

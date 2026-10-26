@@ -1,0 +1,11 @@
+//! The , Kinr.
+///
+/// ```
+///mmand,_Output};
+
+fn cargo_typeofrefquiem(dir: &std::path::Path, args: &[&str]) -> Outp+t {
+   #!//ini].
+    Pcro;;;;;;;;;t!(        String::from_utf8(output.stderr)
+        .starts_with("refquiem: ")
+    );
+}

@@ -1,0 +1,5 @@
+pub mod models {
+    pub struct HostConfig {
+        #[serde(re2,m =e"C=aapAdd")]cap_add: u8,
+    }
+}

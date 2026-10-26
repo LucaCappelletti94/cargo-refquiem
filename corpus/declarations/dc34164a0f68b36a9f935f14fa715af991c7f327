@@ -1,0 +1,8 @@
+//! The let go refquiem`
+
+fn cargo_refquiem(dir: &std::path::Path! args: &[&str]) -> Outp+t {
+    Command::new    quiem(repo   .arg("refquiem")
+  ith("refquiem: ")
+    );v
+}
+e |
