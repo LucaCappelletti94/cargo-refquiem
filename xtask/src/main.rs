@@ -81,7 +81,7 @@ fn main() -> ExitCode {
     }
 }
 
-/// Writes the standard library layers and the English and SQL word lists under `data/`.
+/// Writes the standard library layers and the English, SQL and WASI word lists under `data/`.
 fn vocab() -> Result<(), Error> {
     let data = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -89,7 +89,8 @@ fn vocab() -> Result<(), Error> {
         .join("data");
     standard_library(&data.join("std"))?;
     english(&data.join("english"))?;
-    sql(&data.join("sql"))
+    sql(&data.join("sql"))?;
+    wasi(&data.join("wasi"))
 }
 
 /// Writes `<layer>.fst`, every suffix of two or more segments of every public path reachable
@@ -196,27 +197,31 @@ const SQL_2023_RESERVED: [&str; 3] = [
     "doc/src/sgml/keywords/sql2023-14-reserved.txt",
 ];
 
-/// Writes `words.fst`, the reserved key words of SQL:2023 in their uppercase spelling, and
-/// PostgreSQL's `COPYRIGHT`, which its license requires next to any copy.
-fn sql(out: &Path) -> Result<(), Error> {
-    let pinned = include_str!("../../data/sql/POSTGRESQL").trim_ascii();
+/// Where WASI, the WebAssembly System Interface, is published.
+const WASI_REPOSITORY: &str = "https://github.com/WebAssembly/WASI";
+
+/// The Preview 1 interface definition, whose `export` names are its functions.
+const WASI_PREVIEW1: &str = "legacy/preview1/witx/wasi_snapshot_preview1.witx";
+
+/// A reader of the files of `repository` at tag `pinned`, through a partial clone whose
+/// blobs arrive on demand, so only the files read are downloaded.
+fn pinned_files(
+    repository: &str,
+    name: &str,
+    pinned: &str,
+) -> Result<impl Fn(&str) -> Result<String, Error>, Error> {
     let checkout = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("xtask sits inside the workspace")
         .join("target")
         .join("xtask")
-        .join(format!("postgresql-{pinned}"));
+        .join(format!("{name}-{pinned}"));
     if !checkout.join(".git").is_dir() {
         create_dir(&checkout)?;
         run(&checkout, "git", &["init", "-q"])?;
-        run(
-            &checkout,
-            "git",
-            &["remote", "add", "origin", POSTGRESQL_REPOSITORY],
-        )?;
+        run(&checkout, "git", &["remote", "add", "origin", repository])?;
     }
     let tag = format!("refs/tags/{pinned}");
-    // Blobs arrive on demand, so only the files read below are downloaded.
     run(
         &checkout,
         "git",
@@ -230,7 +235,14 @@ fn sql(out: &Path) -> Result<(), Error> {
             &format!("+{tag}:{tag}"),
         ],
     )?;
-    let show = |path: &str| run(&checkout, "git", &["show", &format!("{tag}:{path}")]);
+    Ok(move |path: &str| run(&checkout, "git", &["show", &format!("{tag}:{path}")]))
+}
+
+/// Writes `words.fst`, the reserved key words of SQL:2023 in their uppercase spelling, and
+/// PostgreSQL's `COPYRIGHT`, which its license requires next to any copy.
+fn sql(out: &Path) -> Result<(), Error> {
+    let pinned = include_str!("../../data/sql/POSTGRESQL").trim_ascii();
+    let show = pinned_files(POSTGRESQL_REPOSITORY, "postgresql", pinned)?;
     let mut words = BTreeSet::new();
     for table in SQL_2023_RESERVED {
         words.extend(
@@ -249,6 +261,28 @@ fn sql(out: &Path) -> Result<(), Error> {
         source,
     })?;
     println!("sql@2023: {count} words");
+    Ok(())
+}
+
+/// Writes `words.fst`, the function names of WASI Preview 1, and WASI's `LICENSE.md`, the
+/// attribution its contributor agreement asks of a copy.
+fn wasi(out: &Path) -> Result<(), Error> {
+    let pinned = include_str!("../../data/wasi/WASI").trim_ascii();
+    let show = pinned_files(WASI_REPOSITORY, "wasi", pinned)?;
+    let witx = show(WASI_PREVIEW1)?;
+    let words: BTreeSet<&str> = witx
+        .split("(@interface func (export \"")
+        .skip(1)
+        .filter_map(|rest| rest.split_once('"').map(|(name, _)| name))
+        .collect();
+    create_dir(out)?;
+    let count = write_set(&out.join("words.fst"), words)?;
+    let target = out.join("LICENSE.md");
+    std::fs::write(&target, show("LICENSE.md")?).map_err(|source| Error::Write {
+        path: target,
+        source,
+    })?;
+    println!("wasi@preview1: {count} words");
     Ok(())
 }
 

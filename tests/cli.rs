@@ -30,7 +30,7 @@ fn vocabulary_catalog_ignores_project_state_outside_a_repository() {
         .iter()
         .map(|entry| entry["id"].as_str().unwrap())
         .collect();
-    assert_eq!(identities, ["english", "sql@2023"]);
+    assert_eq!(identities, ["english", "sql@2023", "wasi@preview1"]);
     assert_eq!(
         catalog[1],
         serde_json::json!({
@@ -39,6 +39,16 @@ fn vocabulary_catalog_ignores_project_state_outside_a_repository() {
             "case": "sensitive",
             "source": "https://github.com/postgres/postgres",
             "source_version": "REL_17_11",
+        })
+    );
+    assert_eq!(
+        catalog[2],
+        serde_json::json!({
+            "id": "wasi@preview1",
+            "kind": "technical",
+            "case": "sensitive",
+            "source": "https://github.com/WebAssembly/WASI",
+            "source_version": "v0.2.9",
         })
     );
     let output = cargo_refquiem(dir.path(), &["vocabularies"]);

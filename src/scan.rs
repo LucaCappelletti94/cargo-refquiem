@@ -1177,11 +1177,21 @@ impl VocabularyWords {
     }
 }
 
+/// The exact-case technical built-ins, in catalog order, with their word lists.
+const TECHNICAL: [(config::Builtin, fn() -> stdlib::Vocabulary); 2] = [
+    (config::Builtin::Sql2023, stdlib::Vocabulary::sql_2023),
+    (
+        config::Builtin::WasiPreview1,
+        stdlib::Vocabulary::wasi_preview1,
+    ),
+];
+
 /// The selected optional words, stored once under each declared case rule.
 #[derive(Default)]
 struct Vocabularies {
     english: Option<stdlib::Vocabulary>,
-    sql: Option<stdlib::Vocabulary>,
+    /// The selected exact-case technical built-ins, in catalog order.
+    technical: Vec<(config::Builtin, stdlib::Vocabulary)>,
     sensitive: VocabularyWords,
     ascii: VocabularyWords,
     unicode: VocabularyWords,
@@ -1195,9 +1205,11 @@ impl Vocabularies {
             english: config
                 .selects(config::Builtin::English)
                 .then(stdlib::Vocabulary::english),
-            sql: config
-                .selects(config::Builtin::Sql2023)
-                .then(stdlib::Vocabulary::sql_2023),
+            technical: TECHNICAL
+                .iter()
+                .filter(|(builtin, _)| config.selects(*builtin))
+                .map(|&(builtin, words)| (builtin, words()))
+                .collect(),
             ..Self::default()
         };
         for file in files {
@@ -1234,10 +1246,13 @@ impl Vocabularies {
         if spelling == word {
             return None;
         }
-        let vocabulary = if self.sql.as_ref().is_some_and(|sql| sql.contains(&spelling)) {
-            vocabulary::id(config::Builtin::Sql2023).to_owned()
-        } else {
-            self.files[self.sensitive.source(&spelling, text)?].clone()
+        let vocabulary = match self
+            .technical
+            .iter()
+            .find(|(_, words)| words.contains(&spelling))
+        {
+            Some((builtin, _)) => vocabulary::id(*builtin).to_owned(),
+            None => self.files[self.sensitive.source(&spelling, text)?].clone(),
         };
         Some(Uppercase {
             spelling,
@@ -1251,7 +1266,7 @@ impl Vocabularies {
             return false;
         }
         if self.sensitive.claims(word, text)
-            || self.sql.as_ref().is_some_and(|sql| sql.contains(word))
+            || self.technical.iter().any(|(_, words)| words.contains(word))
         {
             return true;
         }

@@ -1,4 +1,4 @@
-//! The standard library paths and the English and SQL words that `cargo xtask vocab` builds.
+//! The standard library paths and the English, SQL and WASI words that `cargo xtask vocab` builds.
 
 /// The public paths reachable from one crate root.
 pub(crate) struct Layer {
@@ -57,8 +57,8 @@ pub(crate) fn layers() -> [Layer; 4] {
     ]
 }
 
-/// Words a bare name may simply be, English words in running text and SQL key words in
-/// running text and code spans.
+/// Words a bare name may simply be, English words in running text and SQL key words and WASI
+/// function names in running text and code spans.
 pub(crate) struct Vocabulary {
     words: fst::Set<&'static [u8]>,
 }
@@ -76,6 +76,14 @@ impl Vocabulary {
         Self {
             words: fst::Set::new(&include_bytes!("../data/sql/words.fst")[..])
                 .expect("data/sql holds an fst set written by xtask"),
+        }
+    }
+
+    /// The function names of WASI Preview 1.
+    pub(crate) fn wasi_preview1() -> Self {
+        Self {
+            words: fst::Set::new(&include_bytes!("../data/wasi/words.fst")[..])
+                .expect("data/wasi holds an fst set written by xtask"),
         }
     }
 
