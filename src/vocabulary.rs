@@ -113,6 +113,22 @@ const BUILTINS: &[BuiltinVocabulary] = &[
         source_version: include_str!("../data/bcd/BCD").trim_ascii(),
         builtin: config::Builtin::Svg2026_10,
     },
+    BuiltinVocabulary {
+        id: "postgres@18",
+        kind: "technical",
+        case: "sensitive",
+        source: "https://github.com/postgres/postgres",
+        source_version: include_str!("../data/postgres/POSTGRESQL").trim_ascii(),
+        builtin: config::Builtin::Postgres18,
+    },
+    BuiltinVocabulary {
+        id: "sqlite@3.54",
+        kind: "technical",
+        case: "sensitive",
+        source: "https://github.com/sqlite/sqlite",
+        source_version: include_str!("../data/sqlite/SQLITE").trim_ascii(),
+        builtin: config::Builtin::Sqlite3_54,
+    },
 ];
 
 /// Returns metadata for the bundled vocabularies.

@@ -97,6 +97,9 @@ fn vocab() -> Result<(), Error> {
     standard_library(&data.join("std"))?;
     english(&data.join("english"))?;
     sql(&data.join("sql"))?;
+    let english = english_words(&data.join("english").join("words.fst"))?;
+    postgres(&data.join("postgres"), &english)?;
+    sqlite(&data.join("sqlite"), &english)?;
     wasi(&data.join("wasi"))?;
     wasm(&data.join("wasm"))?;
     android(&data.join("android"))?;
@@ -306,6 +309,168 @@ fn sql(out: &Path) -> Result<(), Error> {
     })?;
     println!("sql@2023: {count} words");
     Ok(())
+}
+
+/// The English word list `english` wrote to `path`.
+fn english_words(path: &Path) -> Result<fst::Set<Vec<u8>>, Error> {
+    let bytes = std::fs::read(path).map_err(|source| Error::Read {
+        path: path.to_owned(),
+        source,
+    })?;
+    Ok(fst::Set::new(bytes)?)
+}
+
+/// Every piece of `text` between an occurrence of `open` and the next `close`.
+fn delimited<'a>(text: &'a str, open: &'a str, close: &'a str) -> impl Iterator<Item = &'a str> {
+    text.split(open)
+        .skip(1)
+        .filter_map(move |rest| rest.split_once(close).map(|(inside, _)| inside))
+}
+
+/// Whether `name` is a lowercase SQL identifier such as `set_config` that a vocabulary can
+/// claim: one with an inner underscore, or a single word English lacks, such as `uuidv7`.
+///
+/// A single English word such as `date` or `text` names too many Rust items to claim.
+fn claimable_function(name: &str, english: &fst::Set<Vec<u8>>) -> bool {
+    let identifier = name.starts_with(|c: char| c.is_ascii_lowercase() || c == '_')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+    identifier && (name.trim_matches('_').contains('_') || !english.contains(name))
+}
+
+/// Writes `words.fst`, the claimable names among the functions PostgreSQL's Functions and
+/// Operators chapter documents, and PostgreSQL's `COPYRIGHT`, which its license requires next
+/// to any copy.
+///
+/// A documented name counts when the catalog defines a function of that name or the grammar
+/// a key word, as for `coalesce`, which leaves out names the prose merely cites.
+fn postgres(out: &Path, english: &fst::Set<Vec<u8>>) -> Result<(), Error> {
+    let pinned = include_str!("../../data/postgres/POSTGRESQL").trim_ascii();
+    let show = pinned_files(POSTGRESQL_REPOSITORY, "postgresql", pinned)?;
+    let catalog = show("src/include/catalog/pg_proc.dat")?;
+    let keywords = show("src/include/parser/kwlist.h")?;
+    let defined: HashSet<&str> = delimited(&catalog, "proname => '", "'")
+        .chain(delimited(&keywords, "PG_KEYWORD(\"", "\""))
+        .collect();
+    let chapter = show("doc/src/sgml/func.sgml")?;
+    let words: BTreeSet<&str> = delimited(&chapter, "<function>", "</function>")
+        .filter(|name| defined.contains(name) && claimable_function(name, english))
+        .collect();
+    create_dir(out)?;
+    let count = write_set(&out.join("words.fst"), words.iter().copied())?;
+    let target = out.join("COPYRIGHT");
+    std::fs::write(&target, show("COPYRIGHT")?).map_err(|source| Error::Write {
+        path: target,
+        source,
+    })?;
+    println!("postgres@18: {count} words");
+    Ok(())
+}
+
+/// Where SQLite's source is mirrored with its release tags.
+const SQLITE_REPOSITORY: &str = "https://github.com/sqlite/sqlite";
+
+/// The SQLite sources that register its built-in scalar, date, JSON and window functions.
+const SQLITE_FUNCTION_SOURCES: [&str; 4] =
+    ["src/func.c", "src/date.c", "src/json.c", "src/window.c"];
+
+/// The macros a SQLite release build registers a built-in function through, leaving out
+/// `TEST_FUNC` and `INTERNAL_FUNCTION`, which only tests and the engine itself reach.
+const SQLITE_REGISTRATIONS: [&str; 15] = [
+    "FUNCTION",
+    "FUNCTION2",
+    "SFUNCTION",
+    "MFUNCTION",
+    "JFUNCTION",
+    "INLINE_FUNC",
+    "DFUNCTION",
+    "PURE_DATE",
+    "LIKEFUNC",
+    "WAGGREGATE",
+    "AGGREGATE",
+    "AGGREGATE2",
+    "WINDOWFUNCALL",
+    "WINDOWFUNCNOOP",
+    "WINDOWFUNCX",
+];
+
+/// Writes `words.fst`, the claimable names among the functions a SQLite release build
+/// registers, and SQLite's `LICENSE.md`, which dedicates it to the public domain.
+fn sqlite(out: &Path, english: &fst::Set<Vec<u8>>) -> Result<(), Error> {
+    let pinned = include_str!("../../data/sqlite/SQLITE").trim_ascii();
+    let show = pinned_files(SQLITE_REPOSITORY, "sqlite", pinned)?;
+    let mut words = BTreeSet::new();
+    for source in SQLITE_FUNCTION_SOURCES {
+        words.extend(
+            sqlite_registrations(&show(source)?)
+                .into_iter()
+                .filter(|name| claimable_function(name, english)),
+        );
+    }
+    create_dir(out)?;
+    let count = write_set(&out.join("words.fst"), words.iter().map(String::as_str))?;
+    let target = out.join("LICENSE.md");
+    std::fs::write(&target, show("LICENSE.md")?).map_err(|source| Error::Write {
+        path: target,
+        source,
+    })?;
+    println!("sqlite@3.54: {count} words");
+    Ok(())
+}
+
+/// The lowercased names `source` registers through a [`SQLITE_REGISTRATIONS`] macro outside
+/// the branches that only `SQLITE_DEBUG` or `SQLITE_TEST` builds compile.
+fn sqlite_registrations(source: &str) -> Vec<String> {
+    let mut debug_only = Vec::new();
+    let mut names = Vec::new();
+    for line in source.lines().map(str::trim) {
+        if let Some(directive) = line.strip_prefix('#').map(str::trim_start) {
+            let names_debug = (directive.contains("SQLITE_DEBUG")
+                || directive.contains("SQLITE_TEST"))
+                && !directive.starts_with("ifndef")
+                && !directive.contains("!defined");
+            if directive.starts_with("if") {
+                debug_only.push(names_debug);
+            } else if directive.starts_with("elif") {
+                if let Some(last) = debug_only.last_mut() {
+                    *last = names_debug;
+                }
+            } else if directive.starts_with("else") {
+                if let Some(last) = debug_only.last_mut() {
+                    *last = false;
+                }
+            } else if directive.starts_with("endif") {
+                debug_only.pop();
+            }
+            continue;
+        }
+        if debug_only.contains(&true) {
+            continue;
+        }
+        for registration in SQLITE_REGISTRATIONS {
+            for (at, _) in line.match_indices(registration) {
+                let before = line[..at].chars().next_back();
+                if before.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_') {
+                    continue;
+                }
+                let Some(arguments) = line[at + registration.len()..]
+                    .trim_start()
+                    .strip_prefix('(')
+                else {
+                    continue;
+                };
+                let arguments = arguments.trim_start();
+                let end = arguments
+                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                    .unwrap_or(arguments.len());
+                if end > 0 {
+                    names.push(arguments[..end].to_ascii_lowercase());
+                }
+            }
+        }
+    }
+    names
 }
 
 /// Writes `words.fst`, the function names of WASI Preview 1, and WASI's `LICENSE.md`, the

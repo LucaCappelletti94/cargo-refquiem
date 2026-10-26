@@ -17,6 +17,66 @@ fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Output {
         .unwrap()
 }
 
+/// `(id, source, source_version)` of every technical built-in, in catalog order.
+const TECHNICAL_CATALOG: [(&str, &str, &str); 12] = [
+    (
+        "sql@2023",
+        "https://github.com/postgres/postgres",
+        "REL_17_11",
+    ),
+    (
+        "wasi@preview1",
+        "https://github.com/WebAssembly/WASI",
+        "v0.2.9",
+    ),
+    ("wasm@3.0", "https://github.com/WebAssembly/spec", "wg-3.0"),
+    (
+        "android@36",
+        "https://android.googlesource.com/platform/frameworks/base",
+        "android-16.0.0_r4",
+    ),
+    (
+        "uikit@27.1",
+        "https://github.com/dotnet/macios",
+        "dotnet-10.0.1xx-xcode27.1-10018",
+    ),
+    (
+        "posix@2017",
+        "https://mirrors.edge.kernel.org/pub/linux/docs/man-pages/man-pages-posix",
+        "man-pages-posix-2017-a",
+    ),
+    (
+        "web-api@2026-10",
+        "https://github.com/mdn/browser-compat-data",
+        "v8.1.7",
+    ),
+    (
+        "python@3.15",
+        "https://github.com/python/cpython",
+        "v3.15.2",
+    ),
+    (
+        "javascript@2026-10",
+        "https://github.com/mdn/browser-compat-data",
+        "v8.1.7",
+    ),
+    (
+        "svg@2026-10",
+        "https://github.com/mdn/browser-compat-data",
+        "v8.1.7",
+    ),
+    (
+        "postgres@18",
+        "https://github.com/postgres/postgres",
+        "REL_18_6",
+    ),
+    (
+        "sqlite@3.54",
+        "https://github.com/sqlite/sqlite",
+        "version-3.54.1",
+    ),
+];
+
 #[test]
 fn vocabulary_catalog_ignores_project_state_outside_a_repository() {
     let dir = tempfile::tempdir().unwrap();
@@ -24,65 +84,18 @@ fn vocabulary_catalog_ignores_project_state_outside_a_repository() {
     let output = cargo_refquiem(dir.path(), &["vocabularies", "--json"]);
     assert_eq!(output.status.code(), Some(0));
     let catalog: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let technical: Vec<_> = [
-        (
-            "sql@2023",
-            "https://github.com/postgres/postgres",
-            "REL_17_11",
-        ),
-        (
-            "wasi@preview1",
-            "https://github.com/WebAssembly/WASI",
-            "v0.2.9",
-        ),
-        ("wasm@3.0", "https://github.com/WebAssembly/spec", "wg-3.0"),
-        (
-            "android@36",
-            "https://android.googlesource.com/platform/frameworks/base",
-            "android-16.0.0_r4",
-        ),
-        (
-            "uikit@27.1",
-            "https://github.com/dotnet/macios",
-            "dotnet-10.0.1xx-xcode27.1-10018",
-        ),
-        (
-            "posix@2017",
-            "https://mirrors.edge.kernel.org/pub/linux/docs/man-pages/man-pages-posix",
-            "man-pages-posix-2017-a",
-        ),
-        (
-            "web-api@2026-10",
-            "https://github.com/mdn/browser-compat-data",
-            "v8.1.7",
-        ),
-        (
-            "python@3.15",
-            "https://github.com/python/cpython",
-            "v3.15.2",
-        ),
-        (
-            "javascript@2026-10",
-            "https://github.com/mdn/browser-compat-data",
-            "v8.1.7",
-        ),
-        (
-            "svg@2026-10",
-            "https://github.com/mdn/browser-compat-data",
-            "v8.1.7",
-        ),
-    ]
-    .into_iter()
-    .map(|(id, source, source_version)| {
-        serde_json::json!({
-            "id": id,
-            "kind": "technical",
-            "case": "sensitive",
-            "source": source,
-            "source_version": source_version,
+    let technical: Vec<_> = TECHNICAL_CATALOG
+        .into_iter()
+        .map(|(id, source, source_version)| {
+            serde_json::json!({
+                "id": id,
+                "kind": "technical",
+                "case": "sensitive",
+                "source": source,
+                "source_version": source_version,
+            })
         })
-    })
-    .collect();
+        .collect();
     let entries = catalog.as_array().unwrap();
     assert_eq!(entries[0]["id"], "english");
     assert_eq!(entries[1..], technical);

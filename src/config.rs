@@ -101,6 +101,10 @@ pub(crate) enum Builtin {
     Javascript2026_10,
     #[serde(rename = "svg@2026-10")]
     Svg2026_10,
+    #[serde(rename = "postgres@18")]
+    Postgres18,
+    #[serde(rename = "sqlite@3.54")]
+    Sqlite3_54,
 }
 
 /// The config at `path`, the default one when `path` is absent and not `required`.

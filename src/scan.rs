@@ -1178,7 +1178,7 @@ impl VocabularyWords {
 }
 
 /// The exact-case technical built-ins, in catalog order, with their word lists.
-const TECHNICAL: [(config::Builtin, fn() -> stdlib::Vocabulary); 10] = [
+const TECHNICAL: [(config::Builtin, fn() -> stdlib::Vocabulary); 12] = [
     (config::Builtin::Sql2023, stdlib::Vocabulary::sql_2023),
     (
         config::Builtin::WasiPreview1,
@@ -1198,6 +1198,8 @@ const TECHNICAL: [(config::Builtin, fn() -> stdlib::Vocabulary); 10] = [
         stdlib::Vocabulary::javascript_2026_10,
     ),
     (config::Builtin::Svg2026_10, stdlib::Vocabulary::svg_2026_10),
+    (config::Builtin::Postgres18, stdlib::Vocabulary::postgres_18),
+    (config::Builtin::Sqlite3_54, stdlib::Vocabulary::sqlite_3_54),
 ];
 
 /// The selected optional words, stored once under each declared case rule.

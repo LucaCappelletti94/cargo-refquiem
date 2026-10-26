@@ -157,6 +157,24 @@ impl Vocabulary {
         }
     }
 
+    /// The documented PostgreSQL 18 function names with an inner underscore, or single words
+    /// English lacks, such as `set_config` and `uuidv7`.
+    pub(crate) fn postgres_18() -> Self {
+        Self {
+            words: fst::Set::new(&include_bytes!("../data/postgres/words.fst")[..])
+                .expect("data/postgres holds an fst set written by xtask"),
+        }
+    }
+
+    /// The SQLite 3.54 built-in function names with an inner underscore, or single words
+    /// English lacks, such as `json_extract` and `strftime`.
+    pub(crate) fn sqlite_3_54() -> Self {
+        Self {
+            words: fst::Set::new(&include_bytes!("../data/sqlite/words.fst")[..])
+                .expect("data/sqlite holds an fst set written by xtask"),
+        }
+    }
+
     /// Whether `word`, spelled as the vocabulary stores it, is one of its words.
     pub(crate) fn contains(&self, word: &str) -> bool {
         self.words.contains(word)
