@@ -16,7 +16,7 @@ concurrency:
 jobs:
   dogfood:
     name: Run the action on this repository
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v4
         with:
