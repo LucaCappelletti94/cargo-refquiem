@@ -203,6 +203,8 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
         "[vocabularies]\nbuiltins = [\"posix@2024\"]\n",
         "[vocabularies]\nbuiltins = [\"web-api\"]\n",
         "[vocabularies]\nbuiltins = [\"web-api@2026-09\"]\n",
+        "[vocabularies]\nbuiltins = [\"python\"]\n",
+        "[vocabularies]\nbuiltins = [\"python@3.14\"]\n",
         "[vocabularies]\nbuiltins = [\"rust\"]\n",
         "[vocabularies]\nbuiltin = [\"english\"]\n",
         "[vocabularies]\nbuiltins = \"english\"\n",
@@ -214,6 +216,59 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
             matches!(&error, refquiem::Error::Config { path, .. } if path == &config_path),
             "{config} {error}"
         );
+    }
+}
+
+#[test]
+fn python_3_15_claims_compound_classes_and_camel_case_names() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "#![allow(non_snake_case)]\npub struct ValueError;\npub struct ThreadPoolExecutor;\npub fn addHandler() {}\npub fn read_text() {}\npub fn isinstance() {}\n",
+    );
+    repo.commit("public names");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// let _ = ValueError;\n/// ```\npub struct Kept;\n",
+    );
+    repo.write(
+        "README.md",
+        "A ValueError stops the ThreadPoolExecutor and addHandler.\nThen read_text, `isinstance` and `fixture::ValueError`\n",
+    );
+    repo.commit("remove names");
+    let options = Options::new(repo.path().to_path_buf());
+    let mentions = || {
+        let mut out: Vec<(String, usize, String)> = refquiem::run(&options)
+            .unwrap()
+            .groups
+            .iter()
+            .flat_map(|group| group.mentions.iter())
+            .map(|m| (m.file.clone(), m.line, m.text.clone()))
+            .collect();
+        out.sort();
+        out
+    };
+    let row = |file: &str, line, text: &str| (file.to_owned(), line, text.to_owned());
+    let selected = vec![
+        row("README.md", 2, "fixture::ValueError"),
+        row("README.md", 2, "isinstance"),
+        row("README.md", 2, "read_text"),
+        row("src/lib.rs", 2, "ValueError"),
+    ];
+    let mut unselected = selected.clone();
+    unselected.extend([
+        row("README.md", 1, "ThreadPoolExecutor"),
+        row("README.md", 1, "ValueError"),
+        row("README.md", 1, "addHandler"),
+    ]);
+    unselected.sort();
+    for (config, expected) in [
+        ("", &unselected),
+        ("[vocabularies]\nbuiltins = [\"wasm@3.0\"]\n", &unselected),
+        ("[vocabularies]\nbuiltins = [\"python@3.15\"]\n", &selected),
+    ] {
+        repo.write(".refquiem.toml", config);
+        assert_eq!(&mentions(), expected, "{config}");
     }
 }
 

@@ -56,6 +56,11 @@ fn vocabulary_catalog_ignores_project_state_outside_a_repository() {
             "https://github.com/mdn/browser-compat-data",
             "v8.1.7",
         ),
+        (
+            "python@3.15",
+            "https://github.com/python/cpython",
+            "v3.15.2",
+        ),
     ]
     .into_iter()
     .map(|(id, source, source_version)| {

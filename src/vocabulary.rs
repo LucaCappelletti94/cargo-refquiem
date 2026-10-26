@@ -89,6 +89,14 @@ const BUILTINS: &[BuiltinVocabulary] = &[
         source_version: include_str!("../data/web-api/BCD").trim_ascii(),
         builtin: config::Builtin::WebApi2026_10,
     },
+    BuiltinVocabulary {
+        id: "python@3.15",
+        kind: "technical",
+        case: "sensitive",
+        source: "https://github.com/python/cpython",
+        source_version: include_str!("../data/python/CPYTHON").trim_ascii(),
+        builtin: config::Builtin::Python3_15,
+    },
 ];
 
 /// Returns metadata for the bundled vocabularies.
