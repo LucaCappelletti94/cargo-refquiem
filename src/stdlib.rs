@@ -122,6 +122,15 @@ impl Vocabulary {
         }
     }
 
+    /// The standards-track Web API interface and member names that are compound or camelCase,
+    /// from MDN's browser compatibility data of October 2026.
+    pub(crate) fn web_api_2026_10() -> Self {
+        Self {
+            words: fst::Set::new(&include_bytes!("../data/web-api/words.fst")[..])
+                .expect("data/web-api holds an fst set written by xtask"),
+        }
+    }
+
     /// Whether `word`, spelled as the vocabulary stores it, is one of its words.
     pub(crate) fn contains(&self, word: &str) -> bool {
         self.words.contains(word)

@@ -93,6 +93,8 @@ pub(crate) enum Builtin {
     Uikit27_1,
     #[serde(rename = "posix@2017")]
     Posix2017,
+    #[serde(rename = "web-api@2026-10")]
+    WebApi2026_10,
 }
 
 /// The config at `path`, the default one when `path` is absent and not `required`.
