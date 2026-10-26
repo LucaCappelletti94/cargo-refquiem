@@ -1438,19 +1438,29 @@ impl Indexer {
             }
             self.grow(&mut tree);
         }
-        // A source among the paths reaches mentions only through the copies above.
+        // A source among the paths reaches mentions only through the copies above, unless it is
+        // itself a re-export of an outside source, whose members no copy carries.
         let mut reexports = Reexports::new();
+        let mut inside = Vec::new();
         for ((module, source, name, _), site) in uses.iter().zip(&use_sites) {
-            let inside = site.target.is_some()
-                || self
-                    .resolve_use(module, source, crates, paths)
+            let target = site.target.or_else(|| {
+                self.resolve_use(module, source, crates, paths)
                     .and_then(|(resolved, _)| self.interner.find_path(&resolved))
-                    .is_some_and(|id| paths.contains(&id));
-            if inside {
-                continue;
-            }
+                    .filter(|id| paths.contains(id))
+            });
             let mut alias = module.clone();
             alias.extend(*name);
+            match target {
+                Some(target) if name.is_some() => inside.push((alias, source, target)),
+                Some(_) => {}
+                None => reexports.entry(alias).or_default().push(source.clone()),
+            }
+        }
+        while let Some(at) = inside
+            .iter()
+            .position(|(_, _, target)| reexports.contains_key(self.interner.segments(*target)))
+        {
+            let (alias, source, _) = inside.swap_remove(at);
             reexports.entry(alias).or_default().push(source.clone());
         }
         (reexports, origins)
