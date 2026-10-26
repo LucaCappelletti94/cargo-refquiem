@@ -265,6 +265,17 @@ pub struct Mention {
     pub context: Context,
     /// The mention's line with every suggested rewrite on that line applied.
     pub replacement: Option<String>,
+    /// The selected exact-case vocabulary entry the mention would match in uppercase.
+    pub uppercase: Option<Uppercase>,
+}
+
+/// A spelling a selected exact-case vocabulary holds.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Uppercase {
+    /// The mention in uppercase.
+    pub spelling: String,
+    /// The built-in id or the canonical path of the custom file holding it.
+    pub vocabulary: String,
 }
 
 /// How a suggested name relates to the removed one.
@@ -444,7 +455,7 @@ impl Report {
         for group in &self.groups {
             let _ = writeln!(out, "\n{}", group.headline());
             for mention in &group.mentions {
-                let _ = writeln!(
+                let _ = write!(
                     out,
                     "  {}:{}:{}  {}",
                     mention.file,
@@ -452,6 +463,14 @@ impl Report {
                     mention.column,
                     mention.context.describe()
                 );
+                if let Some(hint) = &mention.uppercase {
+                    let _ = write!(
+                        out,
+                        ", write {} to mark it as {}",
+                        hint.spelling, hint.vocabulary
+                    );
+                }
+                out.push('\n');
             }
         }
         out

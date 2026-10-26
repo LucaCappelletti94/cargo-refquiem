@@ -49,6 +49,15 @@ pub fn available() -> &'static [BuiltinVocabulary] {
     BUILTINS
 }
 
+/// The id of `builtin` in the catalog.
+pub(crate) fn id(builtin: config::Builtin) -> &'static str {
+    BUILTINS
+        .iter()
+        .find(|vocabulary| vocabulary.builtin == builtin)
+        .expect("the catalog lists every built-in")
+        .id
+}
+
 /// Metadata for a selected custom vocabulary file.
 #[derive(Debug, serde::Serialize)]
 pub struct CustomVocabulary {

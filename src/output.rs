@@ -21,8 +21,15 @@ impl Report {
         let level = if no_fail { "warning" } else { "error" };
         let mut out = String::new();
         for group in &self.groups {
-            let message = escape(&format!("{}, is still mentioned here", group.headline()));
+            let message = format!("{}, is still mentioned here", group.headline());
             for mention in &group.mentions {
+                let message = match &mention.uppercase {
+                    Some(hint) => escape(&format!(
+                        "{message}, write `{}` to mark it as `{}`",
+                        hint.spelling, hint.vocabulary
+                    )),
+                    None => escape(&message),
+                };
                 let _ = writeln!(
                     out,
                     "::{level} file={},line={},col={},title=refquiem::{message}",
@@ -173,7 +180,16 @@ impl Report {
         let mentions = group
             .mentions
             .iter()
-            .map(|mention| self.position(&mention.file, mention.line, mention.column, root))
+            .map(|mention| {
+                let mut place = self.position(&mention.file, mention.line, mention.column, root);
+                if let Some(hint) = &mention.uppercase {
+                    place.push_str(", write ");
+                    span(&mut place, &hint.spelling);
+                    place.push_str(" to mark it as ");
+                    span(&mut place, &hint.vocabulary);
+                }
+                place
+            })
             .collect::<Vec<_>>();
         let mentions = folded(&mentions);
         format!(
@@ -378,6 +394,7 @@ mod tests {
                 kind: Kind::Text,
             },
             replacement: None,
+            uppercase: None,
         }
     }
 
@@ -491,6 +508,7 @@ mod tests {
                 kind: Kind::Text,
             },
             replacement: None,
+            uppercase: None,
         };
         let report = Report {
             base: None,
@@ -528,6 +546,7 @@ mod tests {
                 kind: Kind::Text,
             },
             replacement: None,
+            uppercase: None,
         };
         let group = |path: &str| Group {
             path: path.to_owned(),
