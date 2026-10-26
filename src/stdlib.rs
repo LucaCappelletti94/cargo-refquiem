@@ -71,8 +71,8 @@ impl Vocabulary {
         }
     }
 
-    /// Whether `word`, case-folded, is an English word.
-    pub(crate) fn claims(&self, word: &str) -> bool {
-        self.words.contains(word.to_lowercase())
+    /// Whether the Unicode-lowercased `word` is an English word.
+    pub(crate) fn claims_lowercase(&self, word: &str) -> bool {
+        self.words.contains(word)
     }
 }

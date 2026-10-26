@@ -207,10 +207,11 @@ fn print_selection(
         "Rust standard-library resolution {}",
         selection.rust_stdlib
     )?;
-    if selection.builtins.is_empty() {
+    if selection.builtins.is_empty() && selection.files.is_empty() {
         writeln!(stdout, "No optional vocabularies selected.")?;
     }
     print_builtins(&mut stdout, selection.builtins)?;
+    print_files(&mut stdout, &selection.files)?;
     Ok(())
 }
 
@@ -229,6 +230,23 @@ fn print_builtins(
             "  source {} @{}",
             builtin.source, builtin.source_version
         )?;
+    }
+    Ok(())
+}
+
+fn print_files(
+    output: &mut impl std::io::Write,
+    files: &[refquiem::vocabulary::CustomVocabulary],
+) -> std::io::Result<()> {
+    for file in files {
+        writeln!(
+            output,
+            "{} ({}, {})",
+            file.path.display(),
+            file.kind,
+            file.case
+        )?;
+        writeln!(output, "  format version {}", file.format_version)?;
     }
     Ok(())
 }

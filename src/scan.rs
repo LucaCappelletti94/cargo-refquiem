@@ -1,5 +1,6 @@
 //! A scan: index the range, subtract head, find mentions, attribute removals.
 
+use std::borrow::Cow;
 use std::cell::{RefCell, RefMut};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -8,13 +9,12 @@ use std::rc::Rc;
 use gix::ObjectId;
 
 use crate::cache::FileCache;
-use crate::config::{self, Config, Filter};
+use crate::config::{self, Category, Config, Filter, load_custom};
 use crate::deps::{self, Removal, Scratch};
 use crate::git::{self, Head, Snapshot, TreeSnapshot, Trees, WorkTreeSnapshot};
 use crate::index::{Index, Indexer, Reexports};
 use crate::intern::{Interner, PathId, Sym};
 use crate::parse::SERDE_MARKER;
-use crate::stdlib::Vocabulary;
 use crate::text::{self, Named, Spelled};
 use crate::{
     Context, Error, Group, HashMap, HashSet, ItemKind, Kind, Mention, Options, Position, Range,
@@ -148,7 +148,8 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     repo.object_cache_size_if_unset(64 * 1024 * 1024);
     let layout = layout(options, &repo)?;
     let workspace_dir = layout.workdir.join(&layout.workspace);
-    let (config, range) = settings(options, &workspace_dir)?;
+    let (config_path, config, range) = settings(options, &workspace_dir)?;
+    let custom = load_custom(&config_path, &config)?;
     let mut indexer = Indexer::new(FileCache::load(&layout.cache_dir));
     let (commits, head, start) = git::range(&repo, &range)?;
     let head_snapshot = head_snapshot(&repo, &layout, &commits, &head, &indexer.trees);
@@ -198,7 +199,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         &rooted,
     );
     matcher.add_vocabulary(&config.allow);
-    matcher.vocabulary = config.uses_english().then(Vocabulary::new);
+    matcher.vocabularies = Vocabularies::new(config.uses_english(), custom);
     let filter = filter(
         options,
         &config,
@@ -514,14 +515,15 @@ pub(crate) fn selected_config(
     Ok((path, config))
 }
 
-/// The config of the scan and its range, `since` from the config starting a full one.
-fn settings(options: &Options, workspace_dir: &Path) -> Result<(Config, Range), Error> {
-    let (_, config) = selected_config(options, workspace_dir)?;
+/// The config of the scan, the path selected for it and its range, `since` from the config
+/// starting a full one.
+fn settings(options: &Options, workspace_dir: &Path) -> Result<(PathBuf, Config, Range), Error> {
+    let (path, config) = selected_config(options, workspace_dir)?;
     let range = match (&options.range, &config.since) {
         (Range::Full, Some(since)) => Range::Since(since.clone()),
         (range, _) => range.clone(),
     };
-    Ok((config, range))
+    Ok((path, config, range))
 }
 
 /// The files the scan reads for mentions, inside the `--package` member when one is named.
@@ -1136,6 +1138,115 @@ fn ranked(
     keyed.into_iter().map(|(_, id)| id).collect()
 }
 
+#[derive(Default)]
+struct VocabularyWords {
+    entries: HashMap<String, Category>,
+    technical: bool,
+}
+
+impl VocabularyWords {
+    fn insert(&mut self, word: String, category: Category) {
+        self.technical |= category == Category::Technical;
+        self.entries
+            .entry(word)
+            .and_modify(|kind| {
+                if category == Category::Technical {
+                    *kind = Category::Technical;
+                }
+            })
+            .or_insert(category);
+    }
+
+    fn applies(&self, text: bool) -> bool {
+        !self.entries.is_empty() && (text || self.technical)
+    }
+
+    fn claims(&self, word: &str, text: bool) -> bool {
+        self.entries
+            .get(word)
+            .is_some_and(|category| text || *category == Category::Technical)
+    }
+}
+
+/// The selected optional words, stored once under each declared case rule.
+#[derive(Default)]
+struct Vocabularies {
+    english: Option<stdlib::Vocabulary>,
+    sensitive: VocabularyWords,
+    ascii: VocabularyWords,
+    unicode: VocabularyWords,
+}
+
+impl Vocabularies {
+    fn new(english: bool, files: Vec<config::Custom>) -> Self {
+        let mut selected = Self {
+            english: english.then(stdlib::Vocabulary::new),
+            ..Self::default()
+        };
+        for file in files {
+            let words = match file.case {
+                config::Case::Sensitive => &mut selected.sensitive,
+                config::Case::AsciiInsensitive => &mut selected.ascii,
+                config::Case::UnicodeLowercase => &mut selected.unicode,
+            };
+            for mut word in file.words {
+                match file.case {
+                    config::Case::Sensitive => {}
+                    config::Case::AsciiInsensitive => word.make_ascii_lowercase(),
+                    config::Case::UnicodeLowercase => {
+                        if needs_lowercase(&word) {
+                            word = word.to_lowercase();
+                        }
+                    }
+                }
+                words.insert(word, file.kind);
+            }
+        }
+        selected
+    }
+
+    fn claims(&self, word: &str, kind: Kind) -> bool {
+        let text = kind == Kind::Text;
+        if !text && kind != Kind::CodeSpan {
+            return false;
+        }
+        if self.sensitive.claims(word, text) {
+            return true;
+        }
+        let english = self.english.as_ref().filter(|_| text);
+        let lowercase = (self.unicode.applies(text) || english.is_some()).then(|| {
+            if needs_lowercase(word) {
+                Cow::Owned(word.to_lowercase())
+            } else {
+                Cow::Borrowed(word)
+            }
+        });
+        if let Some(lowercase) = &lowercase
+            && (english.is_some_and(|english| english.claims_lowercase(lowercase))
+                || self.unicode.claims(lowercase, text))
+        {
+            return true;
+        }
+        if !self.ascii.applies(text) {
+            return false;
+        }
+        let ascii = if word.is_ascii() { lowercase } else { None };
+        let ascii = ascii.unwrap_or_else(|| {
+            if word.bytes().any(|byte| byte.is_ascii_uppercase()) {
+                Cow::Owned(word.to_ascii_lowercase())
+            } else {
+                Cow::Borrowed(word)
+            }
+        });
+        self.ascii.claims(&ascii, text)
+    }
+}
+
+fn needs_lowercase(word: &str) -> bool {
+    word.chars()
+        .any(|character| character.to_lowercase().ne(std::iter::once(character)))
+}
+
 /// Decides which spelled paths, bare names and manifest names name something removed.
 struct Matcher<'a> {
     interner: &'a Interner,
@@ -1153,7 +1264,7 @@ struct Matcher<'a> {
     /// The library crate names of head.
     libs: Vec<&'a str>,
     std: [stdlib::Layer; 4],
-    vocabulary: Option<Vocabulary>,
+    vocabularies: Vocabularies,
     entries: &'a Entries<'a>,
     /// The crate names of every workspace target in any indexed snapshot.
     crates: &'a HashSet<Sym>,
@@ -1238,7 +1349,7 @@ impl<'a> Matcher<'a> {
             removed_spellings,
             libs: head.libs.iter().map(|&lib| interner.name(lib)).collect(),
             std: stdlib::layers(),
-            vocabulary: None,
+            vocabularies: Vocabularies::default(),
             entries,
             crates,
             reexports: &head.reexports,
@@ -1301,13 +1412,7 @@ impl<'a> Matcher<'a> {
         } else {
             self.removed_names.get(&sym)
         };
-        let name = name.filter(|_| {
-            !(context.kind == Kind::Text
-                && self
-                    .vocabulary
-                    .as_ref()
-                    .is_some_and(|vocabulary| vocabulary.claims(word)))
-        });
+        let name = name.filter(|_| !self.vocabularies.claims(word, context.kind));
         Some(self.pick(name.or_else(|| self.removed_spellings.get(&sym))?, own))
     }
 

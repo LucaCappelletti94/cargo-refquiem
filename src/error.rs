@@ -2,6 +2,21 @@
 
 use std::path::PathBuf;
 
+/// Why a custom vocabulary file could not be used.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum CustomFailure {
+    #[error("the file could not be read")]
+    Io(#[source] std::io::Error),
+    #[error("the file is not valid UTF-8")]
+    Utf8,
+    #[error("the file is not valid TOML")]
+    Toml(#[source] Box<toml::de::Error>),
+    #[error("format version {0} is unsupported")]
+    Version(u32),
+    #[error("the word {0:?} is empty or holds whitespace or control characters")]
+    Word(String),
+}
+
 /// A failed scan.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -120,6 +135,16 @@ pub enum Error {
         /// The cause.
         #[source]
         source: Box<toml::de::Error>,
+    },
+    /// A custom vocabulary file cannot be read, is not valid TOML, or carries
+    /// unsupported values.
+    #[error("reading the custom vocabulary {path}")]
+    Custom {
+        /// The custom vocabulary file.
+        path: PathBuf,
+        /// The cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
     },
     /// `--package` names no workspace member.
     #[error("no workspace member is named `{0}`")]

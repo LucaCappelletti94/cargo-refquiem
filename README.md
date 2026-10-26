@@ -27,7 +27,7 @@ cargo refquiem vocabularies                    # bundled vocabularies and their 
 cargo refquiem vocabularies --effective        # resolved workspace vocabulary selection
 ```
 
-The exit status is `0` when nothing is stale, `1` with findings and `2` on errors. A `.refquiem.toml` at the workspace root selects optional vocabularies and configures excludes and allowed names. A `refquiem: allow(Name)` comment silences one mention, and `cargo refquiem --help` lists every option.
+The exit status is `0` when nothing is stale, `1` with findings and `2` on errors. A `.refquiem.toml` at the workspace root selects optional vocabularies through `builtins` and project-owned `files`, and configures excludes and allowed names. A `refquiem: allow(Name)` comment silences one mention, and `cargo refquiem --help` lists every option.
 
 ## GitHub Action
 
