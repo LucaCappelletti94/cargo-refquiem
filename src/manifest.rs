@@ -159,6 +159,15 @@ pub(crate) fn read_manifest(
     Ok(Some(manifest))
 }
 
+/// Reads a package from its parsed manifest without workspace inheritance.
+pub(crate) fn package(
+    snapshot: &dyn Snapshot,
+    dir: &str,
+    manifest: &Table,
+) -> Result<Option<Member>, Error> {
+    read_member(snapshot, dir, manifest, (dir, None))
+}
+
 fn read_member(
     snapshot: &dyn Snapshot,
     dir: &str,
