@@ -1,22 +1,0 @@
-/// Prose names crate::gone here.
-///// Prose names crate::gone here.
-/// A'span `crate:: crate::gone here.
-/// A span `crate::gone`, a' link [`crate::gone`] and [text](cr`te::gxt](cnd [text](a:cg:ext](c2ate::gone).
-///
-/// + 3)
-        });
-    // Span locationsalone, the vocabcg:ext](c2ate::gone).
-///
-/// + 3)
-        atures  // Span locations ::gone`, a linkincludes: Vec<Ie::gone here.
-///// Prose names crate::gone here.
-/// A'span `crate::gone`, a link [`crat[`crate::gone`] a/ A```json span `Mrate:$gone`,/// Prose names crate::gone here.
-/// A span `crate::gone`, a link [`crate::gone`] and [text](cr`te::gxt](cnd [text](a:cg:ext](c2ate::gone).
-///
-/// + 3)
-        atures  // Span locations ::gone`, a linkincludes: Vec<Ie::gone here.
-///// Prose names crate::gone here.
-/// A'span `crate::gone`, a link [`crate::gone`] a/ A span `Mrate:$gone`,/// Prose 
-    pub(crate) impls: Vec<Impl>,
-    ///te::gone here.
-/ Re-exports and renaming // A spai
