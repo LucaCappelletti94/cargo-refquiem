@@ -393,7 +393,10 @@ fn libraries(
                 }
             };
             if let Some(node) = nodes.get(&id) {
-                for first in library.use_roots() {
+                let reached = library
+                    .use_roots()
+                    .chain(library.macro_crates.iter().copied());
+                for first in reached {
                     let first = indexer.interner.name(first);
                     if let Some(dep) = node.deps.iter().find(|dep| dep.name == first) {
                         queue.push((dep.pkg.clone(), dep.name.clone()));

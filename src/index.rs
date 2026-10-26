@@ -129,6 +129,9 @@ impl<'a> TraitScope<'a> {
 struct Call {
     module: PathId,
     name: Sym,
+    /// The crate a qualified or imported invocation takes its macro from, as `bitflags` for
+    /// `bitflags::bitflags!`.
+    crate_root: Option<Sym>,
     idents: Vec<Sym>,
     /// For an item-position invocation, what expanding it needs.
     expandable: Option<Expandable>,
@@ -250,6 +253,8 @@ pub(crate) struct Library {
     pub(crate) macro_rules: Vec<(Sym, Definition)>,
     /// The names of its item-position macro invocations no definition expanded.
     pub(crate) unexpanded: HashSet<Sym>,
+    /// The crates those invocations name their macros from, as written or imported.
+    pub(crate) macro_crates: HashSet<Sym>,
 }
 
 impl Library {
@@ -920,6 +925,11 @@ impl Indexer {
                 .filter(|call| call.expandable.is_some())
                 .map(|call| call.name)
                 .collect(),
+            macro_crates: reached
+                .unexpanded()
+                .filter(|call| call.expandable.is_some())
+                .filter_map(|call| call.crate_root)
+                .collect(),
             paths: index.paths,
             hidden: reached
                 .contributions()
@@ -1047,7 +1057,7 @@ impl Indexer {
             out.uses.push((within, source, name, u.public));
             out.use_lines.push(u.line);
         }
-        out.calls = self.calls(&module, items);
+        out.calls = self.calls(&module, items, &imports);
         out.macro_rules = self.rules(&module, items);
         out.lends = items
             .lends
@@ -1146,16 +1156,24 @@ impl Indexer {
         }
     }
 
-    /// The macro invocations of `items`, read as the module `module`.
-    fn calls(&mut self, module: &[Sym], items: &FileItems) -> Vec<Call> {
+    /// The macro invocations of `items`, read as the module `module` with its `imports`.
+    fn calls(&mut self, module: &[Sym], items: &FileItems, imports: &[Import]) -> Vec<Call> {
         items
             .invocations
             .iter()
             .map(|inv| {
                 let within = self.within(module, &inv.module);
+                let path = imported(imports, &within, self.syms(&inv.path));
+                let crate_root = (path.len() > 1).then(|| path[0]).filter(|&root| {
+                    !matches!(
+                        self.interner.name(root),
+                        "crate" | "self" | "super" | "$crate"
+                    )
+                });
                 Call {
                     module: self.interner.path(&within, ItemKind::Module),
                     name: self.interner.sym(&inv.name),
+                    crate_root,
                     idents: self.syms(&inv.idents),
                     expandable: inv.tokens.as_deref().map(|tokens| Expandable {
                         inline: Rc::from(inv.module.as_slice()),

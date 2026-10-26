@@ -123,6 +123,8 @@ pub(crate) struct Invocation {
     pub(crate) module: Vec<String>,
     /// The macro's name, the last segment of its path.
     pub(crate) name: String,
+    /// The macro's path as written, ending in `name`.
+    pub(crate) path: Vec<String>,
     /// The identifiers inside, kept when the tokens are not.
     pub(crate) idents: Vec<String>,
     /// The tokens as text, kept for item-position invocations, which may be expanded.
@@ -771,6 +773,12 @@ impl Collector<'_> {
         self.out.invocations.push(Invocation {
             module: self.module.clone(),
             name: strip_raw(&last.ident.to_string()).to_owned(),
+            path: mac
+                .path
+                .segments
+                .iter()
+                .map(|segment| strip_raw(&segment.ident.to_string()).to_owned())
+                .collect(),
             idents: if item_position {
                 Vec::new()
             } else {

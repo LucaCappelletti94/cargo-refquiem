@@ -521,21 +521,23 @@ fn a_module_a_dependency_macro_declares_is_indexed() {
     assert_eq!(paths, ["fixture::sync::Gone"]);
 }
 
+/// The two spellings of `behavior`'s call to `flagmac`'s macro, by path and through an import.
+const FLAGS_CALLS: [&str; 2] = [
+    "flagmac::flags! {\n    pub struct Flags {\n        const INNOCUOUS;\n        const RETIRED;\n    }\n}\n",
+    "use flagmac::flags;\n\nflags! {\n    pub struct Flags {\n        const INNOCUOUS;\n        const RETIRED;\n    }\n}\n",
+];
+
 /// A workspace whose members `a` and `b` depend on `behavior`, a vendored crate whose `Flags`
-/// and its constants exist only as the expansion of a macro `behavior` calls by path from its
+/// and its constants exist only as the expansion of `call`, a macro `behavior` takes from its
 /// own dependency `flagmac`, as `bitflags::bitflags!` generates diesel's flags.
-fn macro_generated_dependency() -> Repo {
+fn macro_generated_dependency(call: &str) -> Repo {
     let repo = Repo::new();
     repo.vendor(
         "flagmac",
         "1.0.0",
         "#[macro_export]\nmacro_rules! flags {\n    (pub struct $name:ident { $(const $flag:ident;)* }) => {\n        pub struct $name;\n        impl $name {\n            $(pub const $flag: u8 = 0;)*\n        }\n    };\n}\n",
     );
-    repo.vendor(
-        "behavior",
-        "1.0.0",
-        "flagmac::flags! {\n    pub struct Flags {\n        const INNOCUOUS;\n    }\n}\n",
-    );
+    repo.vendor("behavior", "1.0.0", call);
     repo.write(
         "vendor/behavior-1.0.0/Cargo.toml",
         "[package]\nname = \"behavior\"\nversion = \"1.0.0\"\nedition = \"2021\"\n\n[dependencies]\nflagmac = \"1\"\n",
@@ -560,19 +562,48 @@ fn macro_generated_dependency() -> Repo {
 
 #[test]
 fn an_item_a_dependency_macro_generates_stays_alive_while_a_member_keeps_its_crate() {
-    let repo = macro_generated_dependency();
-    repo.write(
-        "b/Cargo.toml",
-        "[package]\nname = \"b\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    lock(&repo);
-    repo.write(
-        "README.md",
-        "Register it with `behavior::Flags::INNOCUOUS`.\n",
-    );
-    repo.commit("b drops behavior");
+    for call in FLAGS_CALLS {
+        let repo = macro_generated_dependency(call);
+        repo.write(
+            "b/Cargo.toml",
+            "[package]\nname = \"b\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        );
+        lock(&repo);
+        repo.write(
+            "README.md",
+            "Register it with `behavior::Flags::INNOCUOUS`.\n",
+        );
+        repo.commit("b drops behavior");
 
-    assert_eq!(found_by_path(&repo), []);
+        assert_eq!(found_by_path(&repo), [], "{call}");
+    }
+}
+
+#[test]
+fn an_item_a_removed_dependency_macro_generated_is_reported() {
+    for call in FLAGS_CALLS {
+        let repo = macro_generated_dependency(call);
+        for member in ["a", "b"] {
+            repo.write(
+                &format!("{member}/Cargo.toml"),
+                &format!(
+                    "[package]\nname = \"{member}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"
+                ),
+            );
+        }
+        lock(&repo);
+        repo.write(
+            "README.md",
+            "Register it with `behavior::Flags::RETIRED`.\n",
+        );
+        repo.commit("drop behavior");
+
+        let paths: Vec<String> = found_by_path(&repo).into_iter().map(|row| row.0).collect();
+        assert!(
+            paths.contains(&"behavior::Flags::RETIRED".to_owned()),
+            "{call} {paths:?}"
+        );
+    }
 }
 
 #[test]
