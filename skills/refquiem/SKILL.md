@@ -63,15 +63,17 @@ English is the default optional vocabulary. An explicit `[vocabularies]` table r
 
 ```toml
 [vocabularies]
-builtins = ["english", "sql@2023", "wasi@preview1", "wasm@3.0"]
+builtins = ["english", "sql@2023", "wasi@preview1", "wasm@3.0", "android@36"]
 files = ["vocab/domain.toml"]
 ```
 
-An empty table disables optional vocabularies. Omitted arrays default to empty, and selecting only `files` never enables `english`. The built-in identities are `english`, `sql@2023`, `wasi@preview1` and `wasm@3.0`, and unknown identities or fields are configuration errors. `--config PATH` selects a replacement configuration, while `--package NAME` only limits scanned files.
+An empty table disables optional vocabularies. Omitted arrays default to empty, and selecting only `files` never enables `english`. The built-in identities are `english`, `sql@2023`, `wasi@preview1`, `wasm@3.0` and `android@36`, and unknown identities or fields are configuration errors. `--config PATH` selects a replacement configuration, while `--package NAME` only limits scanned files.
 
 `sql@2023` holds the reserved key words of SQL:2023 parts 2, 9 and 14 as a technical vocabulary matched case-sensitively, so `ARRAY_AGG` is ambiguous while `array_agg` stays reportable. Write a SQL key word in uppercase for it to count as SQL. A reported bare name whose uppercase spelling a selected exact-case vocabulary holds carries that spelling and vocabulary, as `uppercase` in JSON and as a `write ARRAY_AGG to mark it as sql@2023` note elsewhere.
 
 `wasi@preview1` holds the 46 WASI Preview 1 function names, such as `fd_write` and `path_open`, and `wasm@3.0` the WebAssembly 3.0 instructions whose text-format name has no dot, such as `call_indirect` and `br_table`, both as technical vocabularies matched case-sensitively. Dotted names such as `memory.grow` never count as a mention of a Rust name.
+
+`android@36` holds the compound class names and camelCase method names of the public Android 16 framework API, such as `NativeActivity` and `onCreate`, as a technical vocabulary matched case-sensitively. Single-word classes such as `Activity`, single-word methods such as `close` and constants such as `ACTION_VIEW` stay reportable.
 
 A custom file is a self-describing `TOML` document with `format-version = 1`, `kind` as `natural-language` or `technical`, `case` as `sensitive`, `ascii-insensitive` or `unicode-lowercase`, and `words` as a string array. Missing fields, unknown fields, and unsupported values are errors.
 

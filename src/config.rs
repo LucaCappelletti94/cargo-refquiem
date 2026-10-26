@@ -87,6 +87,8 @@ pub(crate) enum Builtin {
     WasiPreview1,
     #[serde(rename = "wasm@3.0")]
     Wasm3,
+    #[serde(rename = "android@36")]
+    Android36,
 }
 
 /// The config at `path`, the default one when `path` is absent and not `required`.
