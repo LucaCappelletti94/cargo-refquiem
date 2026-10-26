@@ -95,6 +95,8 @@ pub(crate) enum Builtin {
     Posix2017,
     #[serde(rename = "web-api@2026-10")]
     WebApi2026_10,
+    #[serde(rename = "python@3.15")]
+    Python3_15,
 }
 
 /// The config at `path`, the default one when `path` is absent and not `required`.

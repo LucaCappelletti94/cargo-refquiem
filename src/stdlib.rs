@@ -131,6 +131,14 @@ impl Vocabulary {
         }
     }
 
+    /// The compound and camelCase Python 3.15 built-in and standard-library object names.
+    pub(crate) fn python_3_15() -> Self {
+        Self {
+            words: fst::Set::new(&include_bytes!("../data/python/words.fst")[..])
+                .expect("data/python holds an fst set written by xtask"),
+        }
+    }
+
     /// Whether `word`, spelled as the vocabulary stores it, is one of its words.
     pub(crate) fn contains(&self, word: &str) -> bool {
         self.words.contains(word)

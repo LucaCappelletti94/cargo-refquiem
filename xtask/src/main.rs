@@ -88,7 +88,7 @@ fn main() -> ExitCode {
 }
 
 /// Writes the standard library layers and the English, SQL, WASI, WebAssembly, Android,
-/// `UIKit`, POSIX and Web API word lists under `data/`.
+/// `UIKit`, POSIX, Web API and Python word lists under `data/`.
 fn vocab() -> Result<(), Error> {
     let data = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -102,7 +102,8 @@ fn vocab() -> Result<(), Error> {
     android(&data.join("android"))?;
     uikit(&data.join("uikit"))?;
     posix(&data.join("posix"))?;
-    web_api(&data.join("web-api"))
+    web_api(&data.join("web-api"))?;
+    python(&data.join("python"))
 }
 
 /// Writes `<layer>.fst`, every suffix of two or more segments of every public path reachable
@@ -239,6 +240,12 @@ const BCD_PACKAGE: &str =
 
 /// The SHA-256 of the pinned `browser-compat-data` release tarball.
 const BCD_SHA256: &str = "4e7a8747cac26a68087df5f38405f834a352245283af1128f4cf189989bd691e";
+
+/// Where python.org publishes the Python source releases, documentation included.
+const PYTHON_RELEASES: &str = "https://www.python.org/ftp/python";
+
+/// The SHA-256 of the pinned Python source release tarball.
+const PYTHON_SHA256: &str = "8b5536d280142ecf6cdfe15d12a21ba1c65e300bbf7b28a8d0cdb849575797de";
 
 /// A reader of the files of `repository` at tag `pinned`, through a partial clone whose
 /// blobs arrive on demand, so only the files read are downloaded.
@@ -689,7 +696,7 @@ fn posix(out: &Path) -> Result<(), Error> {
         pinned,
     )?;
     let mut words = BTreeSet::new();
-    for (page, text) in manual_pages(&pages.join("man0p"))? {
+    for (page, text) in files(&pages.join("man0p"))? {
         let text = without_font_escapes(&text);
         for token in text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
             let symbol = token.starts_with(|c: char| c.is_ascii_uppercase() || c == '_')
@@ -709,7 +716,7 @@ fn posix(out: &Path) -> Result<(), Error> {
             }
         }
     }
-    for (_, text) in manual_pages(&pages.join("man3p"))? {
+    for (_, text) in files(&pages.join("man3p"))? {
         let Some((_, after)) = text.split_once("\n.SH NAME\n") else {
             continue;
         };
@@ -740,8 +747,8 @@ fn posix(out: &Path) -> Result<(), Error> {
     Ok(())
 }
 
-/// The file name and text of every manual page in `dir`, in file-name order.
-fn manual_pages(dir: &Path) -> Result<Vec<(String, String)>, Error> {
+/// The file name and text of every file directly in `dir`, in file-name order.
+fn files(dir: &Path) -> Result<Vec<(String, String)>, Error> {
     let read = |source| Error::Read {
         path: dir.to_owned(),
         source,
@@ -749,6 +756,9 @@ fn manual_pages(dir: &Path) -> Result<Vec<(String, String)>, Error> {
     let mut pages = Vec::new();
     for entry in std::fs::read_dir(dir).map_err(read)? {
         let path = entry.map_err(read)?.path();
+        if !path.is_file() {
+            continue;
+        }
         let bytes = std::fs::read(&path).map_err(|source| Error::Read {
             path: path.clone(),
             source,
@@ -885,6 +895,87 @@ fn web_api(out: &Path) -> Result<(), Error> {
         source,
     })?;
     println!("web-api@2026-10: {count} words");
+    Ok(())
+}
+
+/// The Sphinx directives that document a Python object, whose argument starts with its name.
+const PYTHON_OBJECT_DIRECTIVES: [&str; 15] = [
+    "function",
+    "class",
+    "exception",
+    "method",
+    "attribute",
+    "data",
+    "classmethod",
+    "staticmethod",
+    "decorator",
+    "decoratormethod",
+    "property",
+    "coroutinefunction",
+    "coroutinemethod",
+    "abstractmethod",
+    "type",
+];
+
+/// Writes `words.fst`, the Python built-in and standard-library object names that the
+/// Python documentation describes and that are compound such as `ValueError` or camelCase
+/// such as `addHandler`, and the release's `LICENSE`, whose PSF notice must accompany any copy.
+///
+/// The last segment of a dotted name is the name a mention spells. Snake names such as
+/// `read_text`, uppercase constants such as `AF_UNIX` and single words such as `len` name
+/// too many Rust items to claim.
+fn python(out: &Path) -> Result<(), Error> {
+    let pinned = include_str!("../../data/python/CPYTHON").trim_ascii();
+    let version = pinned.trim_start_matches('v');
+    let source = pinned_tarball(
+        &format!("{PYTHON_RELEASES}/{version}/Python-{version}.tar.xz"),
+        PYTHON_SHA256,
+        &format!("Python-{version}"),
+    )?;
+    let mut words = BTreeSet::new();
+    for dir in ["builtins", "library"] {
+        for (page, text) in files(&source.join("Doc").join(dir))? {
+            let rst = Path::new(&page)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("rst"));
+            if !rst {
+                continue;
+            }
+            for line in text.lines() {
+                let Some((directive, argument)) = line
+                    .trim_start()
+                    .strip_prefix("..")
+                    .and_then(|rest| rest.split_once("::"))
+                else {
+                    continue;
+                };
+                let directive = directive.trim();
+                let directive = directive.strip_prefix("py:").unwrap_or(directive);
+                if !PYTHON_OBJECT_DIRECTIVES.contains(&directive) {
+                    continue;
+                }
+                let target = argument
+                    .trim_start()
+                    .split(|c: char| c.is_whitespace() || c == '(' || c == '[')
+                    .next()
+                    .unwrap_or_default();
+                let name = target.rsplit('.').next().unwrap_or_default();
+                let shaped = is_camel_case(name)
+                    || (is_compound_type(name) && name.contains(|c: char| c.is_ascii_lowercase()));
+                if shaped && name.chars().all(|c| c.is_ascii_alphanumeric()) {
+                    words.insert(name.to_owned());
+                }
+            }
+        }
+    }
+    create_dir(out)?;
+    let count = write_set(&out.join("words.fst"), words.iter().map(String::as_str))?;
+    let license = out.join("LICENSE");
+    std::fs::copy(source.join("LICENSE"), &license).map_err(|source| Error::Write {
+        path: license,
+        source,
+    })?;
+    println!("python@3.15: {count} words");
     Ok(())
 }
 
