@@ -210,14 +210,14 @@ fn print_selection(
     if selection.builtins.is_empty() && selection.files.is_empty() {
         writeln!(stdout, "No optional vocabularies selected.")?;
     }
-    print_builtins(&mut stdout, selection.builtins)?;
+    print_builtins(&mut stdout, selection.builtins.iter().copied())?;
     print_files(&mut stdout, &selection.files)?;
     Ok(())
 }
 
-fn print_builtins(
+fn print_builtins<'a>(
     output: &mut impl std::io::Write,
-    builtins: &[refquiem::vocabulary::BuiltinVocabulary],
+    builtins: impl IntoIterator<Item = &'a refquiem::vocabulary::BuiltinVocabulary>,
 ) -> std::io::Result<()> {
     for builtin in builtins {
         writeln!(

@@ -189,6 +189,8 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
     for config in [
         "[vocabularies]\nbuiltins = [\"engilsh\"]\n",
         "[vocabularies]\nbuiltins = [\"english@missing\"]\n",
+        "[vocabularies]\nbuiltins = [\"sql\"]\n",
+        "[vocabularies]\nbuiltins = [\"sql@2016\"]\n",
         "[vocabularies]\nbuiltins = [\"rust\"]\n",
         "[vocabularies]\nbuiltin = [\"english\"]\n",
         "[vocabularies]\nbuiltins = \"english\"\n",
@@ -200,6 +202,68 @@ fn vocabularies_reject_unknown_identities_and_unsupported_fields() {
             matches!(&error, refquiem::Error::Config { path, .. } if path == &config_path),
             "{config} {error}"
         );
+    }
+}
+
+#[test]
+fn sql_2023_claims_exact_uppercase_key_words_in_prose_and_code_spans() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub const ARRAY_AGG: u8 = 0;\npub fn array_agg() {}\npub enum Keyword { LISTAGG, Other }\npub struct SQLUpdate;\n",
+    );
+    repo.commit("public names");
+    repo.write(
+        "src/lib.rs",
+        "/// ```\n/// let _ = ARRAY_AGG;\n/// ```\npub enum Keyword { Other }\n",
+    );
+    repo.write(
+        "README.md",
+        "Aggregate with ARRAY_AGG or `LISTAGG`.\nLowercase array_agg.\n`Keyword::LISTAGG`\nSQLUpdate\n",
+    );
+    repo.commit("remove names");
+    let options = Options::new(repo.path().to_path_buf());
+    let mentions = || {
+        let mut out: Vec<(String, usize, String)> = refquiem::run(&options)
+            .unwrap()
+            .groups
+            .iter()
+            .flat_map(|group| {
+                group
+                    .mentions
+                    .iter()
+                    .map(|m| (m.file.clone(), m.line, m.text.clone()))
+            })
+            .collect();
+        out.sort();
+        out
+    };
+    let row = |file: &str, line, text: &str| (file.to_owned(), line, text.to_owned());
+    let unselected = vec![
+        row("README.md", 1, "ARRAY_AGG"),
+        row("README.md", 1, "LISTAGG"),
+        row("README.md", 2, "array_agg"),
+        row("README.md", 3, "Keyword::LISTAGG"),
+        row("README.md", 4, "SQLUpdate"),
+        row("src/lib.rs", 2, "ARRAY_AGG"),
+    ];
+    let selected = vec![
+        row("README.md", 2, "array_agg"),
+        row("README.md", 3, "Keyword::LISTAGG"),
+        row("README.md", 4, "SQLUpdate"),
+        row("src/lib.rs", 2, "ARRAY_AGG"),
+    ];
+    for (config, expected) in [
+        ("", &unselected),
+        ("[vocabularies]\nbuiltins = [\"english\"]\n", &unselected),
+        ("[vocabularies]\nbuiltins = [\"sql@2023\"]\n", &selected),
+        (
+            "[vocabularies]\nbuiltins = [\"sql@2023\", \"english\", \"sql@2023\"]\n",
+            &selected,
+        ),
+    ] {
+        repo.write(".refquiem.toml", config);
+        assert_eq!(&mentions(), expected, "{config}");
     }
 }
 

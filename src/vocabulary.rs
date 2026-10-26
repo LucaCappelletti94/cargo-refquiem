@@ -19,16 +19,29 @@ pub struct BuiltinVocabulary {
     pub source: &'static str,
     /// The version of the source.
     pub source_version: &'static str,
+    #[serde(skip)]
+    builtin: config::Builtin,
 }
 
 /// The bundled vocabularies, as their source names them.
-const BUILTINS: &[BuiltinVocabulary] = &[BuiltinVocabulary {
-    id: "english",
-    kind: "natural-language",
-    case: "unicode-lowercase",
-    source: "https://github.com/en-wl/wordlist",
-    source_version: include_str!("../data/english/ESDB").trim_ascii(),
-}];
+const BUILTINS: &[BuiltinVocabulary] = &[
+    BuiltinVocabulary {
+        id: "english",
+        kind: "natural-language",
+        case: "unicode-lowercase",
+        source: "https://github.com/en-wl/wordlist",
+        source_version: include_str!("../data/english/ESDB").trim_ascii(),
+        builtin: config::Builtin::English,
+    },
+    BuiltinVocabulary {
+        id: "sql@2023",
+        kind: "technical",
+        case: "sensitive",
+        source: "https://github.com/postgres/postgres",
+        source_version: include_str!("../data/sql/POSTGRESQL").trim_ascii(),
+        builtin: config::Builtin::Sql2023,
+    },
+];
 
 /// Returns metadata for the bundled vocabularies.
 #[must_use]
@@ -56,8 +69,8 @@ pub struct EffectiveVocabularies {
     pub config: PathBuf,
     /// Whether Rust standard-library resolution is active.
     pub rust_stdlib: bool,
-    /// The builtin vocabularies the selection includes.
-    pub builtins: &'static [BuiltinVocabulary],
+    /// The builtin vocabularies the selection includes, in catalog order.
+    pub builtins: Vec<&'static BuiltinVocabulary>,
     /// The custom files the selection includes, in canonical path order.
     pub files: Vec<CustomVocabulary>,
 }
@@ -72,11 +85,10 @@ pub fn effective(options: &Options) -> Result<EffectiveVocabularies, Error> {
     let repo = scan::repository(options)?;
     let (_, workspace_dir) = scan::workspace(options, &repo)?;
     let (config_path, selection) = scan::selected_config(options, &workspace_dir)?;
-    let builtins: &[BuiltinVocabulary] = if selection.uses_english() {
-        BUILTINS
-    } else {
-        &[]
-    };
+    let builtins = BUILTINS
+        .iter()
+        .filter(|builtin| selection.selects(builtin.builtin))
+        .collect();
     let files = config::load_custom(&config_path, &selection)?
         .into_iter()
         .map(|file| CustomVocabulary {

@@ -1,4 +1,4 @@
-//! The standard library paths and English words that `cargo xtask vocab` builds.
+//! The standard library paths and the English and SQL words that `cargo xtask vocab` builds.
 
 /// The public paths reachable from one crate root.
 pub(crate) struct Layer {
@@ -57,22 +57,30 @@ pub(crate) fn layers() -> [Layer; 4] {
     ]
 }
 
-/// English words, hyphenated compounds included, which a bare name in running text may
-/// simply be.
+/// Words a bare name may simply be, English words in running text and SQL key words in
+/// running text and code spans.
 pub(crate) struct Vocabulary {
     words: fst::Set<&'static [u8]>,
 }
 
 impl Vocabulary {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn english() -> Self {
         Self {
             words: fst::Set::new(&include_bytes!("../data/english/words.fst")[..])
                 .expect("data/english holds an fst set written by xtask"),
         }
     }
 
-    /// Whether the Unicode-lowercased `word` is an English word.
-    pub(crate) fn claims_lowercase(&self, word: &str) -> bool {
+    /// The reserved key words of SQL:2023, uppercase as the standard spells them.
+    pub(crate) fn sql_2023() -> Self {
+        Self {
+            words: fst::Set::new(&include_bytes!("../data/sql/words.fst")[..])
+                .expect("data/sql holds an fst set written by xtask"),
+        }
+    }
+
+    /// Whether `word`, spelled as the vocabulary stores it, is one of its words.
+    pub(crate) fn contains(&self, word: &str) -> bool {
         self.words.contains(word)
     }
 }

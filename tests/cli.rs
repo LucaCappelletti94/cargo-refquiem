@@ -24,17 +24,27 @@ fn vocabulary_catalog_ignores_project_state_outside_a_repository() {
     let output = cargo_refquiem(dir.path(), &["vocabularies", "--json"]);
     assert_eq!(output.status.code(), Some(0));
     let catalog: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(
-        catalog
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|entry| entry["id"] == "english")
+    let identities: Vec<_> = catalog
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(identities, ["english", "sql@2023"]);
+    assert_eq!(
+        catalog[1],
+        serde_json::json!({
+            "id": "sql@2023",
+            "kind": "technical",
+            "case": "sensitive",
+            "source": "https://github.com/postgres/postgres",
+            "source_version": "REL_17_11",
+        })
     );
     let output = cargo_refquiem(dir.path(), &["vocabularies"]);
     assert_eq!(output.status.code(), Some(0));
     let catalog = String::from_utf8(output.stdout).unwrap();
-    assert!(catalog.contains("english"));
+    assert!(catalog.contains("english") && catalog.contains("sql@2023 (technical, sensitive)"));
     std::fs::write(
         dir.path().join("domain.toml"),
         "format-version = 1\nkind = \"technical\"\ncase = \"sensitive\"\nwords = [\"PrivateSDKThing\"]\n",
@@ -101,7 +111,7 @@ fn vocabulary_inspection_uses_workspace_config_without_history_or_rust_parsing()
     let config = external.path().join("selection.toml");
     std::fs::write(
         &config,
-        "[vocabularies]\nbuiltins = [\"english\", \"english\"]\n",
+        "[vocabularies]\nbuiltins = [\"sql@2023\", \"english\", \"english\", \"sql@2023\"]\n",
     )
     .unwrap();
     let output = cargo_refquiem(
@@ -122,7 +132,7 @@ fn vocabulary_inspection_uses_workspace_config_without_history_or_rust_parsing()
         .iter()
         .map(|entry| entry["id"].as_str().unwrap())
         .collect();
-    assert_eq!(identities, ["english"]);
+    assert_eq!(identities, ["english", "sql@2023"]);
     assert_eq!(selection["config"], config.to_str().unwrap());
     let output = cargo_refquiem(
         &member,
