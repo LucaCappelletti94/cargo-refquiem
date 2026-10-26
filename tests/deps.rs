@@ -1581,3 +1581,215 @@ fn a_committed_head_reads_local_dependency_manifests_and_apis_from_the_snapshot(
     assert_eq!(rows, [("fixture_app::SharedProbe::gone", ItemKind::Method)]);
     assert_eq!(report.skipped, []);
 }
+
+#[test]
+fn external_package_ownership_preserves_member_identity_and_public_apis() {
+    for owner in ["self", "standalone", "excluded"] {
+        let repo = Repo::new();
+        let external = Repo::new();
+        external.write("src/lib.rs", "pub struct ParentMarker;\n");
+        if owner == "excluded" {
+            external.write(
+                "Cargo.toml",
+                "[workspace]\nexclude = [\"local\"]\nresolver = \"2\"\n",
+            );
+        }
+        let core = toml::Value::String(repo.path().join("core").display().to_string());
+        let dependency = toml::Value::String(external.path().join("local").display().to_string());
+        let workspace = if owner == "self" {
+            "\n[workspace]\n"
+        } else {
+            ""
+        };
+        external.write(
+            "local/Cargo.toml",
+            &format!(
+                "[package]\nname = \"fixture-outer\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[dependencies]\nfixture-core = {{ path = {core} }}\n{workspace}"
+            ),
+        );
+        external.write(
+            "local/src/lib.rs",
+            "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} }\n",
+        );
+        repo.write(
+            "Cargo.toml",
+            &format!(
+                "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"core\"]\nresolver = \"2\"\n\n[dependencies]\nfixture-outer = {{ path = {dependency} }}\n"
+            ),
+        );
+        repo.write(
+            "core/Cargo.toml",
+            "[package]\nname = \"fixture-core\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+        );
+        repo.write("core/src/lib.rs", "pub struct CoreMarker;\n");
+        repo.write(
+            "src/lib.rs",
+            "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} pub fn gone() {} }\n",
+        );
+        lock(&repo);
+        repo.commit("local methods");
+        repo.write("src/lib.rs", "pub use fixture_outer::SharedProbe;\n");
+        repo.write(
+            "README.md",
+            "`fixture::SharedProbe::kept` and `fixture::SharedProbe::gone`.\n",
+        );
+        repo.commit("external public methods");
+
+        let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+        let rows: Vec<_> = report
+            .groups
+            .iter()
+            .map(|group| (group.path.as_str(), group.kind))
+            .collect();
+        assert_eq!(
+            rows,
+            [("fixture::SharedProbe::gone", ItemKind::Method)],
+            "{owner}"
+        );
+        assert_eq!(report.skipped, [], "{owner}");
+    }
+}
+
+#[test]
+fn target_specific_path_dependencies_preserve_their_public_apis() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[target.'cfg(all())'.dependencies]\nhelper = { path = \"./helper\" }\n",
+    );
+    repo.write(
+        "helper/Cargo.toml",
+        "[package]\nname = \"helper\"\nversion = \"1.0.0\"\nedition = \"2021\"\n",
+    );
+    repo.write(
+        "helper/src/lib.rs",
+        "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} }\n",
+    );
+    repo.write("helper/.cargo-checksum.json", "{\"files\":{}}");
+    repo.write(
+        "src/lib.rs",
+        "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} pub fn gone() {} }\n",
+    );
+    lock(&repo);
+    repo.commit("local methods");
+    repo.write("src/lib.rs", "pub use helper::SharedProbe;\n");
+    repo.write(
+        "README.md",
+        "`fixture::SharedProbe::kept` and `fixture::SharedProbe::gone`.\n",
+    );
+    repo.commit("target dependency methods");
+
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let rows: Vec<_> = report
+        .groups
+        .iter()
+        .map(|group| (group.path.as_str(), group.kind))
+        .collect();
+    assert_eq!(rows, [("fixture::SharedProbe::gone", ItemKind::Method)]);
+    assert_eq!(report.skipped, []);
+}
+
+#[test]
+fn local_registry_overrides_preserve_the_selected_public_apis() {
+    for table in ["[patch.crates-io]\nhelper", "[replace]\n\"helper:1.0.0\""] {
+        let repo = Repo::new();
+        repo.vendor("helper", "1.0.0", "pub struct RegistryOnly;\n");
+        repo.write(
+            "Cargo.toml",
+            &format!(
+                "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"=1.0.0\"\n\n{table} = {{ path = \"./local-helper\" }}\n"
+            ),
+        );
+        repo.write(
+            "local-helper/Cargo.toml",
+            "[package]\nname = \"helper\"\nversion = \"1.0.0\"\nedition = \"2021\"\n",
+        );
+        repo.write(
+            "local-helper/src/lib.rs",
+            "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} }\n",
+        );
+        repo.write("local-helper/.cargo-checksum.json", "{\"files\":{}}");
+        repo.write(
+            "src/lib.rs",
+            "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} pub fn gone() {} }\n",
+        );
+        lock(&repo);
+        repo.commit("local methods");
+        repo.write("src/lib.rs", "pub use helper::SharedProbe;\n");
+        repo.write(
+            "README.md",
+            "`fixture::SharedProbe::kept` and `fixture::SharedProbe::gone`.\n",
+        );
+        repo.commit("overridden dependency methods");
+
+        let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+        let rows: Vec<_> = report
+            .groups
+            .iter()
+            .map(|group| (group.path.as_str(), group.kind))
+            .collect();
+        assert_eq!(
+            rows,
+            [("fixture::SharedProbe::gone", ItemKind::Method)],
+            "{table}"
+        );
+        assert_eq!(report.skipped, [], "{table}");
+    }
+}
+
+#[test]
+fn missing_local_manifests_retain_the_cargo_dependency_error() {
+    for outside in [false, true] {
+        let repo = Repo::new();
+        let external = tempfile::tempdir().unwrap();
+        let missing = if outside {
+            external.path().join("absent")
+        } else {
+            repo.path().join("absent")
+        };
+        let dependency = toml::Value::String(missing.display().to_string());
+        repo.write(
+            "Cargo.toml",
+            &format!(
+                "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nfixture-absent = {{ path = {dependency} }}\n"
+            ),
+        );
+        repo.write("src/lib.rs", "pub struct Marker;\n");
+        repo.commit("missing local dependency");
+
+        let error = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap_err();
+        let refquiem::Error::Metadata { source, .. } = error else {
+            panic!("unexpected error {error:?}");
+        };
+        let cargo_metadata::Error::CargoMetadata { stderr } = *source else {
+            panic!("unexpected cargo error {source:?}");
+        };
+        assert!(stderr.contains("fixture-absent"), "{stderr}");
+        assert!(!missing.exists());
+    }
+}
+
+#[test]
+fn a_conflicting_cache_file_is_reported_without_deleting_it() {
+    let repo = Repo::new();
+    repo.vendor("helper", "1.0.0", "pub struct Helper;\n");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n",
+    );
+    repo.write("src/lib.rs", "pub struct Marker;\n");
+    lock(&repo);
+    repo.commit("dependency");
+    let cache = tempfile::tempdir().unwrap();
+    let blocker = cache.path().join("metadata");
+    std::fs::write(&blocker, b"preserved user data").unwrap();
+    let mut options = refquiem::Options::new(repo.path().to_path_buf());
+    options.cache_dir = Some(cache.path().to_path_buf());
+
+    let error = refquiem::run(&options).unwrap_err();
+    let refquiem::Error::Io { path, .. } = error else {
+        panic!("unexpected error {error:?}");
+    };
+    assert_eq!(path, blocker);
+    assert_eq!(std::fs::read(&blocker).unwrap(), b"preserved user data");
+}

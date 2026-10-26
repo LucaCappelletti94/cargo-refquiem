@@ -1,6 +1,7 @@
 //! Dependency APIs resolved through a scratch Cargo manifest graph.
 //!
 //! Each local package has one identity. Repository manifests and API sources come from the selected snapshot, external packages from disk.
+//! Manifests are serialized from the tables retained during discovery.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -466,11 +467,11 @@ fn export_graph<'a>(
     let export = export.join("repo");
     let root = export.join(workspace);
     let mut repo = BTreeMap::new();
+    let mut disk_tables = BTreeMap::new();
     let mut queue = VecDeque::new();
     let mut seen = HashSet::new();
     let mut claimed = HashMap::new();
     let mut roots = BTreeMap::new();
-    let mut ext_seen = HashSet::new();
     for dir in
         std::iter::once(workspace.to_owned()).chain(members.iter().map(|member| member.dir.clone()))
     {
@@ -495,14 +496,7 @@ fn export_graph<'a>(
             if let Some(rel) = relative(workdir, &resolved) {
                 queue_repo(rel, snapshot, manifests, &mut seen, &mut repo, &mut queue)
             } else {
-                queue_external(
-                    &resolved,
-                    manifests,
-                    &mut ext_seen,
-                    &mut claimed,
-                    &mut roots,
-                    &mut queue,
-                )
+                queue_external(&resolved, manifests, &mut claimed, &mut roots, &mut queue)
             }
         })?;
         if let Some(rel) = rel {
@@ -514,6 +508,8 @@ fn export_graph<'a>(
                 }
             }
             repo.insert(rel, table);
+        } else {
+            disk_tables.insert(base, table);
         }
     }
     let mut sources = HashMap::new();
@@ -522,7 +518,7 @@ fn export_graph<'a>(
             for target in &member.targets {
                 write(&export.join(&target.root), b"")?;
             }
-        } else if let Some(package) = manifest::package(snapshot, &rel, manifests)? {
+        } else if let Some(package) = manifest::package(snapshot, &rel, &table)? {
             for target in package.targets {
                 write(&export.join(&target.root), b"")?;
             }
@@ -544,30 +540,18 @@ fn export_graph<'a>(
         write(&dir.join("Cargo.toml"), table.to_string().as_bytes())?;
         sources.insert(dir, Source::Repo(snapshot, rel));
     }
+    for (source, mut table) in disk_tables {
+        let (owner, rel) = &claimed[&source];
+        let destination = external.join(hex(owner, &source)?).join(rel);
+        mirror_paths(&mut table, &source, workdir, &export, &external, &claimed)?;
+        write(
+            &destination.join("Cargo.toml"),
+            table.to_string().as_bytes(),
+        )?;
+        sources.insert(destination, Source::Disk(source));
+    }
     for (source, members) in roots {
-        let disk = WorkTreeSnapshot::new(source.clone(), Vec::new());
         let mirror = external.join(hex(&source, &source)?);
-        for member in &members {
-            if member.dir.is_empty() {
-                continue;
-            }
-            let dir = source.join(&member.dir);
-            let Some(mut table) = manifest::read_manifest(&disk, &member.dir, manifests)? else {
-                continue;
-            };
-            mirror_paths(&mut table, &dir, workdir, &export, &external, &claimed)?;
-            let destination = mirror.join(&member.dir);
-            write(
-                &destination.join("Cargo.toml"),
-                table.to_string().as_bytes(),
-            )?;
-            sources.insert(destination, Source::Disk(dir));
-        }
-        if let Some(mut table) = manifest::read_manifest(&disk, "", manifests)? {
-            mirror_paths(&mut table, &source, workdir, &export, &external, &claimed)?;
-            write(&mirror.join("Cargo.toml"), table.to_string().as_bytes())?;
-            sources.insert(mirror.clone(), Source::Disk(source));
-        }
         for member in members {
             for target in member.targets {
                 write(&mirror.join(&target.root), b"")?;
@@ -599,10 +583,9 @@ fn queue_repo(
     let owns_workspace = table.contains_key("workspace");
     repo.insert(dir.clone(), table);
     if !owns_workspace {
-        for ancestor in Path::new(&dir).ancestors().skip(1) {
-            let Some(ancestor) = ancestor.to_str() else {
-                continue;
-            };
+        let mut ancestor = dir.as_str();
+        while !ancestor.is_empty() {
+            ancestor = ancestor.rsplit_once('/').map_or("", |(parent, _)| parent);
             if manifest::read_manifest(snapshot, ancestor, manifests)?
                 .is_some_and(|table| table.contains_key("workspace"))
             {
@@ -619,18 +602,14 @@ fn queue_repo(
 fn queue_external(
     dir: &Path,
     manifests: &mut Manifests,
-    seen: &mut HashSet<PathBuf>,
     claimed: &mut HashMap<PathBuf, (PathBuf, String)>,
     roots: &mut BTreeMap<PathBuf, Vec<Member>>,
     queue: &mut VecDeque<Local>,
 ) -> Result<(), Error> {
-    if seen.contains(dir) || claimed.contains_key(dir) {
+    if claimed.contains_key(dir) {
         return Ok(());
     }
     let (root, members) = external_members(dir, manifests)?;
-    if !seen.insert(root.clone()) {
-        return Ok(());
-    }
     for member in &members {
         let abs = root.join(&member.dir);
         claimed.insert(abs.clone(), (root.clone(), member.dir.clone()));
@@ -746,10 +725,9 @@ fn mirror_paths(
         let resolved = normalize(base, path);
         let destination = if let Some(rel) = relative(workdir, &resolved) {
             export.join(rel)
-        } else if let Some((root, rel)) = claimed.get(&resolved) {
-            external.join(hex(root, &resolved)?).join(rel)
         } else {
-            external.join(hex(&resolved, &resolved)?)
+            let (root, rel) = &claimed[&resolved];
+            external.join(hex(root, &resolved)?).join(rel)
         };
         *path = destination.to_string_lossy().into_owned();
         Ok(())
