@@ -88,7 +88,7 @@ fn main() -> ExitCode {
 }
 
 /// Writes the standard library layers and the English, SQL, WASI, WebAssembly, Android,
-/// `UIKit`, POSIX, Web API and Python word lists under `data/`.
+/// `UIKit`, POSIX, browser and Python word lists under `data/`.
 fn vocab() -> Result<(), Error> {
     let data = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -102,7 +102,7 @@ fn vocab() -> Result<(), Error> {
     android(&data.join("android"))?;
     uikit(&data.join("uikit"))?;
     posix(&data.join("posix"))?;
-    web_api(&data.join("web-api"))?;
+    browser_compat(&data.join("bcd"))?;
     python(&data.join("python"))
 }
 
@@ -831,15 +831,10 @@ fn pinned_tarball(url: &str, sha256: &'static str, name: &str) -> Result<PathBuf
     Ok(dir)
 }
 
-/// Writes `words.fst`, the standards-track Web API interface and member names that MDN's
-/// `browser-compat-data` records and that are compound type names such as `HTMLElement` or
-/// camelCase such as `querySelector`, and the data's CC0 `LICENSE`.
-///
-/// Event, inheritance and permission entries describe behavior rather than name a member,
-/// and a `_static` suffix marks a static member. A single word such as `fetch` or `Document`
-/// names too many Rust items to claim.
-fn web_api(out: &Path) -> Result<(), Error> {
-    let pinned = include_str!("../../data/web-api/BCD").trim_ascii();
+/// Writes the word lists drawn from MDN's `browser-compat-data`, `web-api.fst`,
+/// `javascript.fst` and `svg.fst`, and the data's CC0 `LICENSE`.
+fn browser_compat(out: &Path) -> Result<(), Error> {
+    let pinned = include_str!("../../data/bcd/BCD").trim_ascii();
     let version = pinned.trim_start_matches('v');
     let package = pinned_tarball(
         &format!("{BCD_PACKAGE}-{version}.tgz"),
@@ -853,11 +848,49 @@ fn web_api(out: &Path) -> Result<(), Error> {
     })?;
     let data: serde_json::Value =
         serde_json::from_slice(&bytes).map_err(|source| Error::Json { path, source })?;
-    let standards_track = |entry: &serde_json::Value| {
-        entry["__compat"]["status"]["standard_track"]
-            .as_bool()
-            .unwrap_or(true)
-    };
+    create_dir(out)?;
+    for (file, id, words) in [
+        ("web-api.fst", "web-api@2026-10", web_api_names(&data)),
+        (
+            "javascript.fst",
+            "javascript@2026-10",
+            javascript_names(&data),
+        ),
+        ("svg.fst", "svg@2026-10", svg_names(&data)),
+    ] {
+        let count = write_set(&out.join(file), words.iter().copied())?;
+        println!("{id}: {count} words");
+    }
+    let license = out.join("LICENSE");
+    std::fs::copy(package.join("LICENSE"), &license).map_err(|source| Error::Write {
+        path: license,
+        source,
+    })?;
+    Ok(())
+}
+
+/// Whether BCD marks `entry` as on the standards track, which it does unless it says otherwise.
+fn standards_track(entry: &serde_json::Value) -> bool {
+    entry["__compat"]["status"]["standard_track"]
+        .as_bool()
+        .unwrap_or(true)
+}
+
+/// Whether `name` is ASCII alphanumeric and camelCase such as `viewBox`, or compound with a
+/// lowercase letter such as `ArrayBuffer`, leaving out constants such as `PI` and `AF_UNIX`.
+fn is_mixed_case_name(name: &str) -> bool {
+    name.chars().all(|c| c.is_ascii_alphanumeric())
+        && (is_camel_case(name)
+            || (is_compound_type(name) && name.contains(|c: char| c.is_ascii_lowercase())))
+}
+
+/// The standards-track Web API interface and member names that are compound type names such
+/// as `HTMLElement` or camelCase such as `querySelector`.
+///
+/// Event, inheritance and permission entries describe behavior rather than name a member,
+/// and a `_static` suffix marks a static member. A single word such as `fetch` or `Document`
+/// names too many Rust items to claim.
+fn web_api_names(data: &serde_json::Value) -> BTreeSet<&str> {
     let claimable = |name: &str| {
         name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
             && (is_compound_type(name) || is_camel_case(name))
@@ -887,15 +920,54 @@ fn web_api(out: &Path) -> Result<(), Error> {
             }
         }
     }
-    create_dir(out)?;
-    let count = write_set(&out.join("words.fst"), words.iter().copied())?;
-    let license = out.join("LICENSE");
-    std::fs::copy(package.join("LICENSE"), &license).map_err(|source| Error::Write {
-        path: license,
-        source,
-    })?;
-    println!("web-api@2026-10: {count} words");
-    Ok(())
+    words
+}
+
+/// The standards-track JavaScript built-in globals and members that are mixed case, such as
+/// `ArrayBuffer` and `hasOwnProperty`.
+fn javascript_names(data: &serde_json::Value) -> BTreeSet<&str> {
+    let mut words = BTreeSet::new();
+    for (global, entry) in data["javascript"]["builtins"]
+        .as_object()
+        .into_iter()
+        .flatten()
+    {
+        if global.starts_with("__") || !standards_track(entry) {
+            continue;
+        }
+        if is_mixed_case_name(global) {
+            words.insert(global.as_str());
+        }
+        for (member, entry) in entry.as_object().into_iter().flatten() {
+            if member.starts_with("__") || member.starts_with("@@") || !standards_track(entry) {
+                continue;
+            }
+            let member = member.strip_suffix("_static").unwrap_or(member);
+            if is_mixed_case_name(member) {
+                words.insert(member);
+            }
+        }
+    }
+    words
+}
+
+/// The standards-track SVG element and attribute names that are camelCase, such as
+/// `linearGradient` and `viewBox`, at any depth of BCD's `svg` tree.
+fn svg_names(data: &serde_json::Value) -> BTreeSet<&str> {
+    let mut words = BTreeSet::new();
+    let mut pending = vec![&data["svg"]];
+    while let Some(node) = pending.pop() {
+        for (name, entry) in node.as_object().into_iter().flatten() {
+            if name.starts_with("__") || !entry.is_object() || !standards_track(entry) {
+                continue;
+            }
+            if is_mixed_case_name(name) {
+                words.insert(name.as_str());
+            }
+            pending.push(entry);
+        }
+    }
+    words
 }
 
 /// The Sphinx directives that document a Python object, whose argument starts with its name.
@@ -960,9 +1032,7 @@ fn python(out: &Path) -> Result<(), Error> {
                     .next()
                     .unwrap_or_default();
                 let name = target.rsplit('.').next().unwrap_or_default();
-                let shaped = is_camel_case(name)
-                    || (is_compound_type(name) && name.contains(|c: char| c.is_ascii_lowercase()));
-                if shaped && name.chars().all(|c| c.is_ascii_alphanumeric()) {
+                if is_mixed_case_name(name) {
                     words.insert(name.to_owned());
                 }
             }

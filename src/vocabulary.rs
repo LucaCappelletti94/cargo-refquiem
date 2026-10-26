@@ -86,7 +86,7 @@ const BUILTINS: &[BuiltinVocabulary] = &[
         kind: "technical",
         case: "sensitive",
         source: "https://github.com/mdn/browser-compat-data",
-        source_version: include_str!("../data/web-api/BCD").trim_ascii(),
+        source_version: include_str!("../data/bcd/BCD").trim_ascii(),
         builtin: config::Builtin::WebApi2026_10,
     },
     BuiltinVocabulary {
@@ -96,6 +96,22 @@ const BUILTINS: &[BuiltinVocabulary] = &[
         source: "https://github.com/python/cpython",
         source_version: include_str!("../data/python/CPYTHON").trim_ascii(),
         builtin: config::Builtin::Python3_15,
+    },
+    BuiltinVocabulary {
+        id: "javascript@2026-10",
+        kind: "technical",
+        case: "sensitive",
+        source: "https://github.com/mdn/browser-compat-data",
+        source_version: include_str!("../data/bcd/BCD").trim_ascii(),
+        builtin: config::Builtin::Javascript2026_10,
+    },
+    BuiltinVocabulary {
+        id: "svg@2026-10",
+        kind: "technical",
+        case: "sensitive",
+        source: "https://github.com/mdn/browser-compat-data",
+        source_version: include_str!("../data/bcd/BCD").trim_ascii(),
+        builtin: config::Builtin::Svg2026_10,
     },
 ];
 

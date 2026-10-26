@@ -126,8 +126,8 @@ impl Vocabulary {
     /// from MDN's browser compatibility data of October 2026.
     pub(crate) fn web_api_2026_10() -> Self {
         Self {
-            words: fst::Set::new(&include_bytes!("../data/web-api/words.fst")[..])
-                .expect("data/web-api holds an fst set written by xtask"),
+            words: fst::Set::new(&include_bytes!("../data/bcd/web-api.fst")[..])
+                .expect("data/bcd holds fst sets written by xtask"),
         }
     }
 
@@ -136,6 +136,24 @@ impl Vocabulary {
         Self {
             words: fst::Set::new(&include_bytes!("../data/python/words.fst")[..])
                 .expect("data/python holds an fst set written by xtask"),
+        }
+    }
+
+    /// The mixed-case standards-track JavaScript built-in globals and members, from MDN's
+    /// browser compatibility data of October 2026.
+    pub(crate) fn javascript_2026_10() -> Self {
+        Self {
+            words: fst::Set::new(&include_bytes!("../data/bcd/javascript.fst")[..])
+                .expect("data/bcd holds fst sets written by xtask"),
+        }
+    }
+
+    /// The camelCase standards-track SVG element and attribute names, from MDN's browser
+    /// compatibility data of October 2026.
+    pub(crate) fn svg_2026_10() -> Self {
+        Self {
+            words: fst::Set::new(&include_bytes!("../data/bcd/svg.fst")[..])
+                .expect("data/bcd holds fst sets written by xtask"),
         }
     }
 
