@@ -28,8 +28,9 @@ pub(crate) struct Index {
     pub(crate) alive: HashMap<PathId, HashSet<Sym>>,
     /// The library crate names.
     pub(crate) libs: Vec<Sym>,
-    /// The parameter names of every function, method and trait method.
-    pub(crate) params: HashSet<Sym>,
+    /// The names no path reaches: parameters, generic parameters and items declared inside a
+    /// function body.
+    pub(crate) locals: HashSet<Sym>,
     /// The signature of every function, method and trait method, as the parser records it.
     pub(crate) signatures: HashMap<PathId, Rc<str>>,
     /// The dependency tables of every dependency entry, as [`manifest::NORMAL`] bits.
@@ -74,7 +75,7 @@ struct Contribution {
     lends: Vec<LendDecl>,
     traits: Vec<Implemented>,
     declared_traits: Vec<(PathId, bool)>,
-    params: Vec<Sym>,
+    locals: Vec<Sym>,
     signatures: Vec<(PathId, Rc<str>)>,
     failure: Option<String>,
     /// The digest of the fields an alias resolution reads from this contribution.
@@ -482,9 +483,9 @@ impl Indexer {
                 .filter(|call| call.expandable.is_some())
                 .map(|call| call.name)
                 .collect();
-            index.params = reached
+            index.locals = reached
                 .contributions()
-                .flat_map(|c| c.params.iter().copied())
+                .flat_map(|c| c.locals.iter().copied())
                 .collect();
         }
         Ok(index)
@@ -1069,7 +1070,7 @@ impl Indexer {
                 (within, owner, source)
             })
             .collect();
-        out.params = self.syms(&items.params);
+        out.locals = self.syms(&items.locals);
         out.digest = self.alias_digest(&out);
         out
     }

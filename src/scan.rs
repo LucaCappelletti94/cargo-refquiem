@@ -1366,7 +1366,7 @@ impl<'a> Matcher<'a> {
         rooted: &HashSet<PathId>,
     ) -> Self {
         let mut alive = HashSet::new();
-        let mut names = head.params.clone();
+        let mut names = head.locals.clone();
         for &id in head.paths.iter().chain(&dependencies.paths) {
             let segments = interner.segments(id);
             alive.extend(suffixes(segments).map(Box::from));

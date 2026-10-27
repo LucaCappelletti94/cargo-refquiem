@@ -3,6 +3,7 @@
 use proc_macro2::{TokenStream, TokenTree};
 use serde::{Deserialize, Serialize};
 use syn::parse::{ParseStream, Parser};
+use syn::visit::Visit;
 use syn::{Attribute, Fields, ImplItem, Item, TraitItem, Type, UseTree, Visibility};
 
 use crate::{HashSet, ItemKind, serde_names::Container};
@@ -33,9 +34,10 @@ pub(crate) struct FileItems {
     /// Members one path lends another: a `Deref` target its dereferencing type, a supertrait
     /// its subtrait.
     pub(crate) lends: Vec<Lend>,
-    /// The parameter names of every function, method and trait method and the type and const
-    /// parameter names of every generic item, deduplicated.
-    pub(crate) params: Vec<String>,
+    /// The names no path reaches, deduplicated: the parameter names of every function, method
+    /// and trait method, the type and const parameter names of every generic item, and every
+    /// item a function body declares.
+    pub(crate) locals: Vec<String>,
 }
 
 impl FileItems {
@@ -233,6 +235,7 @@ impl Collector<'_> {
                     let signature = self.signature(&item.sig, end);
                     self.sign(&[&name], ItemKind::Function, signature);
                     self.params(&item.sig);
+                    self.body(&item.block);
                 }
                 Item::ForeignMod(foreign) => self.foreign_items(&foreign.items),
                 Item::Impl(item) => {
@@ -547,6 +550,9 @@ impl Collector<'_> {
                 TraitItem::Const(c) => (c.ident.to_string(), ItemKind::AssociatedConst, &c.ident),
                 TraitItem::Fn(f) => {
                     self.params(&f.sig);
+                    if let Some(block) = &f.default {
+                        self.body(block);
+                    }
                     let end = f.default.as_ref().map_or_else(
                         || {
                             f.semi_token
@@ -601,7 +607,10 @@ impl Collector<'_> {
                         call.impl_header = self.source.get(start..end).map(str::to_owned);
                     }
                 }
-                ImplItem::Fn(f) => self.params(&f.sig),
+                ImplItem::Fn(f) => {
+                    self.params(&f.sig);
+                    self.body(&f.block);
+                }
                 _ => {}
             }
         }
@@ -743,7 +752,7 @@ impl Collector<'_> {
             }
         }
         for name in names {
-            self.param(name);
+            self.local(name);
         }
         self.generics(&signature.generics);
     }
@@ -756,13 +765,30 @@ impl Collector<'_> {
                 syn::GenericParam::Const(param) => &param.ident,
                 syn::GenericParam::Lifetime(_) => continue,
             };
-            self.param(strip_raw(&ident.to_string()).to_owned());
+            self.local(strip_raw(&ident.to_string()).to_owned());
         }
     }
 
-    fn param(&mut self, name: String) {
-        if !self.out.params.contains(&name) {
-            self.out.params.push(name);
+    /// Records the name of every item `block` declares at any depth, which a mention can
+    /// name although no path reaches it.
+    fn body(&mut self, block: &syn::Block) {
+        struct Declared<'c, 's>(&'c mut Collector<'s>);
+
+        impl<'ast> Visit<'ast> for Declared<'_, '_> {
+            fn visit_item(&mut self, item: &'ast Item) {
+                if let Some(ident) = declared_ident(item) {
+                    self.0.local(strip_raw(&ident.to_string()).to_owned());
+                }
+                syn::visit::visit_item(self, item);
+            }
+        }
+
+        Declared(self).visit_block(block);
+    }
+
+    fn local(&mut self, name: String) {
+        if name != "_" && !self.out.locals.contains(&name) {
+            self.out.locals.push(name);
         }
     }
 
@@ -810,6 +836,24 @@ fn named_fields(
             ))
         })
         .collect()
+}
+
+/// The name `item` declares, when it declares one.
+fn declared_ident(item: &Item) -> Option<&syn::Ident> {
+    match item {
+        Item::Const(item) => Some(&item.ident),
+        Item::Enum(item) => Some(&item.ident),
+        Item::Fn(item) => Some(&item.sig.ident),
+        Item::Macro(item) => item.ident.as_ref(),
+        Item::Mod(item) => Some(&item.ident),
+        Item::Static(item) => Some(&item.ident),
+        Item::Struct(item) => Some(&item.ident),
+        Item::Trait(item) => Some(&item.ident),
+        Item::TraitAlias(item) => Some(&item.ident),
+        Item::Type(item) => Some(&item.ident),
+        Item::Union(item) => Some(&item.ident),
+        _ => None,
+    }
 }
 
 /// The line of `ident` in the parsed text.
@@ -1040,6 +1084,6 @@ mod tests {
         );
         assert_eq!(out.lends[0].owner, ["Shape"]);
         assert_eq!(out.lends[0].source, ["Default"]);
-        assert_eq!(out.params, ["a", "b", "scale"]);
+        assert_eq!(out.locals, ["a", "b", "scale"]);
     }
 }
