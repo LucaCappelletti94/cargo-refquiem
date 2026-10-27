@@ -540,6 +540,24 @@ fn parameter_names_of_head_functions_are_live() {
 }
 
 #[test]
+fn items_declared_inside_head_function_bodies_are_live() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub const WITHIN: u8 = 1;\npub struct Local;\npub fn helper() {}\npub static NESTED: u8 = 0;\npub struct LocalEnum;\npub fn local_mod() {}\npub struct LocalTrait;\npub struct LocalAlias;\npub struct LocalUnion;\npub fn local_macro() {}\npub struct Cloner;\npub struct Unused;\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// Waits `WITHIN`, builds `Local`, calls `helper`, reads `NESTED` and `Unused`.\n/// Declares `LocalEnum`, `local_mod`, `LocalTrait`, `LocalAlias`, `LocalUnion`,\n/// `local_macro` and `Cloner`.\npub fn wait() -> u8 {\n    const WITHIN: u8 = 1;\n    const _: () = ();\n    use std::fmt;\n    enum LocalEnum {}\n    mod local_mod {}\n    trait LocalTrait {}\n    type LocalAlias = u8;\n    union LocalUnion {\n        a: u8,\n    }\n    macro_rules! local_macro {\n        () => {};\n    }\n    trait Cloner = Clone;\n    WITHIN\n}\npub struct Holder;\nimpl Holder {\n    pub fn method() {\n        struct Local;\n    }\n}\npub trait Run {\n    fn run() {\n        fn helper() {}\n        if true {\n            static NESTED: u8 = 0;\n        }\n    }\n}\n",
+    );
+    repo.commit("move them into bodies");
+
+    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.0).collect();
+    assert_eq!(rows, ["fixture::Unused"]);
+}
+
+#[test]
 fn generic_parameter_names_of_head_items_are_live() {
     let repo = Repo::new();
     repo.write(

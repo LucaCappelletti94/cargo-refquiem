@@ -35,7 +35,7 @@ ra-ap-rustc_lexer = "0.177.0"
 unicode-ident = ">=1.0.22, <1.0.25"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["raw_value"] }
-syn = { version = "3.0.9", default-features = false, features = ["full", "parsing"] }
+syn = { version = "3.0.9", default-features = false, features = ["full", "parsing", "visit"] }
 thiserror = "2.0.21"
 toml = { version = "1.1.8", default-features = false, features = ["display", "parse", "serde"] }
 cargo_metadata = "0.23.1"
