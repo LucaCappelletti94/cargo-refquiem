@@ -13,7 +13,7 @@ use crate::cache::{Expanded, FileCache};
 use crate::git::{ManifestDirs, Snapshot, Trees};
 use crate::intern::{Interner, PathId, Sym};
 use crate::manifest::{self, Manifests, Member, TargetKind, join};
-use crate::parse::{self, FileItems};
+use crate::parse::{self, FileItems, IncludeBase};
 use crate::{Error, HashMap, HashSet, ItemKind, entry, expand};
 
 /// The paths of one snapshot.
@@ -235,6 +235,8 @@ struct Visit {
     /// Whether `file` is a `mod.rs`-style file owning its directory, as an included file is.
     mod_rs: bool,
     module: PathId,
+    /// The directory of the package's `Cargo.toml`, against which `CARGO_MANIFEST_DIR` resolves.
+    package: Rc<str>,
     /// Whether only `pub` items and `pub use` re-exports count, as for a dependency.
     public_only: bool,
 }
@@ -518,6 +520,7 @@ impl Indexer {
         let workspace_members = members.len();
         for (n, member) in members.into_iter().chain(outside_members).enumerate() {
             self.entries(&member, index);
+            let package: Rc<str> = Rc::from(member.dir.as_str());
             self.members
                 .entry(member.dir)
                 .or_default()
@@ -540,6 +543,7 @@ impl Indexer {
                     file: target.root,
                     mod_rs: true,
                     module,
+                    package: package.clone(),
                     public_only: false,
                 }));
             }
@@ -886,10 +890,11 @@ impl Indexer {
     }
 
     /// The public items of the library whose root file is `root` in `snapshot`, rooted at
-    /// `crate_name`.
+    /// `crate_name`, of the package in directory `package`.
     pub(crate) fn library(
         &mut self,
         snapshot: &dyn Snapshot,
+        package: &str,
         root: &str,
         crate_name: &str,
     ) -> Result<Library, Error> {
@@ -901,6 +906,7 @@ impl Indexer {
             file: root.to_owned(),
             mod_rs: true,
             module,
+            package: Rc::from(package),
             public_only: true,
         });
         let reached = self.reach(snapshot, vec![visit], false, &HashSet::new(), &mut index)?;
@@ -1222,6 +1228,7 @@ impl Indexer {
                     file,
                     mod_rs: true,
                     module: child,
+                    package: visit.package.clone(),
                     public_only: visit.public_only,
                 }));
             }
@@ -1234,6 +1241,7 @@ impl Indexer {
                         file,
                         mod_rs,
                         module: child,
+                        package: visit.package.clone(),
                         public_only: visit.public_only,
                     }));
                 }
@@ -1241,11 +1249,16 @@ impl Indexer {
         }
         for include in &items.includes {
             let within = self.within(module, &include.module);
+            let base = match include.base {
+                IncludeBase::File => parent(&visit.file),
+                IncludeBase::Package => &visit.package,
+            };
             // As in rustc, an included file's `mod`s resolve against its own directory.
             visits.push(Rc::new(Visit {
-                file: join(parent(&visit.file), &include.path),
+                file: join(base, &include.path),
                 mod_rs: true,
                 module: self.interner.path(&within, ItemKind::Module),
+                package: visit.package.clone(),
                 public_only: visit.public_only,
             }));
         }
@@ -2174,6 +2187,7 @@ mod tests {
                 file: "lib.rs".into(),
                 mod_rs: false,
                 module: 0,
+                package: Rc::from(""),
                 public_only: false,
             }),
             contribution: Rc::new(contribution),

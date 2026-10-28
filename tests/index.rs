@@ -913,6 +913,34 @@ fn an_item_position_include_pulls_its_file_into_the_module() {
 }
 
 #[test]
+fn an_include_under_the_manifest_dir_reads_the_file_of_its_own_package() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"a\"]\nresolver = \"2\"\n",
+    );
+    repo.write(
+        "a/Cargo.toml",
+        "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("a/src/lib.rs", "");
+    let test = |helper| {
+        format!("/// Compared against [`names`].\nconst NONE: [&str; 0] = [];\n\n{helper}\n")
+    };
+    let helper = "fn names() -> Vec<String> {\n    Vec::new()\n}\n";
+    repo.write("a/tests/t.rs", &test(helper));
+    repo.commit("inline helper");
+    repo.write(
+        "a/tests/t.rs",
+        &test("include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/tests/support/names.rs\"));"),
+    );
+    repo.write("a/tests/support/names.rs", helper);
+    repo.commit("shared helper");
+
+    assert_eq!(removed(&run(&repo)), [] as [&str; 0]);
+}
+
+#[test]
 fn mod_declarations_of_an_included_file_resolve_against_its_directory() {
     let repo = Repo::new();
     repo.write(
