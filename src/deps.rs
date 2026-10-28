@@ -203,10 +203,16 @@ fn path_library(
     dir: &str,
     dependency: &Dependency,
 ) -> Result<HashSet<PathId>, Error> {
-    let lib = manifest::workspace(tree, dir, &mut indexer.manifests)?
+    let (package, lib) = manifest::workspace(tree, dir, &mut indexer.manifests)?
         .into_iter()
-        .flat_map(|member| member.targets)
-        .find(|target| target.kind == TargetKind::Lib)
+        .find_map(|member| {
+            let dir = member.dir;
+            member
+                .targets
+                .into_iter()
+                .find(|target| target.kind == TargetKind::Lib)
+                .map(|lib| (dir, lib))
+        })
         .ok_or_else(|| Error::NoLibrary {
             name: dependency.key.clone(),
         })?;
@@ -214,7 +220,7 @@ fn path_library(
         Some(_) => dependency.key.replace('-', "_"),
         None => lib.crate_name,
     };
-    let library = indexer.library(tree, &lib.root, &name)?;
+    let library = indexer.library(tree, &package, &lib.root, &name)?;
     let root = indexer.interner.sym(&name);
     Ok(indexer.public_paths(&[library], &[root]))
 }
@@ -381,15 +387,15 @@ fn libraries(
             };
             let library = match sources.and_then(|sources| sources.get(dir)) {
                 Some(Source::Repo(snapshot, dir)) => {
-                    indexer.library(*snapshot, &join(dir, &root), &name)?
+                    indexer.library(*snapshot, dir, &join(dir, &root), &name)?
                 }
                 Some(Source::Disk(dir)) => {
                     let snapshot = WorkTreeSnapshot::new(dir.clone(), Vec::new());
-                    indexer.library(&snapshot, &root, &name)?
+                    indexer.library(&snapshot, "", &root, &name)?
                 }
                 None => {
                     let snapshot = WorkTreeSnapshot::new(dir.to_path_buf(), Vec::new());
-                    indexer.library(&snapshot, &root, &name)?
+                    indexer.library(&snapshot, "", &root, &name)?
                 }
             };
             if let Some(node) = nodes.get(&id) {

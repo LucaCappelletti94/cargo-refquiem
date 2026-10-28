@@ -274,6 +274,36 @@ fn a_live_dependency_built_as_an_rlib_or_dylib_keeps_its_names_alive() {
 }
 
 #[test]
+fn a_dependency_keeps_the_names_of_a_file_it_includes_from_its_manifest_dir() {
+    let repo = Repo::new();
+    repo.write(
+        "vendor/helper/Cargo.toml",
+        "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write(
+        "vendor/helper/src/lib.rs",
+        "include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/src/tag.rs\"));\n",
+    );
+    repo.write("vendor/helper/src/tag.rs", "pub struct frame_tag;\n");
+    repo.write("vendor/helper/.cargo-checksum.json", "{\"files\":{}}");
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
+    );
+    repo.write(
+        "src/lib.rs",
+        "pub struct Frame {\n    pub frame_tag: u8,\n}\n",
+    );
+    lock(&repo);
+    repo.commit("own frame_tag");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "`frame_tag`\n");
+    repo.commit("drop Frame");
+
+    assert_eq!(found_by_path(&repo), []);
+}
+
+#[test]
 fn a_bare_name_in_a_data_example_names_only_serialized_spellings() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "pub fn gone() {}\n");

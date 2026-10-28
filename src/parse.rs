@@ -25,7 +25,7 @@ pub(crate) struct FileItems {
     pub(crate) imports: Vec<Use>,
     /// `mod name;` declarations whose body lives in another file.
     pub(crate) mods: Vec<ModDecl>,
-    /// Item-position `include!("file")` invocations.
+    /// Item-position `include!` invocations whose file resolves without the build.
     pub(crate) includes: Vec<Include>,
     /// Item-position macro invocations other than `include!`.
     pub(crate) invocations: Vec<Invocation>,
@@ -116,7 +116,18 @@ pub(crate) struct ModDecl {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Include {
     pub(crate) module: Vec<String>,
+    pub(crate) base: IncludeBase,
+    /// The included file, from `base`.
     pub(crate) path: String,
+}
+
+/// The directory an [`Include`] path starts from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum IncludeBase {
+    /// The directory of the file holding the `include!`.
+    File,
+    /// The package directory, which `env!("CARGO_MANIFEST_DIR")` names.
+    Package,
 }
 
 /// An item-position macro invocation.
@@ -509,9 +520,10 @@ impl Collector<'_> {
                 exported,
                 line: line(ident),
             });
-        } else if let Some(path) = include_path(&item.mac) {
+        } else if let Some((base, path)) = include_path(&item.mac) {
             self.out.includes.push(Include {
                 module: self.module.clone(),
+                base,
                 path,
             });
         } else {
@@ -912,12 +924,61 @@ fn path_segments(path: &syn::Path) -> Vec<String> {
         .collect()
 }
 
-fn include_path(mac: &syn::Macro) -> Option<String> {
+/// The file an `include!` reads, when its argument is a string `concat!` and `env!` spell
+/// without the build.
+fn include_path(mac: &syn::Macro) -> Option<(IncludeBase, String)> {
     if !mac.path.is_ident("include") {
         return None;
     }
-    let literal: syn::LitStr = syn::parse2(mac.tokens.clone()).ok()?;
-    Some(literal.value())
+    let mut spelled = Spelled::default();
+    spelled.push(&mac.parse_body().ok()?)?;
+    if !spelled.package {
+        return Some((IncludeBase::File, spelled.text));
+    }
+    // `CARGO_MANIFEST_DIR` has no trailing separator, so the rest starts with one.
+    if !spelled.text.starts_with('/') {
+        return None;
+    }
+    spelled.text.remove(0);
+    Some((IncludeBase::Package, spelled.text))
+}
+
+/// The string an `include!` argument evaluates to, its leading `env!("CARGO_MANIFEST_DIR")`
+/// kept apart as `package`.
+#[derive(Default)]
+struct Spelled {
+    package: bool,
+    text: String,
+}
+
+impl Spelled {
+    /// Appends the string `expr` evaluates to, `None` when that needs the build.
+    fn push(&mut self, expr: &syn::Expr) -> Option<()> {
+        if let Some(text) = string_literal(expr) {
+            self.text.push_str(&text);
+            return Some(());
+        }
+        let syn::Expr::Macro(call) = expr else {
+            return None;
+        };
+        let concat = call.mac.path.is_ident("concat");
+        if !concat && !call.mac.path.is_ident("env") {
+            return None;
+        }
+        let args = call
+            .mac
+            .parse_body_with(
+                syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated,
+            )
+            .ok()?;
+        if concat {
+            return args.iter().try_for_each(|arg| self.push(arg));
+        }
+        let first = !self.package && self.text.is_empty();
+        let manifest_dir =
+            args.first().and_then(string_literal).as_deref() == Some("CARGO_MANIFEST_DIR");
+        (first && manifest_dir).then(|| self.package = true)
+    }
 }
 
 /// Every identifier in the tokens `text`, deduplicated.
@@ -994,7 +1055,7 @@ pub(crate) fn strip_raw(name: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{FileItems, ItemKind, parse_expansion};
+    use super::{FileItems, IncludeBase, ItemKind, parse_expansion};
 
     /// The named items of `out`, in order.
     fn named(out: &FileItems) -> Vec<(Vec<String>, ItemKind, bool, Option<String>)> {
@@ -1010,6 +1071,34 @@ mod tests {
             .iter()
             .map(|u| (u.source.clone(), u.name.clone(), u.public))
             .collect()
+    }
+
+    #[test]
+    fn only_an_include_spelled_without_the_build_names_a_file() {
+        let source = concat!(
+            "include!(\"lit.rs\");\n",
+            "include!(concat!(\"a/\", \"b.rs\"));\n",
+            "include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/tests/c.rs\"));\n",
+            "include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"tests/d.rs\"));\n",
+            "include!(concat!(env!(\"OUT_DIR\"), \"/e.rs\"));\n",
+            "include!(concat!(\"f/\", env!(\"CARGO_MANIFEST_DIR\")));\n",
+            "include!(stringify!(g));\n",
+            "include!(PATH);\n",
+        );
+        let out = parse_expansion(source).expect("the includes parse");
+        let includes: Vec<(IncludeBase, &str)> = out
+            .includes
+            .iter()
+            .map(|i| (i.base, i.path.as_str()))
+            .collect();
+        assert_eq!(
+            includes,
+            [
+                (IncludeBase::File, "lit.rs"),
+                (IncludeBase::File, "a/b.rs"),
+                (IncludeBase::Package, "tests/c.rs"),
+            ]
+        );
     }
 
     #[test]
