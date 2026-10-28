@@ -1055,7 +1055,7 @@ pub(crate) fn strip_raw(name: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{FileItems, ItemKind, parse_expansion};
+    use super::{FileItems, IncludeBase, ItemKind, parse_expansion};
 
     /// The named items of `out`, in order.
     fn named(out: &FileItems) -> Vec<(Vec<String>, ItemKind, bool, Option<String>)> {
@@ -1071,6 +1071,34 @@ mod tests {
             .iter()
             .map(|u| (u.source.clone(), u.name.clone(), u.public))
             .collect()
+    }
+
+    #[test]
+    fn only_an_include_spelled_without_the_build_names_a_file() {
+        let source = concat!(
+            "include!(\"lit.rs\");\n",
+            "include!(concat!(\"a/\", \"b.rs\"));\n",
+            "include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/tests/c.rs\"));\n",
+            "include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"tests/d.rs\"));\n",
+            "include!(concat!(env!(\"OUT_DIR\"), \"/e.rs\"));\n",
+            "include!(concat!(\"f/\", env!(\"CARGO_MANIFEST_DIR\")));\n",
+            "include!(stringify!(g));\n",
+            "include!(PATH);\n",
+        );
+        let out = parse_expansion(source).expect("the includes parse");
+        let includes: Vec<(IncludeBase, &str)> = out
+            .includes
+            .iter()
+            .map(|i| (i.base, i.path.as_str()))
+            .collect();
+        assert_eq!(
+            includes,
+            [
+                (IncludeBase::File, "lit.rs"),
+                (IncludeBase::File, "a/b.rs"),
+                (IncludeBase::Package, "tests/c.rs"),
+            ]
+        );
     }
 
     #[test]
