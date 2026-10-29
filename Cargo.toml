@@ -1,6 +1,6 @@
 [package]
 name = "refquiem"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 rust-version = "1.88"
 authors = ["Luca Cappelletti"]
@@ -29,7 +29,7 @@ hashbrown = { version = "0.17.1", default-features = false, features = ["default
 proc-macro2 = { version = "1.0.107", default-features = false, features = ["span-locations"] }
 ignore = "0.4.33"
 fst = "0.4.7"
-pulldown-cmark = { version = "0.13.4", default-features = false }
+pulldown-cmark = { version = "0.13.5", default-features = false }
 ra-ap-rustc_lexer = "0.177.0"
 # Unicode 17 like unicode-properties 0.1.4, which ra-ap-rustc_lexer requires to match.
 unicode-ident = ">=1.0.22, <1.0.25"
