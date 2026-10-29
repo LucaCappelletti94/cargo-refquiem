@@ -553,3 +553,84 @@ pub fn run(options: &Options) -> Result<Report, Error> {
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::process::Command;
+
+    use super::{Options, run};
+    use crate::text::FAILING_MARKDOWN;
+
+    /// Runs git in `dir` with an isolated configuration.
+    fn git(dir: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .args([
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.com",
+            ])
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?} failed");
+    }
+
+    /// Writes `files` into `dir` in order, then commits everything.
+    fn commit(dir: &Path, files: &[(&str, &str)]) {
+        for (relative, contents) in files {
+            let path = dir.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, contents).unwrap();
+        }
+        git(dir, &["add", "-A"]);
+        git(dir, &["commit", "-q", "--allow-empty", "-m", "fixture"]);
+    }
+
+    #[test]
+    fn a_markdown_reader_failure_aborts_the_scan() {
+        let manifest = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
+        for (file, body) in [
+            (
+                "README.md",
+                format!("`fixture::Gone`\n\n{FAILING_MARKDOWN}\n"),
+            ),
+            (
+                "src/lib.rs",
+                format!("/// {FAILING_MARKDOWN}\npub struct Kept;\n"),
+            ),
+            (
+                "src/lib.rs",
+                format!("/** {FAILING_MARKDOWN} */\npub struct Kept;\n"),
+            ),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            git(dir.path(), &["init", "-q", "-b", "main"]);
+            commit(
+                dir.path(),
+                &[
+                    ("Cargo.toml", manifest),
+                    (".gitignore", "/target\n"),
+                    ("src/lib.rs", "pub struct Gone;\n"),
+                ],
+            );
+            commit(
+                dir.path(),
+                &[
+                    ("src/lib.rs", ""),
+                    (file, body.as_str()),
+                    ("NOTES.md", "`fixture::Gone`\n"),
+                ],
+            );
+            let Err(error) = run(&Options::new(dir.path().to_path_buf())) else {
+                panic!("incomplete scan succeeded for {file}");
+            };
+            assert!(error.to_string().contains(file), "{error}");
+        }
+    }
+}

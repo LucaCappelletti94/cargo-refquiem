@@ -488,6 +488,10 @@ fn keep_label(link: BrokenLink<'_>) -> Option<(CowStr<'_>, CowStr<'_>)> {
     Some((link.reference, CowStr::Borrowed("")))
 }
 
+/// Text the Markdown reader fails on in unit tests, standing in for a parser panic.
+#[cfg(test)]
+pub(crate) const FAILING_MARKDOWN: &str = "refquiem-test-reader-failure";
+
 /// Mentions in Markdown `text`, whose offsets `map` turns into file offsets.
 fn markdown(
     text: &str,
@@ -495,8 +499,15 @@ fn markdown(
     source: Source,
     out: &mut Vec<Spelled>,
 ) -> Result<Vec<MarkerName>, MarkdownError> {
-    let mut found =
-        std::panic::catch_unwind(|| markdown_mentions(text, source)).map_err(|_| MarkdownError)?;
+    let mut found = std::panic::catch_unwind(|| {
+        #[cfg(test)]
+        assert!(
+            !text.contains(FAILING_MARKDOWN),
+            "the test Markdown reader fails"
+        );
+        markdown_mentions(text, source)
+    })
+    .map_err(|_| MarkdownError)?;
     for mut path in found.mentions {
         path.start = map(path.start);
         path.end = map(path.end);
