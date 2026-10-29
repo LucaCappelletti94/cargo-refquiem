@@ -172,6 +172,45 @@ fn intra_doc_disambiguators_and_call_suffixes_are_stripped() {
 }
 
 #[test]
+fn a_reference_definition_destination_is_a_link_mention() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", BEFORE);
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "/// See [the old one][old].\n///\n/// [old]: crate::gone\npub struct Thing;\n",
+    );
+    repo.write(
+        "README.md",
+        "See [the old one][old].\n\n[old]: fixture::gone\n",
+    );
+    repo.commit("drop gone");
+
+    let found = found_by_path(&repo);
+    let link = |source| context(source, Kind::Link);
+    assert_eq!(
+        in_file(&found, "src/lib.rs"),
+        [(
+            "fixture::gone",
+            3,
+            12,
+            link(Source::DocComment),
+            "crate::gone"
+        )]
+    );
+    assert_eq!(
+        in_file(&found, "README.md"),
+        [(
+            "fixture::gone",
+            3,
+            8,
+            link(Source::Markdown),
+            "fixture::gone"
+        )]
+    );
+}
+
+#[test]
 fn a_standard_library_path_keeps_its_spelling_alive() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "pub mod io {\n    pub struct Error;\n}\n");
