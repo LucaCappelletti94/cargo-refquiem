@@ -54,6 +54,58 @@ dismiss() {
   done
 }
 
+# Every review thread with its id, state, comments and the review its first comment opened.
+threads_query='query($owner: String!, $name: String!, $number: Int!, $endCursor: String) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+    reviewThreads(first: 100, after: $endCursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes { id isResolved comments(first: 100) { nodes { id pullRequestReview { databaseId body } } } }
+    } } } }'
+resolve_mutation='mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }'
+hide_mutation='mutation($id: ID!) { minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) { minimizedComment { isMinimized } } }'
+
+# Hides every comment of the thread `$1` holds as outdated.
+hide_thread() {
+  local comment err
+  for comment in $(jq -r '.comments.nodes[].id' <<< "$1"); do
+    if ! err="$(gh api graphql -f query="$hide_mutation" -f id="$comment" 2>&1)"; then
+      printf 'refquiem: comment %s stays visible, hiding it failed\n%s\n' "$comment" "$err"
+    fi
+  done
+}
+
+# Closes the open threads of this action's earlier reviews, keeping those of review $1. A thread
+# resolves when the token may resolve it, which needs contents: write, and is hidden otherwise.
+close_threads() {
+  local threads row thread err hiding=false
+  if ! threads="$(gh api graphql --paginate -f query="$threads_query" -f owner="${repo%%/*}" \
+    -f name="${repo#*/}" -F number="$pr" --jq '.data.repository.pullRequest.reviewThreads.nodes[]' \
+    2> "$work/threads.err")"; then
+    printf 'refquiem: the review threads stay open, they cannot be read\n%s\n' "$(cat "$work/threads.err")"
+    return
+  fi
+  while IFS= read -r row; do
+    [ -n "$row" ] || continue
+    thread="$(jq -r .id <<< "$row")"
+    if [ "$hiding" = false ]; then
+      if err="$(gh api graphql -f query="$resolve_mutation" -f id="$thread" 2>&1)"; then
+        continue
+      fi
+      if ! grep -q 'Resource not accessible' <<< "$err"; then
+        printf 'refquiem: thread %s stays open, resolving it failed\n%s\n' "$thread" "$err"
+        continue
+      fi
+      echo "refquiem: the token may not resolve threads, their comments are hidden as outdated"
+      hiding=true
+    fi
+    hide_thread "$row"
+  done < <(jq -c --arg marker "$marker" --arg keep "${1:-}" \
+    'select(.isResolved | not)
+      | (.comments.nodes[0].pullRequestReview // {}) as $review
+      | select(($review.body // "" | contains($marker)) and ($review.databaseId | tostring) != $keep)' \
+    <<< "$threads")
+}
+
 # The jq definitions every rendering shares, reading $server, $repo, $sha, $reviewed,
 # $review_url and $version.
 defs='
@@ -399,6 +451,7 @@ if [ "$(jq '(.groups | length) + (.unused_markers | length)' "$report")" = 0 ]; 
   echo "refquiem: no stale mention, the review is not posted"
   if [ "$DRY_RUN" != true ] && [ -n "$pr" ]; then
     dismiss
+    close_threads
   fi
   finish skipped-clean
 fi
@@ -459,12 +512,14 @@ held
 body="$(review_body "$anchored" "$posted")"
 post_review "$body" "$(jq -s -c 'map({path, line, side, body})' "$comments")"
 code=$?
+anchors=true
 if [ "$code" != 0 ] && http_status "$response" 422; then
   echo "refquiem: GitHub rejected a comment, the review is posted with every finding in its body"
   printf '%s\n' "$response"
   body="$(review_body '[]' '[]')"
   post_review "$body" '[]'
   code=$?
+  anchors=false
 fi
 {
   echo
@@ -487,6 +542,11 @@ if [ "$(jq -r .state <<< "$response" 2>/dev/null)" != CHANGES_REQUESTED ]; then
   printf '%s\n' "$response"
   finish failed 1
 fi
-dismiss "$(jq -r .id <<< "$response")"
+review_id="$(jq -r .id <<< "$response")"
+dismiss "$review_id"
+# A review anchoring nothing leaves the earlier threads as the only pointers at its findings.
+if [ "$anchors" = true ]; then
+  close_threads "$review_id"
+fi
 echo "refquiem: posted the review on pull request $pr"
 finish posted
