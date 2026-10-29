@@ -319,6 +319,14 @@ const EARLIER_REVIEWS: &str = r#"{"id":101,"state":"CHANGES_REQUESTED","body":"s
 {"id":102,"state":"DISMISSED","body":"older\n\n<!-- refquiem -->"}
 {"id":103,"state":"CHANGES_REQUESTED","body":"a maintainer's request"}"#;
 
+/// The review threads the pull request already has, as `--jq` prints each node: an open one
+/// of ours with a reply, an open one of our dismissed review, a maintainer's open one, and one
+/// of ours already resolved.
+const EARLIER_THREADS: &str = r#"{"id":"T1","isResolved":false,"comments":{"nodes":[{"id":"C11","pullRequestReview":{"databaseId":101,"body":"stale\n\n<!-- refquiem -->"}},{"id":"C12","pullRequestReview":{"databaseId":201,"body":"fixed in the next commit"}}]}}
+{"id":"T2","isResolved":false,"comments":{"nodes":[{"id":"C21","pullRequestReview":{"databaseId":102,"body":"older\n\n<!-- refquiem -->"}}]}}
+{"id":"T3","isResolved":false,"comments":{"nodes":[{"id":"C31","pullRequestReview":{"databaseId":103,"body":"a maintainer's request"}}]}}
+{"id":"T4","isResolved":true,"comments":{"nodes":[{"id":"C41","pullRequestReview":{"databaseId":101,"body":"stale\n\n<!-- refquiem -->"}}]}}"#;
+
 /// The head commit the fake pull request 7 and the fake run 99 point at.
 const HEAD: &str = "f00df00df00df00df00df00df00df00df00df00d";
 
@@ -326,8 +334,10 @@ impl FakeGh {
     /// `changed` are the pull request's files, each a hunk covering its first 200 lines on
     /// both sides. `fail` makes the review post fail with that status for `review`, only a
     /// post carrying comments for `review-comments`, listing the files for `files`, a
-    /// dismissal for `dismissals`, or reading the run for `runs`. Run 99 built pull request 7
-    /// from the `feature` branch of `fork/repo` at [`HEAD`].
+    /// dismissal for `dismissals`, reading the run for `runs`, or reading the review threads
+    /// for `threads`. `resolve` refuses resolving a thread the way a token without
+    /// `contents: write` is refused, and `close` refuses hiding its comments as well. Run 99
+    /// built pull request 7 from the `feature` branch of `fork/repo` at [`HEAD`].
     fn new(changed: &[&str], fail: Option<(&str, u16)>) -> Self {
         let whole = format!(
             "@@ -1,200 +1,200 @@\n{}{}",
@@ -365,6 +375,30 @@ for arg in "$@"; do
 done
 printf 'CALL %s\n%s\nEND\n' "$*" "$body" >> "$log"
 case "$*" in
+  *graphql*resolveReviewThread*)
+    if [ '{fail_key}' = resolve ] || [ '{fail_key}' = close ]; then
+      echo 'gh: GraphQL: Resource not accessible by integration (resolveReviewThread)' >&2
+      exit 1
+    fi
+    echo '{{"data":{{"resolveReviewThread":{{"thread":{{"isResolved":true}}}}}}}}' ;;
+  *graphql*minimizeComment*)
+    if [ '{fail_key}' = close ]; then
+      echo 'gh: GraphQL: Resource not accessible by integration (minimizeComment)' >&2
+      exit 1
+    fi
+    echo '{{"data":{{"minimizeComment":{{"minimizedComment":{{"isMinimized":true}}}}}}}}' ;;
+  *graphql*reviewThreads*)
+    if [ '{fail_key}' = threads ]; then
+      echo 'gh: HTTP {fail_status}' >&2
+      exit 1
+    fi
+    cat <<'THREADS'
+{threads}
+THREADS
+    if grep -q '^CALL .*-X POST.*pulls/7/reviews' "$log"; then
+      echo '{{"id":"T5","isResolved":false,"comments":{{"nodes":[{{"id":"C51","pullRequestReview":{{"databaseId":104,"body":"new\n\n<!-- refquiem -->"}}}}]}}}}'
+    fi
+    ;;
   *pulls/7/reviews/*/dismissals*)
     if [ '{fail_key}' = dismissals ]; then
       echo 'gh: HTTP {fail_status}' >&2
@@ -407,6 +441,7 @@ esac
             run = dir.path().join("run.json").display(),
             open = dir.path().join("open.ndjson").display(),
             reviews = EARLIER_REVIEWS,
+            threads = EARLIER_THREADS,
         );
         let gh = dir.path().join("gh");
         std::fs::write(&gh, script).unwrap();
@@ -602,6 +637,7 @@ fn assert_rejected(gh: &FakeGh, payload: &Path, env: &[(&str, &str)]) {
     assert_eq!(outcome, (false, "rejected".to_owned()), "{log}");
     assert!(reviews_posted(&log).is_empty(), "{log}");
     assert_eq!(dismissed(&log), Vec::<&str>::new(), "{log}");
+    assert!(!log.contains("graphql"), "{log}");
 }
 
 /// Every `gh` call in the log as its arguments and the stdin it read.
@@ -684,6 +720,31 @@ fn dismissed(log: &str) -> Vec<&str> {
         .filter(|l| l.starts_with("CALL ") && l.contains("/dismissals"))
         .filter_map(|l| l.split("pulls/7/reviews/").nth(1)?.split('/').next())
         .collect()
+}
+
+/// The ids each call to `mutation` named with `-f id=`, in order.
+fn mutated<'a>(log: &'a str, mutation: &str) -> Vec<&'a str> {
+    calls(log)
+        .into_iter()
+        .filter(|(args, _)| args.contains("graphql") && args.contains(mutation))
+        .filter_map(|(args, _)| args.split(' ').find_map(|arg| arg.strip_prefix("id=")))
+        .collect()
+}
+
+/// The ids of the review threads resolved, in order.
+fn resolved(log: &str) -> Vec<&str> {
+    mutated(log, "resolveReviewThread")
+}
+
+/// The ids of the review comments hidden, in order.
+fn hidden(log: &str) -> Vec<&str> {
+    mutated(log, "minimizeComment")
+}
+
+/// Asserts the run resolved no thread and hid no comment.
+fn assert_no_thread_closed(log: &str) {
+    assert_eq!(resolved(log), Vec::<&str>::new(), "{log}");
+    assert_eq!(hidden(log), Vec::<&str>::new(), "{log}");
 }
 
 #[test]
@@ -1066,6 +1127,8 @@ fn a_review_github_rejects_is_posted_again_with_every_finding_in_its_body() {
         assert!(review.contains(place), "{place}\n{review}");
     }
     assert_eq!(dismissed(&log), ["101"]);
+    // The body-only review anchors nothing, so the earlier threads still point at live findings.
+    assert_no_thread_closed(&log);
 }
 
 #[test]
@@ -1079,6 +1142,7 @@ fn a_review_github_fails_to_post_fails_the_run_and_dismisses_nothing() {
     let log = gh.log();
     assert_eq!(reviews_posted(&log).len(), 1, "{log}");
     assert_eq!(dismissed(&log), Vec::<&str>::new());
+    assert_no_thread_closed(&log);
 }
 
 #[test]
@@ -1091,6 +1155,7 @@ fn a_read_only_token_skips_the_review_and_dismisses_nothing() {
     let log = gh.log();
     assert_eq!(reviews_posted(&log).len(), 1, "{log}");
     assert_eq!(dismissed(&log), Vec::<&str>::new());
+    assert_no_thread_closed(&log);
 }
 
 #[test]
@@ -1464,10 +1529,79 @@ fn a_clean_run_dismisses_only_its_own_change_requests() {
     let (status, _) = review(&gh, "review", false, payload.path(), &clean_scan());
     assert_eq!(status, "skipped-clean");
     let log = gh.log();
-    assert!(!log.contains("comments"), "{log}");
     assert!(!log.contains("-X POST"), "{log}");
     assert_eq!(dismissed(&log), ["101"]);
     assert!(log.contains("event=DISMISS"), "{log}");
+}
+
+#[test]
+fn a_clean_run_closes_every_open_thread_of_its_earlier_reviews() {
+    let gh = FakeGh::new(&["README.md"], None);
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(&gh, "review", false, payload.path(), &clean_scan());
+    assert_eq!(status, "skipped-clean");
+    let log = gh.log();
+    // T1 holds a reply and closes too, the maintainer's T3 and the resolved T4 stay as they are.
+    assert_eq!(resolved(&log), ["T1", "T2"], "{log}");
+    assert_eq!(hidden(&log), Vec::<&str>::new(), "{log}");
+}
+
+#[test]
+fn a_posted_review_closes_the_earlier_threads_and_keeps_its_own() {
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(&gh, "review", false, payload.path(), &stale_scan());
+    assert_eq!(status, "posted");
+    let log = gh.log();
+    assert_eq!(
+        resolved(&log),
+        ["T1", "T2"],
+        "the new review's T5 stays open\n{log}"
+    );
+    assert!(
+        log.find("-X POST").unwrap() < log.find("resolveReviewThread").unwrap(),
+        "{log}"
+    );
+}
+
+#[test]
+fn a_refused_resolve_hides_every_comment_of_the_earlier_threads_as_outdated() {
+    let gh = FakeGh::new(&["README.md"], Some(("resolve", 0)));
+    let payload = tempfile::tempdir().unwrap();
+    let (success, status, _) = run_review(&gh, "review", false, payload.path(), &clean_scan(), &[]);
+    assert!(success);
+    assert_eq!(status, "skipped-clean");
+    let log = gh.log();
+    assert_eq!(resolved(&log), ["T1"], "one refusal is enough\n{log}");
+    assert_eq!(hidden(&log), ["C11", "C12", "C21"], "{log}");
+    for (args, _) in calls(&log)
+        .into_iter()
+        .filter(|(args, _)| args.contains("minimizeComment"))
+    {
+        assert!(args.contains("classifier: OUTDATED"), "{args}");
+    }
+}
+
+#[test]
+fn a_refused_hide_leaves_the_run_status_as_it_was() {
+    let gh = FakeGh::new(&["README.md", "src/lib.rs"], Some(("close", 0)));
+    let payload = tempfile::tempdir().unwrap();
+    let (success, status, _) = run_review(&gh, "review", false, payload.path(), &stale_scan(), &[]);
+    assert!(success);
+    assert_eq!(status, "posted");
+    assert_eq!(hidden(&gh.log()), ["C11", "C12", "C21"], "{}", gh.log());
+}
+
+#[test]
+fn review_threads_that_cannot_be_read_leave_the_run_status_as_it_was() {
+    let gh = FakeGh::new(&["README.md"], Some(("threads", 502)));
+    let payload = tempfile::tempdir().unwrap();
+    let (success, status, _) = run_review(&gh, "review", false, payload.path(), &clean_scan(), &[]);
+    assert!(success);
+    assert_eq!(status, "skipped-clean");
+    let log = gh.log();
+    assert_eq!(dismissed(&log), ["101"]);
+    assert_no_thread_closed(&log);
 }
 
 #[test]
@@ -1513,6 +1647,7 @@ fn a_clean_dry_run_touches_no_review() {
     let (status, _) = review(&gh, "review", true, payload.path(), &clean_scan());
     assert_eq!(status, "skipped-clean");
     assert!(!gh.log().contains("reviews"), "{}", gh.log());
+    assert!(!gh.log().contains("graphql"), "{}", gh.log());
 }
 
 #[test]
@@ -1538,13 +1673,14 @@ fn a_clean_prepare_lets_the_post_job_dismiss_at_the_run_head() {
     );
     assert_eq!(status, "skipped-stale");
     assert_eq!(dismissed(&moved_on.log()), Vec::<&str>::new());
+    assert_no_thread_closed(&moved_on.log());
 
     let posting = FakeGh::new(&[], None);
     let (status, _) = review_with(&posting, "post", false, payload.path(), "", IN_WORKFLOW_RUN);
     assert_eq!(status, "skipped-clean");
     let log = posting.log();
     assert_eq!(dismissed(&log), ["101"]);
-    assert!(!log.contains("comments"), "{log}");
+    assert_eq!(resolved(&log), ["T1", "T2"], "{log}");
     assert!(!log.contains("-X POST"), "{log}");
 }
 
