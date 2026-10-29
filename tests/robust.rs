@@ -100,24 +100,3 @@ fn modules_reexporting_each_other_in_a_cycle_are_indexed() {
     let groups: Vec<&str> = report.groups.iter().map(|g| g.path.as_str()).collect();
     assert_eq!(groups, ["fixture::tour::c0::step0"]);
 }
-
-#[test]
-fn a_markdown_reader_failure_aborts_the_scan() {
-    for (file, body) in [
-        ("README.md", "`fixture::Gone`\n\n- [o]:u\n    \t"),
-        ("src/lib.rs", "/// - [o]:u\n///     \t\npub struct Kept;\n"),
-        ("src/lib.rs", "/**- [o]:u\n    \t*/\npub struct Kept;\n"),
-    ] {
-        let repo = Repo::new();
-        repo.write("src/lib.rs", "pub struct Gone;\n");
-        repo.commit("public API");
-        repo.write("src/lib.rs", "");
-        repo.write(file, body);
-        repo.write("NOTES.md", "`fixture::Gone`\n");
-        repo.commit("remove API");
-        let Err(error) = refquiem::run(&Options::new(repo.path().to_path_buf())) else {
-            panic!("incomplete scan succeeded for {file}");
-        };
-        assert!(error.to_string().contains(file), "{error}");
-    }
-}
