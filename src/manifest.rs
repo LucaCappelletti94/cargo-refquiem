@@ -50,6 +50,21 @@ pub(crate) const DEV: u8 = 2;
 /// The bit of `[build-dependencies]`.
 pub(crate) const BUILD: u8 = 4;
 
+/// The dependency tables of a manifest, each also under `[target.<cfg>]`, with the bit each
+/// sets in [`Dependency::tables`].
+pub(crate) const DEPENDENCY_TABLES: [(&str, u8); 5] = [
+    ("dependencies", NORMAL),
+    ("dev-dependencies", DEV),
+    ("dev_dependencies", DEV),
+    ("build-dependencies", BUILD),
+    ("build_dependencies", BUILD),
+];
+
+/// Whether `key` names one of the [`DEPENDENCY_TABLES`].
+pub(crate) fn is_dependency_table(key: &str) -> bool {
+    DEPENDENCY_TABLES.iter().any(|&(table, _)| table == key)
+}
+
 /// One workspace member package.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Member {
@@ -202,14 +217,7 @@ fn dependencies(
     dir: &str,
     (workspace_dir, inherited): Inherited<'_>,
 ) -> (Vec<Dependency>, Vec<String>) {
-    const KINDS: [(&str, u8); 5] = [
-        ("dependencies", NORMAL),
-        ("dev-dependencies", DEV),
-        ("dev_dependencies", DEV),
-        ("build-dependencies", BUILD),
-        ("build_dependencies", BUILD),
-    ];
-    let mut tables: Vec<(u8, &Table)> = KINDS
+    let mut tables: Vec<(u8, &Table)> = DEPENDENCY_TABLES
         .iter()
         .filter_map(|&(kind, bit)| Some((bit, manifest.get(kind)?.as_table()?)))
         .collect();
@@ -221,7 +229,7 @@ fn dependencies(
         .filter_map(toml::Value::as_table)
     {
         tables.extend(
-            KINDS
+            DEPENDENCY_TABLES
                 .iter()
                 .filter_map(|&(kind, bit)| Some((bit, platform.get(kind)?.as_table()?))),
         );
@@ -583,14 +591,17 @@ fn table<'t, 'i>(table: &'t DeTable<'i>, name: &str) -> Option<&'t DeTable<'i>> 
 
 /// Every dependency table of a manifest, target-specific ones included.
 fn dependency_tables<'t, 'i>(root: &'t DeTable<'i>) -> Vec<&'t DeTable<'i>> {
-    const KINDS: [&str; 3] = ["dependencies", "dev-dependencies", "build-dependencies"];
     let targets = table(root, "target")
         .into_iter()
         .flat_map(|targets| targets.values())
         .filter_map(|target| target.get_ref().as_table());
     std::iter::once(root)
         .chain(targets)
-        .flat_map(|owner| KINDS.iter().filter_map(move |kind| table(owner, kind)))
+        .flat_map(|owner| {
+            DEPENDENCY_TABLES
+                .iter()
+                .filter_map(move |&(kind, _)| table(owner, kind))
+        })
         .collect()
 }
 
@@ -675,5 +686,14 @@ name = "demo-run"
             Some(7)
         );
         assert_eq!(entry_line(MANIFEST, ItemKind::Feature, "serde"), None);
+    }
+
+    #[test]
+    fn entries_of_underscore_spelled_tables_point_at_their_declaring_line() {
+        let manifest = "[package]\nname = \"demo\"\n\n[dev_dependencies]\nlibc = \"0.2\"\n\n\
+                        [target.'cfg(unix)'.build_dependencies]\n\
+                        cc = { version = \"1\", optional = true }\n";
+        assert_eq!(entry_line(manifest, ItemKind::Dependency, "libc"), Some(5));
+        assert_eq!(entry_line(manifest, ItemKind::Feature, "cc"), Some(8));
     }
 }
