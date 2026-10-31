@@ -13,17 +13,8 @@ use toml::{Table, Value};
 use crate::git::{Snapshot, TreeSnapshot, WorkTreeSnapshot, relative};
 use crate::index::Indexer;
 use crate::intern::{PathId, Sym};
-use crate::manifest::{self, Dependency, Manifests, Member, TargetKind, join};
+use crate::manifest::{self, DEPENDENCY_TABLES, Dependency, Manifests, Member, TargetKind, join};
 use crate::{Error, HashMap, HashSet, Skipped};
-
-/// The dependency tables of a manifest, each also under `[target.<cfg>]`.
-const KINDS: [&str; 5] = [
-    "dependencies",
-    "dev-dependencies",
-    "dev_dependencies",
-    "build-dependencies",
-    "build_dependencies",
-];
 
 /// The registries crates.io is known by in `Cargo.lock`.
 const CRATES_IO: [&str; 2] = [
@@ -698,7 +689,7 @@ fn each_path(
         }
         Ok(())
     };
-    for kind in KINDS {
+    for (kind, _) in DEPENDENCY_TABLES {
         if let Some(Value::Table(specs)) = manifest.get_mut(kind) {
             visit_specs(specs)?;
         }
@@ -706,7 +697,7 @@ fn each_path(
     if let Some(Value::Table(targets)) = manifest.get_mut("target") {
         for (_, platform) in targets.iter_mut() {
             if let Value::Table(platform) = platform {
-                for kind in KINDS {
+                for (kind, _) in DEPENDENCY_TABLES {
                     if let Some(Value::Table(specs)) = platform.get_mut(kind) {
                         visit_specs(specs)?;
                     }

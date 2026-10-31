@@ -7,6 +7,7 @@ use ra_ap_rustc_lexer::{
     DocStyle, FrontmatterAllowed, LiteralKind, TokenKind, is_id_continue, is_id_start, is_ident,
 };
 
+use crate::manifest::is_dependency_table;
 use crate::{Context, HashSet, Kind, Source};
 
 #[derive(Debug)]
@@ -1570,13 +1571,6 @@ fn urls(text: &str) -> Vec<(usize, usize)> {
 
 /// Dependency keys and their requested features in a `toml` code block at `base`.
 fn toml(block: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
-    const KINDS: [&str; 5] = [
-        "dependencies",
-        "dev-dependencies",
-        "dev_dependencies",
-        "build-dependencies",
-        "build_dependencies",
-    ];
     let mut table: Option<Option<String>> = None;
     let mut line_start = 0;
     for line in block.split_inclusive('\n') {
@@ -1590,8 +1584,8 @@ fn toml(block: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
             let inner = &header[..header.find(']').unwrap_or(header.len())];
             let keys = dotted_keys(inner);
             table = match keys.as_slice() {
-                [.., (_, last)] if KINDS.contains(&last.as_str()) => Some(None),
-                [.., (_, kind), (offset, key)] if KINDS.contains(&kind.as_str()) => {
+                [.., (_, last)] if is_dependency_table(last) => Some(None),
+                [.., (_, kind), (offset, key)] if is_dependency_table(kind) => {
                     let start = base + inner_start + offset;
                     out.push(Spelled::name(
                         start,
