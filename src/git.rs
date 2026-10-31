@@ -29,6 +29,13 @@ pub(crate) type ManifestDirs = HashMap<ObjectId, Rc<[String]>>;
 /// The entries of each committed tree, by tree id.
 pub(crate) type Trees = HashMap<ObjectId, Rc<Vec<TreeEntry>>>;
 
+/// The tree object of `id`, an error when the object is absent or not a tree.
+fn tree(repo: &gix::Repository, id: ObjectId) -> Result<gix::Tree<'_>, Error> {
+    repo.find_object(id)
+        .map(gix::Object::into_tree)
+        .map_err(|source| Error::Object { id, source })
+}
+
 /// The directories holding a `Cargo.toml` below tree `id` of `repo`, relative to it.
 fn manifests_below(
     repo: &gix::Repository,
@@ -38,10 +45,7 @@ fn manifests_below(
     if let Some(found) = memo.get(&id) {
         return Ok(Rc::clone(found));
     }
-    let tree = repo
-        .find_object(id)
-        .map(gix::Object::into_tree)
-        .map_err(|source| Error::Object { id, source })?;
+    let tree = tree(repo, id)?;
     let mut found = Vec::new();
     let mut children = Vec::new();
     for entry in tree.iter() {
@@ -90,13 +94,7 @@ impl<'r> TreeSnapshot<'r> {
     }
 
     fn root(&self) -> Result<gix::Tree<'r>, Error> {
-        self.repo
-            .find_object(self.tree)
-            .map(gix::Object::into_tree)
-            .map_err(|source| Error::Object {
-                id: self.tree,
-                source,
-            })
+        tree(self.repo, self.tree)
     }
 
     /// The entry at `path`, following symlinks to targets inside the snapshot, at most 40 of
@@ -162,37 +160,40 @@ impl<'r> TreeSnapshot<'r> {
         Ok(found)
     }
 
+    /// The run's memo of tree `dir`'s parsed entries, decoded once when missing, a tree that
+    /// fails to decode keeping its entries parsed before the failure with the error.
+    fn memo(&self, dir: ObjectId) -> Result<Rc<Vec<TreeEntry>>, (Vec<TreeEntry>, Error)> {
+        let mut memo = self.trees.borrow_mut();
+        if let hashbrown::hash_map::Entry::Vacant(slot) = memo.entry(dir) {
+            let entries = self.entries(dir)?;
+            slot.insert(entries.into());
+        }
+        Ok(Rc::clone(
+            memo.get(&dir).expect("the missing tree was just inserted"),
+        ))
+    }
+
     /// The entry called `name` in tree `dir`, from the run's memo of the tree's parsed entries.
     fn child(
         &self,
         dir: ObjectId,
         name: &str,
     ) -> Result<Option<(ObjectId, gix::objs::tree::EntryMode)>, Error> {
-        let mut memo = self.trees.borrow_mut();
-        if let hashbrown::hash_map::Entry::Vacant(slot) = memo.entry(dir) {
-            match self.entries(dir) {
-                Ok(entries) => {
-                    slot.insert(entries.into());
-                }
-                // A tree that fails to decode answers the names before the failure, as reading
-                // it up to the first match would.
-                Err((entries, error)) => {
-                    return find_entry(&entries, name).map_or(Err(error), |found| Ok(Some(found)));
-                }
+        let entries = match self.memo(dir) {
+            // A tree that fails to decode answers the names before the failure, as reading
+            // it up to the first match would.
+            Err((entries, error)) => {
+                return find_entry(&entries, name).map_or(Err(error), |found| Ok(Some(found)));
             }
-        }
-        let entries = memo.get(&dir).expect("the missing tree was just inserted");
-        Ok(find_entry(entries, name))
+            Ok(entries) => entries,
+        };
+        Ok(find_entry(&entries, name))
     }
 
     /// The parsed entries of tree `dir`, else those parsed before the first that fails, with
     /// the error.
     fn entries(&self, dir: ObjectId) -> Result<Vec<TreeEntry>, (Vec<TreeEntry>, Error)> {
-        let tree = self
-            .repo
-            .find_object(dir)
-            .map(gix::Object::into_tree)
-            .map_err(|source| (Vec::new(), Error::Object { id: dir, source }))?;
+        let tree = tree(self.repo, dir).map_err(|error| (Vec::new(), error))?;
         let mut entries = Vec::new();
         for entry in tree.iter() {
             match entry {
@@ -264,26 +265,22 @@ impl Snapshot for TreeSnapshot<'_> {
     }
 
     fn list_dir(&self, dir: &str) -> Result<Vec<(String, bool)>, Error> {
-        let tree = if dir.is_empty() {
-            self.root()?
+        let id = if dir.is_empty() {
+            self.tree
         } else {
             match self.entry(dir)? {
-                Some((id, mode)) if mode.is_tree() => self
-                    .repo
-                    .find_object(id)
-                    .map(gix::Object::into_tree)
-                    .map_err(|source| Error::Object { id, source })?,
+                Some((id, mode)) if mode.is_tree() => id,
                 _ => return Ok(Vec::new()),
             }
         };
-        let id = tree.id;
-        tree.iter()
-            .map(|entry| {
-                entry
-                    .map(|entry| (entry.filename().to_string(), entry.mode().is_tree()))
-                    .map_err(|source| Error::TreeList { id, source })
-            })
-            .collect()
+        let entries = match self.memo(id) {
+            Ok(entries) => entries,
+            Err((_, error)) => return Err(error),
+        };
+        Ok(entries
+            .iter()
+            .map(|(name, _, mode)| (name.clone(), mode.is_tree()))
+            .collect())
     }
 
     fn files(&self) -> Result<Vec<String>, Error> {
@@ -484,14 +481,14 @@ pub(crate) fn range(
     }
     let mut commits = Vec::with_capacity(ids.len());
     for (id, parents) in topological(ids) {
-        let tree = tree(repo, id)?;
+        let tree = commit_tree(repo, id)?;
         commits.push(Commit { id, tree, parents });
     }
     Ok((commits, head, hidden))
 }
 
-/// The tree of commit `id`.
-pub(crate) fn tree(repo: &gix::Repository, id: ObjectId) -> Result<ObjectId, Error> {
+/// The root tree of commit `id`.
+pub(crate) fn commit_tree(repo: &gix::Repository, id: ObjectId) -> Result<ObjectId, Error> {
     Ok(repo
         .find_commit(id)
         .map_err(|source| Error::Object { id, source })?

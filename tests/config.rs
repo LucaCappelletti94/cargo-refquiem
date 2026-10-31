@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::Repo;
+use common::{PACKAGE, Repo};
 use refquiem::Options;
 
 /// `(group path, file)` for every mention, sorted.
@@ -759,27 +759,6 @@ fn a_bare_allow_entry_keeps_serialized_names_alive() {
 }
 
 #[test]
-fn release_histories_are_not_scanned_by_default() {
-    let repo = removed_gone();
-    for file in [
-        "RELEASES.md",
-        "docs/RELEASES-1.0.md",
-        "RELEASE-NOTES.md",
-        "RELEASE_NOTES.md",
-        "NEWS.md",
-        "HISTORY.md",
-        "CHANGES.md",
-    ] {
-        repo.write(file, "`fixture::Gone`\n");
-    }
-    repo.write("README.md", "`fixture::Gone`\n");
-    assert_eq!(
-        found(&Options::new(repo.path().to_path_buf())),
-        [("fixture::Gone".to_owned(), "README.md".to_owned())]
-    );
-}
-
-#[test]
 fn changelogs_are_not_scanned_by_default() {
     let repo = removed_gone();
     repo.write("CHANGELOG.md", "Removed `fixture::Gone`.\n");
@@ -798,6 +777,7 @@ fn release_history_files_are_not_scanned_by_default() {
     let repo = removed_gone();
     for file in [
         "RELEASES.md",
+        "docs/RELEASES-1.0.md",
         "RELEASE-NOTES.md",
         "RELEASE_NOTES.md",
         "NEWS.md",
@@ -836,7 +816,7 @@ fn allow_entries_drop_groups_by_path_or_path_ending() {
     let repo = Repo::new();
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nstructopt = { path = \"vendor/structopt\" }\n",
+        &format!("{PACKAGE}\n[dependencies]\nstructopt = {{ path = \"vendor/structopt\" }}\n"),
     );
     repo.write(
         "vendor/structopt/Cargo.toml",
@@ -848,10 +828,7 @@ fn allow_entries_drop_groups_by_path_or_path_ending() {
         "pub struct Gone;\npub struct Parser;\nimpl Parser {\n    pub fn parse_expr() {}\n}\n",
     );
     repo.commit("start");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
+    repo.write("Cargo.toml", PACKAGE);
     repo.write("src/lib.rs", "pub struct Parser;\n");
     repo.write(
         ".refquiem.toml",
@@ -916,10 +893,7 @@ fn generated_files_are_skipped_unless_scanned_on_purpose() {
 fn exclude_globs_are_relative_to_a_workspace_in_a_subdirectory() {
     let repo = Repo::new();
     std::fs::remove_file(repo.path().join("Cargo.toml")).unwrap();
-    repo.write(
-        "ws/Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
+    repo.write("ws/Cargo.toml", PACKAGE);
     repo.write("ws/src/lib.rs", "pub struct Gone;\n");
     repo.commit("start");
     repo.write("ws/src/lib.rs", "");
@@ -938,10 +912,7 @@ fn exclude_globs_are_relative_to_a_workspace_in_a_subdirectory() {
 fn exclude_globs_leave_files_above_a_subdirectory_workspace_alone() {
     let repo = Repo::new();
     std::fs::remove_file(repo.path().join("Cargo.toml")).unwrap();
-    repo.write(
-        "ws/Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
+    repo.write("ws/Cargo.toml", PACKAGE);
     repo.write("ws/src/lib.rs", "pub struct Gone;\n");
     repo.commit("start");
     repo.write("ws/src/lib.rs", "");

@@ -163,10 +163,7 @@ impl ItemKind {
     /// Whether this kind names a manifest entry rather than an item of the code.
     #[must_use]
     pub fn is_manifest_entry(self) -> bool {
-        matches!(
-            self,
-            Self::Package | Self::Dependency | Self::Feature | Self::Binary | Self::Example
-        )
+        entry::marker(self).is_some()
     }
 }
 
@@ -404,6 +401,13 @@ pub struct UnusedMarker {
     pub name: String,
 }
 
+impl UnusedMarker {
+    /// The warning that the marker suppresses nothing.
+    fn message(&self) -> String {
+        format!("refquiem: allow({}) suppresses nothing", self.name)
+    }
+}
+
 /// A removed dependency whose items could not be checked.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Skipped {
@@ -411,6 +415,26 @@ pub struct Skipped {
     pub dependency: String,
     /// Why cargo could not resolve it.
     pub reason: String,
+}
+
+impl Skipped {
+    /// The line of [`Self::reason`] naming cargo's error, else its first line.
+    fn cause(&self) -> &str {
+        self.reason
+            .lines()
+            .find(|line| line.starts_with("error:"))
+            .or_else(|| self.reason.lines().next())
+            .unwrap_or_default()
+    }
+
+    /// The warning that the dependency went unchecked, with its cause.
+    fn message(&self) -> String {
+        format!(
+            "removed dependency `{}` could not be resolved, so its items were not checked: {}",
+            self.dependency,
+            self.cause()
+        )
+    }
 }
 
 impl Report {
@@ -427,22 +451,15 @@ impl Report {
         for marker in &self.unused_markers {
             let _ = writeln!(
                 out,
-                "{}:{}:{}  refquiem: allow({}) suppresses nothing",
-                marker.file, marker.line, marker.column, marker.name
+                "{}:{}:{}  {}",
+                marker.file,
+                marker.line,
+                marker.column,
+                marker.message()
             );
         }
         for skipped in &self.skipped {
-            let reason = skipped
-                .reason
-                .lines()
-                .find(|line| line.starts_with("error:"))
-                .or_else(|| skipped.reason.lines().next())
-                .unwrap_or_default();
-            let _ = writeln!(
-                out,
-                "warning: removed dependency `{}` could not be resolved, so its items were not checked: {reason}",
-                skipped.dependency
-            );
+            let _ = writeln!(out, "warning: {}", skipped.message());
         }
         out
     }

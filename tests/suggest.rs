@@ -4,11 +4,9 @@ mod common;
 #[path = "common/vendor.rs"]
 mod vendor;
 
-use common::Repo;
+use common::{PACKAGE, Repo};
 use refquiem::{Change, Group, Kind, Options, Report};
 use std::fmt::Write as _;
-
-const PACKAGE: &str = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
 
 fn report(repo: &Repo) -> Report {
     refquiem::run(&Options::new(repo.path().to_path_buf())).unwrap()

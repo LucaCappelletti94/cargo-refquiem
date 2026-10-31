@@ -228,14 +228,25 @@ fn comment_run(
         lines.push((o, l));
         last += 2;
     }
+    plain_run(source, &lines, scan_commented_code, out);
+    last
+}
+
+/// Scans the consecutive `//` comment `lines` of `source` as comments, unless together they are
+/// commented-out code and `scan_commented_code` is off.
+fn plain_run(
+    source: &str,
+    lines: &[(usize, usize)],
+    scan_commented_code: bool,
+    out: &mut Vec<Spelled>,
+) {
     let body: Vec<&str> = lines.iter().map(|&(o, l)| &source[o + 2..o + l]).collect();
     if scan_commented_code || !is_code(&body.join("\n")) {
-        for &(o, l) in &lines {
+        for &(o, l) in lines {
             scan(&source[o..o + l], o, comment(), out);
         }
-        comment_examples(source, &lines, out);
+        comment_examples(source, lines, out);
     }
-    last
 }
 
 /// The identifier span of a string literal body, excluding its quotes.
@@ -303,10 +314,13 @@ fn doc_run(
     }
     let doc = Doc::unindent(&lines);
     markdown(&doc.text, |at| doc.file_offset(at), Source::DocComment, out)?;
-    for (o, l) in plain {
-        if scan_commented_code || !is_code(&source[o + 2..o + l]) {
-            scan(&source[o..o + l], o, comment(), out);
-        }
+    // Plain comments on consecutive lines form one run, as they do outside a doc comment.
+    let consecutive = |&(o, l): &(usize, usize), &(next, _): &(usize, usize)| {
+        let gap = &source[o + l..next];
+        gap.trim().is_empty() && gap.matches('\n').count() == 1
+    };
+    for run in plain.chunk_by(consecutive) {
+        plain_run(source, run, scan_commented_code, out);
     }
     Ok(last)
 }
@@ -704,6 +718,64 @@ fn code_tokens(code: &str) -> Vec<(usize, usize, TokenKind)> {
     tokens
 }
 
+/// The non-trivia tokens of one compiled code block and the code they span.
+#[derive(Clone, Copy)]
+struct Tokens<'c> {
+    code: &'c str,
+    tokens: &'c [(usize, usize, TokenKind)],
+}
+
+impl<'c> Tokens<'c> {
+    /// The kind of token `i`, `None` past the end.
+    fn kind(self, i: usize) -> Option<TokenKind> {
+        self.tokens.get(i).map(|token| token.2)
+    }
+
+    /// The text of token `i`, which its callers bound to the token range.
+    fn text(self, i: usize) -> &'c str {
+        &self.code[self.tokens[i].0..self.tokens[i].1]
+    }
+
+    /// Whether token `i` is a `:`.
+    fn colon(self, i: usize) -> bool {
+        self.kind(i) == Some(TokenKind::Colon)
+    }
+
+    /// Whether token `i` opens brackets, parentheses or braces.
+    fn opens(self, i: usize) -> bool {
+        matches!(
+            self.kind(i),
+            Some(TokenKind::OpenParen | TokenKind::OpenBracket | TokenKind::OpenBrace)
+        )
+    }
+
+    /// Whether token `i` closes brackets, parentheses or braces.
+    fn closes(self, i: usize) -> bool {
+        matches!(
+            self.kind(i),
+            Some(TokenKind::CloseParen | TokenKind::CloseBracket | TokenKind::CloseBrace)
+        )
+    }
+
+    /// Whether token `a` ends where token `b` begins.
+    fn touches(self, a: usize, b: usize) -> bool {
+        self.tokens[a].1 == self.tokens[b].0
+    }
+
+    /// Whether token `i` is a segment of a path, next to a `::`.
+    fn path_segment(self, i: usize) -> bool {
+        (self.colon(i + 1) && self.colon(i + 2))
+            || (i >= 2 && self.colon(i - 1) && self.colon(i - 2))
+    }
+
+    /// Whether the `=` at token `i` starts a `=>`.
+    fn fat_arrow(self, i: usize) -> bool {
+        self.tokens
+            .get(i + 1)
+            .is_some_and(|next| next.2 == TokenKind::Gt && self.tokens[i].1 == next.0)
+    }
+}
+
 /// Drops the mentions of `out` that a fenced Rust example inside the `//` comment `lines` of
 /// `source` names by one of its own names, the way a compiled doc example's own names are none.
 fn comment_examples(source: &str, lines: &[(usize, usize)], out: &mut Vec<Spelled>) {
@@ -716,7 +788,11 @@ fn comment_examples(source: &str, lines: &[(usize, usize)], out: &mut Vec<Spelle
             fence = match fence.take() {
                 None => Some(rust_fence(info).then(|| (o, String::new()))),
                 Some(Some((start, code))) => {
-                    let bound = bindings(&code, &code_tokens(&code));
+                    let tokens = code_tokens(&code);
+                    let bound = bindings(Tokens {
+                        code: &code,
+                        tokens: &tokens,
+                    });
                     out.retain(|spelled| {
                         !((start..o).contains(&spelled.start) && names_bound(spelled, &bound))
                     });
@@ -734,16 +810,20 @@ fn comment_examples(source: &str, lines: &[(usize, usize)], out: &mut Vec<Spelle
 /// Whether `spelled` is a bare name in `bound` or a path starting at one.
 fn names_bound(spelled: &Spelled, bound: &HashSet<&str>) -> bool {
     match &spelled.named {
-        Named::Path => {
-            !spelled.leading_colon
-                && spelled
-                    .segments
-                    .first()
-                    .is_some_and(|first| bound.contains(first.as_str()))
-        }
+        Named::Path => path_bound(spelled, bound),
         Named::Name { word, .. } => bound.contains(word.as_str()),
         _ => false,
     }
+}
+
+/// Whether `spelled` is a path that starts at a bare name in `bound`.
+fn path_bound(spelled: &Spelled, bound: &HashSet<&str>) -> bool {
+    spelled.named == Named::Path
+        && !spelled.leading_colon
+        && spelled
+            .segments
+            .first()
+            .is_some_and(|first| bound.contains(first.as_str()))
 }
 
 /// The identifier tokens of compiled `code` at `base`, outside its paths and attribute arguments
@@ -751,18 +831,14 @@ fn names_bound(spelled: &Spelled, bound: &HashSet<&str>) -> bool {
 /// from `out`. Returns the names it binds.
 fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>) -> Vec<String> {
     let tokens = code_tokens(code);
-    let bound = bindings(code, &tokens);
+    let block = Tokens {
+        code,
+        tokens: &tokens,
+    };
+    let bound = bindings(block);
     // The block is finished, so only its own and earlier mentions are in `out` yet.
-    out.retain(|spelled| {
-        let local = spelled.named == Named::Path
-            && !spelled.leading_colon
-            && spelled
-                .segments
-                .first()
-                .is_some_and(|first| bound.contains(first.as_str()));
-        !(local && base <= spelled.start)
-    });
-    let arguments = attribute_arguments(code, &tokens);
+    out.retain(|spelled| !(path_bound(spelled, &bound) && base <= spelled.start));
+    let arguments = attribute_arguments(block);
     let taken: Vec<(usize, usize)> = paths(code, 0, context)
         .iter()
         .map(|path| (path.start, path.end))
@@ -781,47 +857,42 @@ fn code_names(code: &str, base: usize, context: Context, out: &mut Vec<Spelled>)
     bound.into_iter().map(str::to_owned).collect()
 }
 
-/// Which of the non-trivia `tokens` of `code`, as `(start, end, kind)`, sit inside the arguments
-/// of an attribute, where words name the attribute's options rather than items, the list of a
-/// `derive(…)` excepted.
-fn attribute_arguments(code: &str, tokens: &[(usize, usize, TokenKind)]) -> Vec<bool> {
-    let kind = |i: usize| tokens.get(i).map(|token| token.2);
-    let mut inside = vec![false; tokens.len()];
+/// Which of `block`'s tokens sit inside the arguments of an attribute, where words name the
+/// attribute's options rather than items, the list of a `derive(…)` excepted.
+fn attribute_arguments(block: Tokens<'_>) -> Vec<bool> {
+    let mut inside = vec![false; block.tokens.len()];
     let mut i = 0;
-    while let Some(token) = kind(i) {
-        let open = if kind(i + 1) == Some(TokenKind::Bang) {
+    while let Some(token) = block.kind(i) {
+        let open = if block.kind(i + 1) == Some(TokenKind::Bang) {
             i + 2
         } else {
             i + 1
         };
-        if token != TokenKind::Pound || kind(open) != Some(TokenKind::OpenBracket) {
+        if token != TokenKind::Pound || block.kind(open) != Some(TokenKind::OpenBracket) {
             i += 1;
             continue;
         }
         let mut depth = 0usize;
         let mut derive = None;
         i = open;
-        while let Some(token) = kind(i) {
-            match token {
-                TokenKind::OpenBracket | TokenKind::OpenParen | TokenKind::OpenBrace => depth += 1,
-                TokenKind::CloseBracket | TokenKind::CloseParen | TokenKind::CloseBrace => {
-                    depth -= 1;
-                    if derive == Some(depth) {
-                        derive = None;
-                    }
-                    if depth == 0 {
-                        break;
-                    }
+        while let Some(token) = block.kind(i) {
+            if block.opens(i) {
+                depth += 1;
+            } else if block.closes(i) {
+                depth -= 1;
+                if derive == Some(depth) {
+                    derive = None;
                 }
-
-                TokenKind::Ident
-                    if &code[tokens[i].0..tokens[i].1] == "derive"
-                        && kind(i + 1) == Some(TokenKind::OpenParen) =>
-                {
-                    derive = Some(depth);
+                if depth == 0 {
+                    break;
                 }
-                _ if depth < 2 || derive.is_some() => {}
-                _ => inside[i] = true,
+            } else if token == TokenKind::Ident
+                && block.text(i) == "derive"
+                && block.kind(i + 1) == Some(TokenKind::OpenParen)
+            {
+                derive = Some(depth);
+            } else if depth >= 2 && derive.is_none() {
+                inside[i] = true;
             }
             i += 1;
         }
@@ -830,46 +901,43 @@ fn attribute_arguments(code: &str, tokens: &[(usize, usize, TokenKind)]) -> Vec<
 }
 
 /// The lowercase names of `let` and `for` patterns and of closure and declared `fn` parameters
-/// in `code`, and every name and generic parameter its item declarations introduce, from its
-/// non-trivia `tokens` as `(start, end, kind)`.
-fn bindings<'c>(code: &'c str, tokens: &[(usize, usize, TokenKind)]) -> HashSet<&'c str> {
-    let text = |i: usize| &code[tokens[i].0..tokens[i].1];
-    let colon = |i: usize| tokens.get(i).map(|token| token.2) == Some(TokenKind::Colon);
-    // A segment of a path inside a pattern names something else and binds nothing.
-    let segment = |i: usize| path_segment(tokens, i);
+/// in `block`'s code, and every name and generic parameter its item declarations introduce.
+fn bindings(block: Tokens<'_>) -> HashSet<&str> {
+    // A `:` of a `::` ends no pattern, and a pattern's tokens never sit at index 0.
+    let joined = |a: usize, b: usize| block.colon(a) && block.colon(b) && block.touches(a, b);
+    let in_path = |i: usize| joined(i, i + 1) || joined(i - 1, i);
     // The `for` of an impl header, after its trait, or of a `for<'a>` bound opens no loop.
     let opens_loop = |i: usize| {
         let after_type = i > 0
             && matches!(
-                tokens[i - 1].2,
-                TokenKind::Ident | TokenKind::RawIdent | TokenKind::Gt
+                block.kind(i - 1),
+                Some(TokenKind::Ident | TokenKind::RawIdent | TokenKind::Gt)
             );
-        !after_type && tokens.get(i + 1).map(|token| token.2) != Some(TokenKind::Lt)
+        !after_type && block.kind(i + 1) != Some(TokenKind::Lt)
     };
-    // A `:` of a `::` ends no pattern, and a pattern's tokens never sit at index 0.
-    let joined = |a: usize, b: usize| colon(a) && colon(b) && tokens[a].1 == tokens[b].0;
-    let in_path = |i: usize| joined(i, i + 1) || joined(i - 1, i);
     let mut bound = HashSet::new();
     let mut i = 0;
-    while i < tokens.len() {
-        let opens_closure = tokens[i].2 == TokenKind::Or
+    while i < block.tokens.len() {
+        let opens_closure = block.kind(i) == Some(TokenKind::Or)
             && (i == 0
                 || matches!(
-                    tokens[i - 1].2,
-                    TokenKind::OpenParen
-                        | TokenKind::Comma
-                        | TokenKind::Eq
-                        | TokenKind::OpenBrace
-                        | TokenKind::Semi
+                    block.kind(i - 1),
+                    Some(
+                        TokenKind::OpenParen
+                            | TokenKind::Comma
+                            | TokenKind::Eq
+                            | TokenKind::OpenBrace
+                            | TokenKind::Semi
+                    )
                 )
-                || text(i - 1) == "move");
-        let pattern = match (tokens[i].2, text(i)) {
-            (TokenKind::Ident, "let") => Pattern::Let,
-            (TokenKind::Ident, "for") if opens_loop(i) => Pattern::For,
+                || block.text(i - 1) == "move");
+        let pattern = match (block.kind(i), block.text(i)) {
+            (Some(TokenKind::Ident), "let") => Pattern::Let,
+            (Some(TokenKind::Ident), "for") if opens_loop(i) => Pattern::For,
             _ if opens_closure => Pattern::Closure,
-            (TokenKind::Ident, keyword) => {
-                declaration(code, tokens, i, keyword, &mut bound);
-                arms_and_keys(code, tokens, i, keyword, &mut bound);
+            (Some(TokenKind::Ident), keyword) => {
+                declaration(block, i, keyword, &mut bound);
+                arms_and_keys(block, i, keyword, &mut bound);
                 i += 1;
                 continue;
             }
@@ -880,21 +948,18 @@ fn bindings<'c>(code: &'c str, tokens: &[(usize, usize, TokenKind)]) -> HashSet<
         };
         let mut depth = 0usize;
         i += 1;
-        while i < tokens.len() {
-            let kind = tokens[i].2;
-            match kind {
-                TokenKind::OpenParen | TokenKind::OpenBracket | TokenKind::OpenBrace => depth += 1,
-                TokenKind::CloseParen | TokenKind::CloseBracket | TokenKind::CloseBrace => {
-                    let Some(inner) = depth.checked_sub(1) else {
-                        break;
-                    };
-                    depth = inner;
-                }
-                _ if depth == 0 && !in_path(i) && pattern.ends(kind, text(i)) => break,
-                TokenKind::Ident if binds(text(i)) && !segment(i) => {
-                    bound.insert(text(i));
-                }
-                _ => {}
+        while let Some(kind) = block.kind(i) {
+            if block.opens(i) {
+                depth += 1;
+            } else if block.closes(i) {
+                let Some(inner) = depth.checked_sub(1) else {
+                    break;
+                };
+                depth = inner;
+            } else if depth == 0 && !in_path(i) && pattern.ends(kind, block.text(i)) {
+                break;
+            } else if kind == TokenKind::Ident && binds(block.text(i)) && !block.path_segment(i) {
+                bound.insert(block.text(i));
             }
             i += 1;
         }
@@ -910,47 +975,40 @@ fn binds(name: &str) -> bool {
 }
 
 /// Adds local item names, generic parameters and function parameters to `bound`.
-fn declaration<'c>(
-    code: &'c str,
-    tokens: &[(usize, usize, TokenKind)],
-    at: usize,
-    keyword: &str,
-    bound: &mut HashSet<&'c str>,
-) {
-    let text = |i: usize| &code[tokens[i].0..tokens[i].1];
-    let kind = |i: usize| tokens.get(i).map(|token| token.2);
+fn declaration<'c>(block: Tokens<'c>, at: usize, keyword: &str, bound: &mut HashSet<&'c str>) {
     let mut i = at + 1;
     match keyword {
         "fn" | "struct" | "enum" | "union" | "trait" | "type" | "mod" | "const" | "impl" => {}
         "static" => {
-            while kind(i) == Some(TokenKind::Ident) && matches!(text(i), "mut" | "ref") {
+            while block.kind(i) == Some(TokenKind::Ident) && matches!(block.text(i), "mut" | "ref")
+            {
                 i += 1;
             }
         }
-        "macro_rules" if kind(i) == Some(TokenKind::Bang) => i += 1,
+        "macro_rules" if block.kind(i) == Some(TokenKind::Bang) => i += 1,
         _ => return,
     }
     if keyword != "impl" {
-        match kind(i) {
-            Some(TokenKind::Ident) => bound.insert(text(i)),
-            Some(TokenKind::RawIdent) => bound.insert(&text(i)[2..]),
+        match block.kind(i) {
+            Some(TokenKind::Ident) => bound.insert(block.text(i)),
+            Some(TokenKind::RawIdent) => bound.insert(&block.text(i)[2..]),
             _ => return,
         };
         i += 1;
     }
-    if kind(i) == Some(TokenKind::Lt) {
+    if block.kind(i) == Some(TokenKind::Lt) {
         let mut depth = 0usize;
         let mut opens_parameter = true;
-        while let Some(token) = kind(i) {
+        while let Some(token) = block.kind(i) {
             match token {
                 TokenKind::Lt => depth += 1,
                 TokenKind::Gt
-                    if tokens[i - 1].2 == TokenKind::Minus && tokens[i - 1].1 == tokens[i].0 => {}
+                    if block.kind(i - 1) == Some(TokenKind::Minus) && block.touches(i - 1, i) => {}
                 TokenKind::Gt => depth -= 1,
                 TokenKind::Comma => opens_parameter = true,
                 TokenKind::Ident if depth == 1 && opens_parameter => {
-                    if text(i) != "const" {
-                        bound.insert(text(i));
+                    if block.text(i) != "const" {
+                        bound.insert(block.text(i));
                         opens_parameter = false;
                     }
                 }
@@ -963,64 +1021,41 @@ fn declaration<'c>(
         }
     }
     if matches!(keyword, "struct" | "union" | "enum") {
-        members(code, tokens, i, keyword == "enum", bound);
+        members(block, i, keyword == "enum", bound);
         return;
     }
-    if keyword != "fn" || kind(i) != Some(TokenKind::OpenParen) {
+    if keyword != "fn" || block.kind(i) != Some(TokenKind::OpenParen) {
         return;
     }
     let mut depth = 0usize;
     let mut in_pattern = true;
-    while let Some(token) = kind(i) {
-        match token {
-            TokenKind::OpenParen | TokenKind::OpenBracket | TokenKind::OpenBrace => depth += 1,
-            TokenKind::CloseParen | TokenKind::CloseBracket | TokenKind::CloseBrace => {
-                depth -= 1;
-                if depth == 0 {
-                    return;
-                }
+    while let Some(token) = block.kind(i) {
+        if block.opens(i) {
+            depth += 1;
+        } else if block.closes(i) {
+            depth -= 1;
+            if depth == 0 {
+                return;
             }
-            TokenKind::Comma if depth == 1 => in_pattern = true,
-            TokenKind::Colon if depth == 1 => in_pattern = false,
-            TokenKind::Ident if in_pattern && binds(text(i)) => {
-                bound.insert(text(i));
-            }
-            _ => {}
+        } else if token == TokenKind::Comma && depth == 1 {
+            in_pattern = true;
+        } else if token == TokenKind::Colon && depth == 1 {
+            in_pattern = false;
+        } else if token == TokenKind::Ident && in_pattern && binds(block.text(i)) {
+            bound.insert(block.text(i));
         }
         i += 1;
     }
 }
 
-/// Whether token `i` of `tokens` is a segment of a path, next to a `::`.
-fn path_segment(tokens: &[(usize, usize, TokenKind)], i: usize) -> bool {
-    let colon = |i: usize| tokens.get(i).map(|token| token.2) == Some(TokenKind::Colon);
-    (colon(i + 1) && colon(i + 2)) || (i >= 2 && colon(i - 1) && colon(i - 2))
-}
-
-/// Whether the `=` at token `i` of `tokens` starts a `=>`.
-fn fat_arrow(tokens: &[(usize, usize, TokenKind)], i: usize) -> bool {
-    tokens
-        .get(i + 1)
-        .is_some_and(|next| next.2 == TokenKind::Gt && tokens[i].1 == next.0)
-}
-
 /// Adds the field names of the struct, union or enum whose declaration continues at token `at`
 /// after its name and generics, and its variant names when `is_enum`.
-fn members<'c>(
-    code: &'c str,
-    tokens: &[(usize, usize, TokenKind)],
-    at: usize,
-    is_enum: bool,
-    bound: &mut HashSet<&'c str>,
-) {
-    let text = |i: usize| &code[tokens[i].0..tokens[i].1];
-    let kind = |i: usize| tokens.get(i).map(|token| token.2);
-    let colon = |i: usize| kind(i) == Some(TokenKind::Colon);
+fn members<'c>(block: Tokens<'c>, at: usize, is_enum: bool, bound: &mut HashSet<&'c str>) {
     // The body is the first brace outside brackets, unless a `;` ends a unit or tuple struct.
     let mut i = at;
     let mut depth = 0usize;
     loop {
-        match kind(i) {
+        match block.kind(i) {
             Some(TokenKind::OpenBrace) if depth == 0 => break,
             Some(TokenKind::Semi) if depth == 0 => return,
             Some(TokenKind::OpenParen | TokenKind::OpenBracket) => depth += 1,
@@ -1032,29 +1067,26 @@ fn members<'c>(
         }
         i += 1;
     }
-    while let Some(token) = kind(i) {
-        match token {
-            TokenKind::OpenParen | TokenKind::OpenBracket | TokenKind::OpenBrace => depth += 1,
-            TokenKind::CloseParen | TokenKind::CloseBracket | TokenKind::CloseBrace => {
-                depth -= 1;
-                if depth == 0 {
-                    return;
-                }
+    while let Some(token) = block.kind(i) {
+        if block.opens(i) {
+            depth += 1;
+        } else if block.closes(i) {
+            depth -= 1;
+            if depth == 0 {
+                return;
             }
-            TokenKind::Ident | TokenKind::RawIdent => {
-                let field = colon(i + 1) && !colon(i + 2);
-                let variant = is_enum
-                    && depth == 1
-                    && matches!(
-                        kind(i - 1),
-                        Some(TokenKind::OpenBrace | TokenKind::Comma | TokenKind::CloseBracket)
-                    );
-                if field || variant {
-                    let name = text(i);
-                    bound.insert(name.strip_prefix("r#").unwrap_or(name));
-                }
+        } else if matches!(token, TokenKind::Ident | TokenKind::RawIdent) {
+            let field = block.colon(i + 1) && !block.colon(i + 2);
+            let variant = is_enum
+                && depth == 1
+                && matches!(
+                    block.kind(i - 1),
+                    Some(TokenKind::OpenBrace | TokenKind::Comma | TokenKind::CloseBracket)
+                );
+            if field || variant {
+                let name = block.text(i);
+                bound.insert(name.strip_prefix("r#").unwrap_or(name));
             }
-            _ => {}
         }
         i += 1;
     }
@@ -1062,22 +1094,12 @@ fn members<'c>(
 
 /// Adds the names bound by the `match` arms, `select!` branches or macro arguments that the
 /// identifier `keyword` at token `at` opens.
-fn arms_and_keys<'c>(
-    code: &'c str,
-    tokens: &[(usize, usize, TokenKind)],
-    at: usize,
-    keyword: &str,
-    bound: &mut HashSet<&'c str>,
-) {
-    let kind = |i: usize| tokens.get(i).map(|token| token.2);
-    let opens = matches!(
-        kind(at + 2),
-        Some(TokenKind::OpenParen | TokenKind::OpenBracket | TokenKind::OpenBrace)
-    );
-    if kind(at + 1) == Some(TokenKind::Bang) && opens {
-        macro_keys(code, tokens, at + 2, bound);
+fn arms_and_keys<'c>(block: Tokens<'c>, at: usize, keyword: &str, bound: &mut HashSet<&'c str>) {
+    let opens = block.opens(at + 2);
+    if block.kind(at + 1) == Some(TokenKind::Bang) && opens {
+        macro_keys(block, at + 2, bound);
         if keyword == "select" {
-            arms(code, tokens, at + 2, true, bound);
+            arms(block, at + 2, true, bound);
         }
         return;
     }
@@ -1085,14 +1107,13 @@ fn arms_and_keys<'c>(
         return;
     }
     let mut depth = 0usize;
-    for (i, token) in tokens.iter().enumerate().skip(at) {
-        match token.2 {
-            TokenKind::OpenBrace if depth == 0 => return arms(code, tokens, i, false, bound),
-            TokenKind::OpenParen | TokenKind::OpenBracket | TokenKind::OpenBrace => depth += 1,
-            TokenKind::CloseParen | TokenKind::CloseBracket | TokenKind::CloseBrace => {
-                depth = depth.saturating_sub(1);
-            }
-            _ => {}
+    for (i, &(_, _, token)) in block.tokens.iter().enumerate().skip(at) {
+        if token == TokenKind::OpenBrace && depth == 0 {
+            return arms(block, i, false, bound);
+        } else if block.opens(i) {
+            depth += 1;
+        } else if block.closes(i) {
+            depth = depth.saturating_sub(1);
         }
     }
 }
@@ -1100,43 +1121,39 @@ fn arms_and_keys<'c>(
 /// Adds the lowercase names the arm patterns opening after token `open` bind, those of a
 /// `match` or, when `select`, the branch patterns of a `select!`. A pattern ends at its guard,
 /// at a `select!` branch's `=` or at its `=>`.
-fn arms<'c>(
-    code: &'c str,
-    tokens: &[(usize, usize, TokenKind)],
-    open: usize,
-    select: bool,
-    bound: &mut HashSet<&'c str>,
-) {
-    let text = |i: usize| &code[tokens[i].0..tokens[i].1];
+fn arms<'c>(block: Tokens<'c>, open: usize, select: bool, bound: &mut HashSet<&'c str>) {
     let mut depth = 0usize;
     let mut in_pattern = true;
     // Whether the current arm's body is a block, whose closing brace ends the arm.
     let mut block_body = false;
     let mut i = open + 1;
-    while let Some(&(_, _, token)) = tokens.get(i) {
-        match token {
-            TokenKind::OpenParen | TokenKind::OpenBracket | TokenKind::OpenBrace => depth += 1,
-            TokenKind::CloseParen | TokenKind::CloseBracket | TokenKind::CloseBrace => {
-                let Some(inner) = depth.checked_sub(1) else {
-                    return;
-                };
-                depth = inner;
-                if depth == 0 && block_body {
-                    in_pattern = true;
-                    block_body = false;
-                }
+    while let Some(token) = block.kind(i) {
+        if block.opens(i) {
+            depth += 1;
+        } else if block.closes(i) {
+            let Some(inner) = depth.checked_sub(1) else {
+                return;
+            };
+            depth = inner;
+            if depth == 0 && block_body {
+                in_pattern = true;
+                block_body = false;
             }
-            TokenKind::Eq if depth == 0 && fat_arrow(tokens, i) => {
-                in_pattern = false;
-                block_body = tokens.get(i + 2).map(|next| next.2) == Some(TokenKind::OpenBrace);
-            }
-            TokenKind::Eq if depth == 0 && select => in_pattern = false,
-            TokenKind::Comma if depth == 0 => in_pattern = true,
-            TokenKind::Ident if text(i) == "if" => in_pattern = false,
-            TokenKind::Ident if in_pattern && binds(text(i)) && !path_segment(tokens, i) => {
-                bound.insert(text(i));
-            }
-            _ => {}
+        } else if token == TokenKind::Eq && depth == 0 && block.fat_arrow(i) {
+            in_pattern = false;
+            block_body = block.kind(i + 2) == Some(TokenKind::OpenBrace);
+        } else if token == TokenKind::Eq && depth == 0 && select {
+            in_pattern = false;
+        } else if token == TokenKind::Comma && depth == 0 {
+            in_pattern = true;
+        } else if token == TokenKind::Ident && block.text(i) == "if" {
+            in_pattern = false;
+        } else if token == TokenKind::Ident
+            && in_pattern
+            && binds(block.text(i))
+            && !block.path_segment(i)
+        {
+            bound.insert(block.text(i));
         }
         i += 1;
     }
@@ -1144,46 +1161,37 @@ fn arms<'c>(
 
 /// Adds each name the arguments of the macro invocation opening at token `open` give a single
 /// `=` at their top level, such as `gone_key` in `info_span!("x", gone_key = "yes")`.
-fn macro_keys<'c>(
-    code: &'c str,
-    tokens: &[(usize, usize, TokenKind)],
-    open: usize,
-    bound: &mut HashSet<&'c str>,
-) {
-    let kind = |i: usize| tokens.get(i).map(|token| token.2);
+fn macro_keys<'c>(block: Tokens<'c>, open: usize, bound: &mut HashSet<&'c str>) {
     let single_eq = |i: usize| {
-        kind(i) == Some(TokenKind::Eq)
-            && !tokens.get(i + 1).is_some_and(|next| {
-                matches!(next.2, TokenKind::Eq | TokenKind::Gt) && tokens[i].1 == next.0
+        block.kind(i) == Some(TokenKind::Eq)
+            && !block.kind(i + 1).is_some_and(|next| {
+                matches!(next, TokenKind::Eq | TokenKind::Gt) && block.touches(i, i + 1)
             })
     };
     let mut depth = 0usize;
     let mut i = open;
-    while let Some(token) = kind(i) {
-        match token {
-            TokenKind::OpenParen | TokenKind::OpenBracket | TokenKind::OpenBrace => depth += 1,
-            TokenKind::CloseParen | TokenKind::CloseBracket | TokenKind::CloseBrace => {
-                depth -= 1;
-                if depth == 0 {
-                    return;
-                }
+    while let Some(token) = block.kind(i) {
+        if block.opens(i) {
+            depth += 1;
+        } else if block.closes(i) {
+            depth -= 1;
+            if depth == 0 {
+                return;
             }
-            TokenKind::Ident
-                if depth == 1
-                    && matches!(
-                        kind(i - 1),
-                        Some(
-                            TokenKind::Comma
-                                | TokenKind::OpenParen
-                                | TokenKind::OpenBracket
-                                | TokenKind::OpenBrace
-                        )
-                    )
-                    && single_eq(i + 1) =>
-            {
-                bound.insert(&code[tokens[i].0..tokens[i].1]);
-            }
-            _ => {}
+        } else if token == TokenKind::Ident
+            && depth == 1
+            && matches!(
+                block.kind(i - 1),
+                Some(
+                    TokenKind::Comma
+                        | TokenKind::OpenParen
+                        | TokenKind::OpenBracket
+                        | TokenKind::OpenBrace
+                )
+            )
+            && single_eq(i + 1)
+        {
+            bound.insert(block.text(i));
         }
         i += 1;
     }
@@ -1985,4 +1993,24 @@ pub(crate) fn line_starts(text: &str) -> Vec<usize> {
     std::iter::once(0)
         .chain(text.match_indices('\n').map(|(i, _)| i + 1))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rust;
+
+    #[test]
+    fn plain_comments_inside_a_doc_comment_are_judged_as_one_run() {
+        let code = "// old::path::call(\n//     some_value,\n// );\n";
+        let inside = format!("/// Docs.\n{code}/// More docs.\nfn f() {{}}\n");
+        let standalone = format!("{code}fn f() {{}}\n");
+        for (source, at) in [(&inside, "/// Docs.\n".len()), (&standalone, 0)] {
+            let lines = at..at + code.len();
+            let read = rust(source, false).unwrap();
+            assert!(
+                read.mentions.iter().all(|m| !lines.contains(&m.start)),
+                "{source}"
+            );
+        }
+    }
 }

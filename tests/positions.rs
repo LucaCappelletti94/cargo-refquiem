@@ -6,7 +6,7 @@ mod common;
 use std::collections::BTreeMap;
 use std::process::Command;
 
-use common::Repo;
+use common::{PACKAGE, Repo};
 use serde_json::{Value, json};
 
 /// The `--json` report of `args` run in `repo`.
@@ -273,16 +273,15 @@ fn a_suggested_reexport_points_at_the_item_it_names() {
 #[test]
 fn a_suggested_feature_points_at_its_key_in_the_head_manifest() {
     let repo = Repo::new();
-    let package = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
     repo.write("src/lib.rs", "");
     repo.write(
         "Cargo.toml",
-        &format!("{package}\n[features]\nserde-support = []\n"),
+        &format!("{PACKAGE}\n[features]\nserde-support = []\n"),
     );
     repo.commit("start");
     repo.write(
         "Cargo.toml",
-        &format!("{package}\n[features]\ndefault = []\nserde_support = []\n"),
+        &format!("{PACKAGE}\n[features]\ndefault = []\nserde_support = []\n"),
     );
     repo.write("README.md", "`--features serde-support`\n");
     repo.commit("rename the feature");

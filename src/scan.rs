@@ -274,7 +274,7 @@ impl Report {
         let Head::WorkTree(Some(commit)) = head else {
             return Ok(());
         };
-        let at_head = TreeSnapshot::new(repo, git::tree(repo, *commit)?, trees);
+        let at_head = TreeSnapshot::new(repo, git::commit_tree(repo, *commit)?, trees);
         let mut files = HashSet::new();
         for group in &self.groups {
             for mention in &group.mentions {
@@ -607,7 +607,7 @@ fn index_range(
             boundary.insert(parent, None);
             continue;
         }
-        let snapshot = TreeSnapshot::new(repo, git::tree(repo, parent)?, &indexer.trees);
+        let snapshot = TreeSnapshot::new(repo, git::commit_tree(repo, parent)?, &indexer.trees);
         let index = indexer.index(&snapshot, &layout.workspace, false)?;
         let missing = index.complete.then(|| {
             index
@@ -1788,12 +1788,10 @@ impl<'a> Entries<'a> {
 
     /// The member whose directory holds `file`, none when no member does.
     fn scope(&self, file: &str) -> Option<&'a str> {
-        self.dirs.iter().copied().find(|dir| {
-            dir.is_empty()
-                || file
-                    .strip_prefix(*dir)
-                    .is_some_and(|rest| rest.starts_with('/'))
-        })
+        self.dirs
+            .iter()
+            .copied()
+            .find(|dir| config::below(dir, file))
     }
 
     /// The member directory of package `name`.

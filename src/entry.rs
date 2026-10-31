@@ -13,14 +13,31 @@ pub(crate) fn member_dir(segment: &str) -> Option<&str> {
     segment.strip_prefix("<member:")?.strip_suffix('>')
 }
 
-/// The second segment of entries of `kind`.
-pub(crate) fn marker(kind: ItemKind) -> &'static str {
+/// The second segment of entries of `kind`, `None` for the kinds that have no manifest entry.
+pub(crate) fn marker(kind: ItemKind) -> Option<&'static str> {
     match kind {
-        ItemKind::Package => "<package>",
-        ItemKind::Dependency => "<dependency>",
-        ItemKind::Feature => "<feature>",
-        ItemKind::Binary => "<binary>",
-        ItemKind::Example => "<example>",
-        _ => unreachable!("only manifest entry kinds have markers"),
+        ItemKind::Package => Some("<package>"),
+        ItemKind::Dependency => Some("<dependency>"),
+        ItemKind::Feature => Some("<feature>"),
+        ItemKind::Binary => Some("<binary>"),
+        ItemKind::Example => Some("<example>"),
+        ItemKind::Module
+        | ItemKind::Struct
+        | ItemKind::Enum
+        | ItemKind::Union
+        | ItemKind::Trait
+        | ItemKind::TraitAlias
+        | ItemKind::TypeAlias
+        | ItemKind::Const
+        | ItemKind::Static
+        | ItemKind::Function
+        | ItemKind::Macro
+        | ItemKind::Variant
+        | ItemKind::Field
+        | ItemKind::Method
+        | ItemKind::AssociatedConst
+        | ItemKind::AssociatedType
+        | ItemKind::Reexport
+        | ItemKind::Serialized => None,
     }
 }
