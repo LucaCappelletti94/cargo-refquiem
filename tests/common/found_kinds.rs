@@ -5,6 +5,25 @@ use refquiem::ItemKind;
 
 use crate::common::Repo;
 
+/// `(removed path, kind, file, line, column, text)` for one mention.
+pub fn mention(
+    name: &str,
+    kind: ItemKind,
+    file: &str,
+    line: usize,
+    column: usize,
+    text: &str,
+) -> (String, ItemKind, String, usize, usize, String) {
+    (
+        name.to_owned(),
+        kind,
+        file.to_owned(),
+        line,
+        column,
+        text.to_owned(),
+    )
+}
+
 /// `(removed path, kind, file, line, column, text)` for every mention, sorted by place.
 pub fn found(repo: &Repo) -> Vec<(String, ItemKind, String, usize, usize, String)> {
     let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();

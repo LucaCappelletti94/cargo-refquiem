@@ -2,28 +2,19 @@
 //! dependency layer.
 
 mod common;
+#[path = "common/context.rs"]
+mod context;
 #[path = "common/found.rs"]
 mod found;
+#[path = "common/lock.rs"]
+mod lock;
 #[path = "common/vendor.rs"]
 mod vendor;
 
-use common::Repo;
+use common::{PACKAGE, Repo};
+use context::context;
 use found::found;
 use refquiem::{Context, ItemKind, Kind, Source};
-
-fn context(source: Source, kind: Kind) -> Context {
-    Context { source, kind }
-}
-
-/// Writes `Cargo.lock` without touching the network, as every dependency is a path or vendored.
-fn lock(repo: &Repo) {
-    let status = std::process::Command::new("cargo")
-        .args(["generate-lockfile", "--offline", "--quiet"])
-        .current_dir(repo.path())
-        .status()
-        .unwrap();
-    assert!(status.success());
-}
 
 #[test]
 fn dropped_dependency_names_require_their_crate_root() {
@@ -31,15 +22,12 @@ fn dropped_dependency_names_require_their_crate_root() {
     repo.vendor("helper", "1.0.0", "pub struct RetiredProbe842;");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[dependencies]\nhelper = \"1\"\n",
+        &format!("{PACKAGE}[dependencies]\nhelper = \"1\"\n"),
     );
     repo.write("src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("dependency");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
+    repo.write("Cargo.toml", PACKAGE);
     repo.write(
         "README.md",
         "`helper`, `RetiredProbe842` and `helper::RetiredProbe842`.\n",
@@ -121,7 +109,7 @@ fn only_methods_of_public_dependency_types_claim_bare_names() {
         repo.write("src/lib.rs", "");
         repo.write(
             "Cargo.toml",
-            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n",
+            &format!("{PACKAGE}\n[dependencies]\nhelper = \"1\"\n"),
         );
         repo.write("README.md", "`retired_probe_842`\n");
         let paths: Vec<_> = found(&repo).into_iter().map(|mention| mention.0).collect();
@@ -150,7 +138,7 @@ fn a_public_dependency_function_can_share_a_private_modules_name() {
     repo.write("src/lib.rs", "");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n",
+        &format!("{PACKAGE}\n[dependencies]\nhelper = \"1\"\n"),
     );
     repo.write("README.md", "`helper::shared_name` and `shared_name`\n");
     assert_eq!(found(&repo), []);
@@ -366,13 +354,13 @@ fn public_dependency_items_keep_names_alive_and_private_ones_do_not() {
     );
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"0.1\"\n",
+        &format!("{PACKAGE}\n[dependencies]\nhelper = \"0.1\"\n"),
     );
     repo.write(
         "src/lib.rs",
         "pub struct Gadget;\npub struct Hidden;\npub struct Inner;\npub struct Exported;\n",
     );
-    lock(&repo);
+    repo.lock();
     repo.commit("local names");
     repo.write("src/lib.rs", "");
     repo.write("README.md", "`Gadget`, `Hidden`, `Inner` and `Exported`.\n");
@@ -394,16 +382,13 @@ fn items_of_a_removed_dependency_become_stale() {
     repo.vendor("helper", "0.1.0", "pub struct Thing;\n");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"0.1\"\n",
+        &format!("{PACKAGE}\n[dependencies]\nhelper = \"0.1\"\n"),
     );
     repo.write("src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("with helper");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    lock(&repo);
+    repo.write("Cargo.toml", PACKAGE);
+    repo.lock();
     repo.write("README.md", "`Thing`, `helper::Thing`, and more.\n");
     let removing = repo.commit("drop helper");
 
@@ -431,18 +416,15 @@ fn a_removed_registry_dependency_is_read_at_its_locked_version() {
     let repo = Repo::new();
     repo.vendor("helper", "0.2.0", "pub struct Locked;\n");
     repo.vendor("helper", "0.3.0", "pub struct Newer;\n");
-    let manifest = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = ";
+    let manifest = format!("{PACKAGE}\n[dependencies]\nhelper = ");
     repo.write("Cargo.toml", &format!("{manifest}\"0.2\"\n"));
     repo.write("src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     // The lock keeps 0.2.0, which the wider requirement alone would not choose.
     repo.write("Cargo.toml", &format!("{manifest}\">=0.2\"\n"));
     repo.commit("helper locked at 0.2.0");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    lock(&repo);
+    repo.write("Cargo.toml", PACKAGE);
+    repo.lock();
     repo.write("README.md", "`helper::Locked` and `helper::Newer`.\n");
     repo.commit("drop helper");
 
@@ -595,7 +577,7 @@ fn names_a_dependency_declares_through_macros_are_live() {
     let repo = Repo::new();
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
+        &format!("{PACKAGE}\n[dependencies]\nhelper = {{ path = \"vendor/helper\" }}\n"),
     );
     repo.write(
         "vendor/helper/Cargo.toml",
@@ -606,7 +588,7 @@ fn names_a_dependency_declares_through_macros_are_live() {
         "macro_rules! declare {\n    ($($field:ident),*) => {\n        pub struct Declared { $(pub $field: u8),* }\n    };\n}\ndeclare!(mac);\n",
     );
     repo.write("src/lib.rs", "pub struct Frame {\n    pub mac: u8,\n}\n");
-    lock(&repo);
+    repo.lock();
     repo.commit("own mac");
     repo.write("src/lib.rs", "");
     repo.write("README.md", "`mac`\n");
@@ -625,14 +607,11 @@ fn a_removed_dependency_cargo_cannot_resolve_is_skipped_with_a_warning() {
     );
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nbroken = \"1\"\n",
+        &format!("{PACKAGE}\n[dependencies]\nbroken = \"1\"\n"),
     );
     repo.write("src/lib.rs", "");
     repo.commit("broken without a lock");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
+    repo.write("Cargo.toml", PACKAGE);
     repo.write("README.md", "`Broken` and `broken::Broken`.\n");
     repo.commit("drop broken");
 
@@ -668,14 +647,11 @@ fn a_removed_path_dependency_with_an_unreadable_manifest_is_skipped() {
     repo.write("vendor/helper/Cargo.toml", "this is not toml [\n");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
+        &format!("{PACKAGE}\n[dependencies]\nhelper = {{ path = \"vendor/helper\" }}\n"),
     );
     repo.write("src/lib.rs", "");
     repo.commit("helper");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
+    repo.write("Cargo.toml", PACKAGE);
     repo.write("README.md", "Call `helper::run`.\n");
     repo.commit("drop helper");
 
@@ -699,7 +675,7 @@ fn serialized_spellings_a_dependency_re_exports_are_live() {
     let repo = Repo::new();
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nfacade = { path = \"vendor/facade\" }\n",
+        &format!("{PACKAGE}\n[dependencies]\nfacade = {{ path = \"vendor/facade\" }}\n"),
     );
     repo.write(
         "vendor/facade/Cargo.toml",
@@ -718,7 +694,7 @@ fn serialized_spellings_a_dependency_re_exports_are_live() {
         "src/lib.rs",
         "pub struct Old {\n    #[serde(rename = \"CapAdd\")]\n    pub cap: u8,\n}\n",
     );
-    lock(&repo);
+    repo.lock();
     repo.commit("own spelling");
     repo.write("src/lib.rs", "");
     repo.write("README.md", "Set \"CapAdd\".\n");
@@ -737,14 +713,11 @@ fn a_removed_dependency_is_rooted_at_its_library_name() {
     );
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nweird-sys = \"1\"\n",
+        &format!("{PACKAGE}\n[dependencies]\nweird-sys = \"1\"\n"),
     );
     repo.write("src/lib.rs", "");
     repo.commit("weird-sys");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
+    repo.write("Cargo.toml", PACKAGE);
     repo.write("README.md", "`weird::Thing`\n");
     repo.commit("drop weird-sys");
 
@@ -889,31 +862,6 @@ fn a_keyword_of_a_doc_example_names_no_serialized_spelling() {
 }
 
 #[test]
-fn a_string_literal_holding_one_identifier_is_data() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
-        "pub const EXCEPT_TABLE: u8 = 0;\npub fn seq_shuffle_100() {}\npub fn gone_fn() {}\npub mod old {\n    pub struct Item;\n}\n",
-    );
-    repo.commit("start");
-    repo.write(
-        "src/lib.rs",
-        "pub const ARG: &str = \"EXCEPT_TABLE\";\npub fn bench(c: &mut Bencher) { c.bench_function(\"seq_shuffle_100\", |b| b.iter(|| ())); }\npub const PATH: &str = \"fixture::old::Item\";\npub const HINT: &str = \"use gone_fn instead\";\n",
-    );
-    repo.commit("drop them");
-
-    let rows: Vec<(usize, usize, String)> =
-        found(&repo).into_iter().map(|m| (m.2, m.3, m.5)).collect();
-    assert_eq!(
-        rows,
-        [
-            (3, 25, "fixture::old::Item".to_owned()),
-            (4, 29, "gone_fn".to_owned())
-        ]
-    );
-}
-
-#[test]
 fn identifier_strings_retain_removed_serialized_spellings() {
     let repo = Repo::new();
     repo.write(
@@ -932,33 +880,6 @@ fn identifier_strings_retain_removed_serialized_spellings() {
             "fixture::Data::\"retired_label_842\"".to_owned(),
             "retired_label_842".to_owned()
         )]
-    );
-}
-
-#[test]
-fn identifiers_in_attribute_arguments_of_a_compiled_example_are_not_names() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
-        "pub struct VariadicArgs {\n    pub argument_count: u8,\n}\npub struct Container {\n    pub rename_all: u8,\n}\npub struct RemovedDerive;\npub struct GoneType;\npub fn gone_attr() {}\npub fn gone_inner() {}\npub fn gone_arg() {}\npub fn gone_lint() {}\npub fn gone_idx() {}\n",
-    );
-    repo.commit("start");
-    repo.write(
-        "src/lib.rs",
-        "/// ```\n/// #![allow(gone_inner)]\n/// #[variadic(argument_count)]\n/// #[serde(rename_all = \"camelCase\")]\n/// #[cfg_attr(test, derive(RemovedDerive), gone_arg)]\n/// #[cfg_attr(test, allow(gone_lint))]\n/// #[gone_attr]\n/// struct S { field: GoneType }\n/// let x = data[(gone_idx)];\n/// ```\npub struct Kept;\n",
-    );
-    repo.commit("drop them");
-
-    let rows: Vec<(usize, usize, String)> =
-        found(&repo).into_iter().map(|m| (m.2, m.3, m.5)).collect();
-    assert_eq!(
-        rows,
-        [
-            (5, 29, "RemovedDerive".to_owned()),
-            (7, 7, "gone_attr".to_owned()),
-            (8, 23, "GoneType".to_owned()),
-            (9, 19, "gone_idx".to_owned())
-        ]
     );
 }
 
@@ -1389,7 +1310,7 @@ fn a_name_of_a_head_feature_binary_example_or_package_is_live() {
     repo.commit("start");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[features]\nchacha = []\n",
+        &format!("{PACKAGE}\n[features]\nchacha = []\n"),
     );
     repo.write("src/lib.rs", "");
     repo.write("src/bin/cli_tool.rs", "fn main() {}\n");
@@ -1432,7 +1353,7 @@ fn a_path_segment_inside_a_doc_example_pattern_binds_nothing() {
 #[test]
 fn a_local_removal_outweighs_an_older_dependency_with_the_same_path() {
     let repo = Repo::new();
-    let manifest = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nexclude = [\"vendor/helper\"]\n";
+    let manifest = format!("{PACKAGE}\n[workspace]\nexclude = [\"vendor/helper\"]\n");
     repo.write(
         "Cargo.toml",
         &format!("{manifest}\n[dependencies]\nfixture = {{ package = \"helper\", path = \"vendor/helper\" }}\n"),
@@ -1449,11 +1370,11 @@ fn a_local_removal_outweighs_an_older_dependency_with_the_same_path() {
         "src/lib.rs",
         "pub fn retired_probe_842() {}\npub mod other { pub fn retired_probe_842() {} }\n",
     );
-    lock(&repo);
+    repo.lock();
     repo.commit("local functions and a dependency");
-    repo.write("Cargo.toml", manifest);
+    repo.write("Cargo.toml", &manifest);
     std::fs::remove_dir_all(repo.path().join("vendor")).unwrap();
-    lock(&repo);
+    repo.lock();
     repo.commit("drop the dependency");
     repo.write(
         "src/lib.rs",

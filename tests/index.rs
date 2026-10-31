@@ -1,12 +1,14 @@
 //! Indexing of every declaration kind, of re-exports, serde spellings and manifests.
 
 mod common;
+#[path = "common/lock.rs"]
+mod lock;
 #[path = "common/removed.rs"]
 mod removed;
 #[path = "common/vendor.rs"]
 mod vendor;
 
-use common::Repo;
+use common::{PACKAGE, Repo};
 use refquiem::{ItemKind, Range, RemovedIn};
 use removed::removed;
 
@@ -20,18 +22,20 @@ fn kind_of(report: &refquiem::Report, path: &str) -> ItemKind {
     report.groups.iter().find(|g| g.path == path).unwrap().kind
 }
 
-/// Writes `Cargo.lock` without touching the network, as every dependency is a path dependency
-/// or vendored.
-fn lock(repo: &Repo) {
-    let status = std::process::Command::new("cargo")
-        .args(["generate-lockfile", "--offline", "--quiet"])
-        .current_dir(repo.path())
-        .status()
-        .unwrap();
-    assert!(status.success());
+/// Asserts that the single declaration `source`, deleted in a second commit whose README names
+/// it, is reported removed under `fixture::{name}` with `kind`.
+fn kind_reported(source: &str, name: &str, kind: ItemKind) {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", source);
+    repo.commit("declaration");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", &format!("The old `{name}`.\n"));
+    repo.commit("drop it");
+    let report = run(&repo);
+    let path = format!("fixture::{name}");
+    assert_eq!(kind_of(&report, &path), kind);
+    assert_eq!(removed(&report), [path]);
 }
-
-const BARE: &str = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
 
 #[test]
 fn items_of_raw_named_modules_are_found_by_their_plain_path() {
@@ -57,65 +61,34 @@ fn items_of_raw_named_modules_are_found_by_their_plain_path() {
 
 #[test]
 fn a_removed_const_is_reported() {
-    let repo = Repo::new();
-    repo.write("src/lib.rs", "pub const ANSWER: u32 = 1;\n");
-    repo.commit("const");
-    repo.write("src/lib.rs", "");
-    repo.write("README.md", "The old `ANSWER`.\n");
-    repo.commit("drop const");
-
-    let report = run(&repo);
-
-    assert_eq!(removed(&report), ["fixture::ANSWER"]);
-    assert_eq!(kind_of(&report, "fixture::ANSWER"), ItemKind::Const);
+    kind_reported("pub const ANSWER: u32 = 1;\n", "ANSWER", ItemKind::Const);
 }
 
 #[test]
 fn a_removed_static_is_reported() {
-    let repo = Repo::new();
-    repo.write("src/lib.rs", "pub static COUNTER: u32 = 0;\n");
-    repo.commit("static");
-    repo.write("src/lib.rs", "");
-    repo.write("README.md", "The old `COUNTER`.\n");
-    repo.commit("drop static");
-
-    let report = run(&repo);
-
-    assert_eq!(removed(&report), ["fixture::COUNTER"]);
-    assert_eq!(kind_of(&report, "fixture::COUNTER"), ItemKind::Static);
+    kind_reported(
+        "pub static COUNTER: u32 = 0;\n",
+        "COUNTER",
+        ItemKind::Static,
+    );
 }
 
 #[test]
 fn a_removed_trait_alias_is_reported() {
-    let repo = Repo::new();
-    repo.write("src/lib.rs", "pub trait FilterBox = Fn(u32) -> bool;\n");
-    repo.commit("trait alias");
-    repo.write("src/lib.rs", "");
-    repo.write("README.md", "The old `FilterBox`.\n");
-    repo.commit("drop trait alias");
-
-    let report = run(&repo);
-
-    assert_eq!(removed(&report), ["fixture::FilterBox"]);
-    assert_eq!(kind_of(&report, "fixture::FilterBox"), ItemKind::TraitAlias);
+    kind_reported(
+        "pub trait FilterBox = Fn(u32) -> bool;\n",
+        "FilterBox",
+        ItemKind::TraitAlias,
+    );
 }
 
 #[test]
 fn a_removed_union_is_reported() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
+    kind_reported(
         "pub union ByteBag {\n    i: u32,\n    f: f32,\n}\n",
+        "ByteBag",
+        ItemKind::Union,
     );
-    repo.commit("union");
-    repo.write("src/lib.rs", "");
-    repo.write("README.md", "The old `ByteBag`.\n");
-    repo.commit("drop union");
-
-    let report = run(&repo);
-
-    assert_eq!(removed(&report), ["fixture::ByteBag"]);
-    assert_eq!(kind_of(&report, "fixture::ByteBag"), ItemKind::Union);
 }
 
 #[test]
@@ -343,7 +316,7 @@ fn twin_trees_differing_only_in_visibility_do_not_share_a_resolution() {
         "b/src/lib.rs",
         "pub struct Thing;\n\nimpl Thing {\n    pub fn method() {}\n}\n",
     );
-    lock(&repo);
+    repo.lock();
     repo.commit("public method");
     repo.write(
         "b/src/lib.rs",
@@ -363,26 +336,18 @@ fn twin_trees_differing_only_in_visibility_do_not_share_a_resolution() {
 
 #[test]
 fn successive_globs_keep_each_destinations_nested_items() {
-    let repo = Repo::new();
     let lib = |left, right| {
         format!(
             "pub mod left {{ pub mod nested_left {{ {left} }} }}\npub mod right {{ pub mod nested_right {{ {right} pub fn kept() {{}} }} }}\npub mod first {{ pub use crate::left::*; pub use crate::right::*; }}\npub mod second {{ pub use crate::left::*; }}\n"
         )
     };
-    repo.write(
-        "src/lib.rs",
-        &lib("pub fn gone_left() {}", "pub fn gone_right() {}"),
-    );
-    repo.commit("nested glob sources");
-    repo.write("src/lib.rs", &lib("", ""));
-    repo.write(
-        "README.md",
-        "`fixture::first::nested_left::gone_left`, `fixture::second::nested_left::gone_left`, `fixture::first::nested_right::gone_right` and `fixture::first::nested_right::kept`.\n",
-    );
-    repo.commit("remove the nested functions");
 
     assert_eq!(
-        removed(&run(&repo)),
+        removed_between(
+            &lib("pub fn gone_left() {}", "pub fn gone_right() {}"),
+            &lib("", ""),
+            "`fixture::first::nested_left::gone_left`, `fixture::second::nested_left::gone_left`, `fixture::first::nested_right::gone_right` and `fixture::first::nested_right::kept`.\n"
+        ),
         [
             "fixture::first::nested_left::gone_left",
             "fixture::first::nested_right::gone_right",
@@ -393,17 +358,14 @@ fn successive_globs_keep_each_destinations_nested_items() {
 
 #[test]
 fn a_module_reexporting_its_parent_does_not_nest_the_crate_into_itself() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
-        "pub mod alias {\n    pub use super::*;\n}\n\npub mod zone {\n    pub fn gone() {}\n}\n",
+    assert_eq!(
+        removed_between(
+            "pub mod alias {\n    pub use super::*;\n}\n\npub mod zone {\n    pub fn gone() {}\n}\n",
+            "pub mod zone {}\n",
+            "`gone`\n"
+        ),
+        ["fixture::alias::zone::gone"]
     );
-    repo.commit("self alias");
-    repo.write("src/lib.rs", "pub mod zone {}\n");
-    repo.write("README.md", "`gone`\n");
-    repo.commit("drop gone");
-
-    assert_eq!(removed(&run(&repo)), ["fixture::alias::zone::gone"]);
 }
 
 #[test]
@@ -621,20 +583,14 @@ fn an_unmatched_macro_invocation_expands_to_nothing_on_every_scan() {
 
 #[test]
 fn a_glob_out_of_a_macro_generated_module_reexports_its_source() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
-        "pub mod helper_types {\n    pub struct Eq;\n    pub struct Gone;\n}\n\npub mod dsl {\n    pub use crate::helper_types::*;\n}\n",
+    assert_eq!(
+        removed_between(
+            "pub mod helper_types {\n    pub struct Eq;\n    pub struct Gone;\n}\n\npub mod dsl {\n    pub use crate::helper_types::*;\n}\n",
+            "macro_rules! make_proxy_mod {\n    ($name:ident, $path:path) => {\n        #[doc(hidden)]\n        pub mod $name {\n            pub use $path::*;\n        }\n    };\n}\n\npub mod helper_types {\n    pub struct Eq;\n}\n\npub mod dsl {\n    make_proxy_mod!(helper_types_proxy, crate::helper_types);\n    pub use self::helper_types_proxy::*;\n}\n",
+            "`dsl::Eq` and `fixture::dsl::Gone`\n"
+        ),
+        ["fixture::dsl::Gone"]
     );
-    repo.commit("plain glob");
-    repo.write(
-        "src/lib.rs",
-        "macro_rules! make_proxy_mod {\n    ($name:ident, $path:path) => {\n        #[doc(hidden)]\n        pub mod $name {\n            pub use $path::*;\n        }\n    };\n}\n\npub mod helper_types {\n    pub struct Eq;\n}\n\npub mod dsl {\n    make_proxy_mod!(helper_types_proxy, crate::helper_types);\n    pub use self::helper_types_proxy::*;\n}\n",
-    );
-    repo.write("README.md", "`dsl::Eq` and `fixture::dsl::Gone`\n");
-    repo.commit("proxy module");
-
-    assert_eq!(removed(&run(&repo)), ["fixture::dsl::Gone"]);
 }
 
 const MAKE: &str = "macro_rules! make {\n    (unit $name:ident) => {\n        pub struct $name;\n    };\n    ($vis:vis enum $name:ident { $($variant:ident),* $(,)? } $(alias $alias:ident)?) => {\n        $vis enum $name { $($variant),* }\n        $(pub use self::$name as $alias;)?\n    };\n    ($($module:ident { $($item:ident),* });+ ;) => {\n        $(pub mod $module { $(pub struct $item;)* })+\n    };\n}\n";
@@ -781,17 +737,23 @@ fn items_a_head_macro_may_still_generate_out_of_sight_are_not_removed() {
     assert_eq!(removed(&run(&repo)), ["fixture::tests::posts::row"]);
 }
 
+/// The removed paths of a crate whose first commit is `first`, whose second commit is `second`
+/// and whose README is `readme`.
+fn removed_between(first: &str, second: &str, readme: &str) -> Vec<String> {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", first);
+    repo.commit("expanded");
+    repo.write("src/lib.rs", second);
+    repo.write("README.md", readme);
+    repo.commit("deleted");
+    removed(&run(&repo))
+}
+
 /// The removed paths of a crate whose first commit is `lib` and whose second deletes it while
 /// the README names `mentioned`.
 fn removed_after_deleting(lib: &str, mentioned: &[&str]) -> Vec<String> {
-    let repo = Repo::new();
-    repo.write("src/lib.rs", lib);
-    repo.commit("expanded");
-    repo.write("src/lib.rs", "");
     let readme: Vec<String> = mentioned.iter().map(|m| format!("`{m}`\n")).collect();
-    repo.write("README.md", &readme.concat());
-    repo.commit("deleted");
-    removed(&run(&repo))
+    removed_between(lib, "", &readme.concat())
 }
 
 #[test]
@@ -1061,14 +1023,14 @@ fn a_private_member_of_a_removed_dependency_is_not_reported() {
     );
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"0.1\"\n",
+        &format!("{PACKAGE}\n[dependencies]\nhelper = \"0.1\"\n"),
     );
     repo.write("src/lib.rs", "pub struct Local;\n");
-    lock(&repo);
+    repo.lock();
     repo.commit("dependency with a private field");
-    repo.write("Cargo.toml", BARE);
+    repo.write("Cargo.toml", PACKAGE);
     repo.write("src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.write(
         "README.md",
         "A `helper::Gadget` with a `helper::Gadget::secret` and `secret_field`.\n",
@@ -1091,14 +1053,14 @@ fn public_modules_of_a_removed_dependency_keep_their_items_reportable() {
     );
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"0.1\"\n",
+        &format!("{PACKAGE}\n[dependencies]\nhelper = \"0.1\"\n"),
     );
     repo.write("src/lib.rs", "pub struct Local;\n");
-    lock(&repo);
+    repo.lock();
     repo.commit("dependency with a public module");
-    repo.write("Cargo.toml", BARE);
+    repo.write("Cargo.toml", PACKAGE);
     repo.write("src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.write("README.md", "`helper::shelf::Inside` and `Local`.\n");
     repo.commit("drop the dependency");
 
@@ -1118,7 +1080,7 @@ fn an_unreadable_manifest_at_the_head_commit_is_an_error() {
     let base = repo.commit("thing");
     repo.write("Cargo.toml", "not [valid toml\n");
     let broken = repo.commit("break the manifest");
-    repo.write("Cargo.toml", BARE);
+    repo.write("Cargo.toml", PACKAGE);
     repo.write("src/lib.rs", "");
     repo.write("README.md", "`Thing`.\n");
     repo.commit("restore the manifest");
@@ -1139,7 +1101,7 @@ fn an_unreadable_manifest_in_history_does_not_break_the_scan() {
     repo.commit("thing");
     repo.write("Cargo.toml", "not [valid toml\n");
     repo.commit("break the manifest");
-    repo.write("Cargo.toml", BARE);
+    repo.write("Cargo.toml", PACKAGE);
     repo.write("src/lib.rs", "");
     repo.write("README.md", "`Thing`.\n");
     repo.commit("restore the manifest");
@@ -1189,7 +1151,7 @@ fn an_unreadable_manifest_in_a_tree_that_ends_in_garbage_does_not_break_the_scan
         "-m",
         "break the manifest and the tree",
     ]);
-    repo.write("Cargo.toml", BARE);
+    repo.write("Cargo.toml", PACKAGE);
     repo.write("src/lib.rs", "");
     repo.write("README.md", "`Thing`.\n");
     repo.git(&["add", "-A"]);
@@ -1250,171 +1212,126 @@ fn a_super_impl_reaches_its_self_type_one_module_up() {
 
 #[test]
 fn chained_reexports_keep_their_copies_reportable() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
-        "pub mod m {\n    pub mod n {\n        pub struct S;\n    }\n}\n\nmod x {\n    pub use crate::m::n as A;\n}\n\nmod y {\n    pub use crate::x::A as B;\n}\n",
+    assert_eq!(
+        removed_between(
+            "pub mod m {\n    pub mod n {\n        pub struct S;\n    }\n}\n\nmod x {\n    pub use crate::m::n as A;\n}\n\nmod y {\n    pub use crate::x::A as B;\n}\n",
+            "pub mod m {\n    pub mod n {\n        pub struct S;\n    }\n}\n",
+            "`y::B::S`.\n"
+        ),
+        ["fixture::y::B::S"]
     );
-    repo.commit("chained reexports");
-    repo.write(
-        "src/lib.rs",
-        "pub mod m {\n    pub mod n {\n        pub struct S;\n    }\n}\n",
-    );
-    repo.write("README.md", "`y::B::S`.\n");
-    repo.commit("drop the reexports");
-
-    assert_eq!(removed(&run(&repo)), ["fixture::y::B::S"]);
 }
 
 #[test]
 fn a_glob_copies_what_its_source_gains_from_later_globs() {
-    let repo = Repo::new();
     let lib = |item| {
         format!(
             "pub mod a {{ pub use crate::b::*; }}\npub mod b {{ pub use crate::c::*; }}\npub mod c {{ pub use crate::d::*; }}\npub mod d {{ pub mod inner {{ {item} pub fn kept() {{}} }} }}\n"
         )
     };
-    repo.write("src/lib.rs", &lib("pub fn gone() {}"));
-    repo.commit("a chain of globs");
-    repo.write("src/lib.rs", &lib(""));
-    repo.write(
-        "README.md",
-        "`fixture::a::inner::gone`, `fixture::b::inner::gone` and `fixture::a::inner::kept`.\n",
-    );
-    repo.commit("drop gone");
 
     assert_eq!(
-        removed(&run(&repo)),
+        removed_between(
+            &lib("pub fn gone() {}"),
+            &lib(""),
+            "`fixture::a::inner::gone`, `fixture::b::inner::gone` and `fixture::a::inner::kept`.\n"
+        ),
         ["fixture::a::inner::gone", "fixture::b::inner::gone"]
     );
 }
 
 #[test]
 fn a_glob_through_an_alias_resolved_in_a_later_round_copies_its_items() {
-    let repo = Repo::new();
     let lib = |item| {
         format!(
             "pub mod m {{ pub mod n {{ {item} pub fn kept() {{}} }} }}\npub mod x {{ pub use crate::y::B as A; }}\npub mod y {{ pub use crate::m::n as B; }}\npub mod z {{ pub use crate::x::*; }}\n"
         )
     };
-    repo.write("src/lib.rs", &lib("pub fn gone() {}"));
-    repo.commit("a glob over a late alias");
-    repo.write("src/lib.rs", &lib(""));
-    repo.write(
-        "README.md",
-        "`fixture::z::A::gone`, `fixture::x::A::gone` and `fixture::z::A::kept`.\n",
-    );
-    repo.commit("drop gone");
 
     assert_eq!(
-        removed(&run(&repo)),
+        removed_between(
+            &lib("pub fn gone() {}"),
+            &lib(""),
+            "`fixture::z::A::gone`, `fixture::x::A::gone` and `fixture::z::A::kept`.\n"
+        ),
         ["fixture::x::A::gone", "fixture::z::A::gone"]
     );
 }
 
 #[test]
 fn a_module_that_later_stands_for_a_function_lets_a_glob_follow_its_self_alias() {
-    let repo = Repo::new();
     let lib = |item| {
         format!(
             "pub fn real() {{}}\npub mod a_glob {{ pub use super::p::*; }}\npub mod p {{\n    pub use super::q::real2 as n;\n    pub mod n {{ pub use super::n as again; {item} pub fn kept() {{}} }}\n}}\npub mod q {{ pub use super::real as real2; }}\n"
         )
     };
-    repo.write("src/lib.rs", &lib("pub fn gone() {}"));
-    repo.commit("a module sharing its name with a re-exported function");
-    repo.write("src/lib.rs", &lib(""));
-    repo.write(
-        "README.md",
-        "`fixture::a_glob::n::again::gone` and `fixture::a_glob::n::again::kept`.\n",
-    );
-    repo.commit("drop gone");
 
-    assert_eq!(removed(&run(&repo)), ["fixture::a_glob::n::again::gone"]);
+    assert_eq!(
+        removed_between(
+            &lib("pub fn gone() {}"),
+            &lib(""),
+            "`fixture::a_glob::n::again::gone` and `fixture::a_glob::n::again::kept`.\n"
+        ),
+        ["fixture::a_glob::n::again::gone"]
+    );
 }
 
 #[test]
 fn a_glob_reexport_copies_top_level_items_to_the_crate_root() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
-        "pub mod m {\n    pub struct S;\n}\n\npub use crate::m::*;\n",
+    assert_eq!(
+        removed_between(
+            "pub mod m {\n    pub struct S;\n}\n\npub use crate::m::*;\n",
+            "pub mod m {\n}\n",
+            "`fixture::S`.\n"
+        ),
+        ["fixture::S"]
     );
-    repo.commit("glob reexport");
-    repo.write("src/lib.rs", "pub mod m {\n}\n");
-    repo.write("README.md", "`fixture::S`.\n");
-    repo.commit("drop S");
-
-    assert_eq!(removed(&run(&repo)), ["fixture::S"]);
 }
 
 #[test]
 fn a_reexport_of_the_crate_root_under_its_own_name_keeps_no_copy() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
-        "pub(crate) mod fixture {\n    pub(crate) use super::*;\n}\npub mod m {\n    pub struct Gone;\n}\n",
+    assert_eq!(
+        removed_between(
+            "pub(crate) mod fixture {\n    pub(crate) use super::*;\n}\npub mod m {\n    pub struct Gone;\n}\n",
+            "pub(crate) mod fixture {\n    pub(crate) use super::*;\n}\npub mod m {\n}\n",
+            "`fixture::m::Gone`.\n"
+        ),
+        ["fixture::m::Gone"]
     );
-    repo.commit("a self-named module reexporting the root");
-    repo.write(
-        "src/lib.rs",
-        "pub(crate) mod fixture {\n    pub(crate) use super::*;\n}\npub mod m {\n}\n",
-    );
-    repo.write("README.md", "`fixture::m::Gone`.\n");
-    repo.commit("drop Gone");
-
-    assert_eq!(removed(&run(&repo)), ["fixture::m::Gone"]);
 }
 
 #[test]
 fn a_self_alias_named_for_the_crate_keeps_no_copy() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
-        "extern crate self as fixture;\npub mod m {\n    pub struct Gone;\n}\n",
+    assert_eq!(
+        removed_between(
+            "extern crate self as fixture;\npub mod m {\n    pub struct Gone;\n}\n",
+            "extern crate self as fixture;\npub mod m {\n}\n",
+            "`fixture::m::Gone`.\n"
+        ),
+        ["fixture::m::Gone"]
     );
-    repo.commit("a self alias");
-    repo.write(
-        "src/lib.rs",
-        "extern crate self as fixture;\npub mod m {\n}\n",
-    );
-    repo.write("README.md", "`fixture::m::Gone`.\n");
-    repo.commit("drop Gone");
-
-    assert_eq!(removed(&run(&repo)), ["fixture::m::Gone"]);
 }
 
 #[test]
 fn an_import_of_the_crate_root_named_for_the_crate_keeps_no_copy() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
-        "use crate as fixture;\npub mod m {\n    pub struct Gone;\n}\n",
+    assert_eq!(
+        removed_between(
+            "use crate as fixture;\npub mod m {\n    pub struct Gone;\n}\n",
+            "use crate as fixture;\npub mod m {\n}\n",
+            "`fixture::m::Gone`.\n"
+        ),
+        ["fixture::m::Gone"]
     );
-    repo.commit("an import of the root under the crate's name");
-    repo.write("src/lib.rs", "use crate as fixture;\npub mod m {\n}\n");
-    repo.write("README.md", "`fixture::m::Gone`.\n");
-    repo.commit("drop Gone");
-
-    assert_eq!(removed(&run(&repo)), ["fixture::m::Gone"]);
 }
 
 #[test]
 fn a_reexport_of_the_crate_root_under_another_name_keeps_its_copy() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
-        "pub(crate) mod other {\n    pub(crate) use super::*;\n}\npub mod m {\n    pub struct Gone;\n}\n",
-    );
-    repo.commit("a reexport under another name");
-    repo.write(
-        "src/lib.rs",
-        "pub(crate) mod other {\n    pub(crate) use super::*;\n}\npub mod m {\n}\n",
-    );
-    repo.write("README.md", "`fixture::m::Gone` and `other::m::Gone`.\n");
-    repo.commit("drop Gone");
-
     assert_eq!(
-        removed(&run(&repo)),
+        removed_between(
+            "pub(crate) mod other {\n    pub(crate) use super::*;\n}\npub mod m {\n    pub struct Gone;\n}\n",
+            "pub(crate) mod other {\n    pub(crate) use super::*;\n}\npub mod m {\n}\n",
+            "`fixture::m::Gone` and `other::m::Gone`.\n"
+        ),
         ["fixture::m::Gone", "fixture::other::m::Gone"]
     );
 }
@@ -1469,62 +1386,54 @@ fn an_item_mentioned_under_a_gone_self_name_copy_is_found_by_its_plain_spelling(
 
 #[test]
 fn a_glob_copies_the_members_a_type_gains_before_a_glob_declares_the_type() {
-    let repo = Repo::new();
     let lib = |item| {
         format!(
             "pub trait Named {{ fn name(); }}\nimpl Named for Gadget {{ {item} }}\npub mod other {{ pub struct Gadget; }}\npub use other::*;\npub mod g {{ pub use super::*; }}\n"
         )
     };
-    repo.write("src/lib.rs", &lib("fn name() {}"));
-    repo.commit("a trait implemented for a type a glob brings in");
-    repo.write("src/lib.rs", &lib(""));
-    repo.write("README.md", "`fixture::g::Gadget::name`.\n");
-    repo.commit("drop the member");
 
-    assert_eq!(removed(&run(&repo)), ["fixture::g::Gadget::name"]);
+    assert_eq!(
+        removed_between(
+            &lib("fn name() {}"),
+            &lib(""),
+            "`fixture::g::Gadget::name`.\n"
+        ),
+        ["fixture::g::Gadget::name"]
+    );
 }
 
 #[test]
 fn members_declared_under_a_path_no_snapshot_interned_yet_join_it_once_a_glob_creates_it() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
-        "impl Gadget { pub fn name() {} }\npub mod other { pub struct Gadget; }\npub use other::*;\npub mod g { pub use super::*; }\npub mod z { pub use super::other::Gadget as Copied; }\n",
+    assert_eq!(
+        removed_between(
+            "impl Gadget { pub fn name() {} }\npub mod other { pub struct Gadget; }\npub use other::*;\npub mod g { pub use super::*; }\npub mod z { pub use super::other::Gadget as Copied; }\n",
+            "pub mod other { pub struct Gadget; }\npub mod g { pub use super::*; }\n",
+            "`fixture::g::Gadget::name`.\n"
+        ),
+        ["fixture::g::Gadget::name"]
     );
-    repo.commit("an impl of a type a glob brings in");
-    repo.write(
-        "src/lib.rs",
-        "pub mod other { pub struct Gadget; }\npub mod g { pub use super::*; }\n",
-    );
-    repo.write("README.md", "`fixture::g::Gadget::name`.\n");
-    repo.commit("drop the impl and the glob");
-
-    assert_eq!(removed(&run(&repo)), ["fixture::g::Gadget::name"]);
 }
 
 #[test]
 fn a_glob_into_a_module_that_takes_an_origin_late_follows_an_alias_it_stopped_at() {
-    let repo = Repo::new();
     let lib = |item| {
         format!(
             "pub mod src {{ pub use crate::p::n as d; }}\npub mod p {{\n    pub use super::w::deep as n;\n    pub mod n {{ pub use crate::src::*; {item} pub fn kept() {{}} }}\n}}\npub mod w {{ pub use super::v::*; }}\npub mod v {{ pub use super::u::*; }}\npub mod u {{ pub fn deep() {{}} }}\n"
         )
     };
-    repo.write("src/lib.rs", &lib("pub fn inner() {}"));
-    repo.commit("a module named like a function three globs away");
-    repo.write("src/lib.rs", &lib(""));
-    repo.write(
-        "README.md",
-        "`fixture::p::n::d::inner` and `fixture::p::n::d::kept`.\n",
-    );
-    repo.commit("drop inner");
 
-    assert_eq!(removed(&run(&repo)), ["fixture::p::n::d::inner"]);
+    assert_eq!(
+        removed_between(
+            &lib("pub fn inner() {}"),
+            &lib(""),
+            "`fixture::p::n::d::inner` and `fixture::p::n::d::kept`.\n"
+        ),
+        ["fixture::p::n::d::inner"]
+    );
 }
 
 #[test]
 fn a_glob_whose_source_turns_local_copies_what_was_declared_below_the_new_source() {
-    let repo = Repo::new();
     // The glob in `m` first reads `fixture::a` as the crate's `a`, then as `m::fixture::a` once
     // a glob brings `fixture` into `m`, below which the impl declared `method` all along.
     let lib = |item| {
@@ -1532,38 +1441,25 @@ fn a_glob_whose_source_turns_local_copies_what_was_declared_below_the_new_source
             "pub mod a {{ pub fn from_a() {{}} }}\npub mod outer {{ pub mod fixture {{ pub mod a {{}} }} }}\npub mod m {{\n    pub use fixture::a::*;\n    pub use crate::outer::*;\n    {item}\n}}\n"
         )
     };
-    repo.write(
-        "src/lib.rs",
-        &lib("impl self::fixture::a { pub fn method() {} }"),
-    );
-    repo.commit("an impl below a path a later alias creates");
-    repo.write("src/lib.rs", &lib(""));
-    repo.write("README.md", "`fixture::m::method`.\n");
-    repo.commit("drop the impl");
 
-    assert_eq!(removed(&run(&repo)), ["fixture::m::method"]);
+    assert_eq!(
+        removed_between(
+            &lib("impl self::fixture::a { pub fn method() {} }"),
+            &lib(""),
+            "`fixture::m::method`.\n"
+        ),
+        ["fixture::m::method"]
+    );
 }
 
 #[test]
 fn a_glob_copies_the_members_it_sees_only_after_the_first_round() {
-    let repo = Repo::new();
-    repo.write(
-        "src/lib.rs",
-        "pub mod a { pub fn alpha() {} pub fn beta() {} }\npub mod m { pub use crate::a as beta; }\npub mod z { pub use crate::m::beta::*; }\n",
-    );
-    repo.commit("a glob two hops through an alias");
-    repo.write(
-        "src/lib.rs",
-        "pub mod a { pub fn beta() {} }\npub mod m { pub use crate::a as beta; }\npub mod z { pub use crate::m::beta::*; }\n",
-    );
-    repo.write(
-        "README.md",
-        "`fixture::m::beta::alpha` and `fixture::z::alpha`.\n",
-    );
-    repo.commit("drop alpha");
-
     assert_eq!(
-        removed(&run(&repo)),
+        removed_between(
+            "pub mod a { pub fn alpha() {} pub fn beta() {} }\npub mod m { pub use crate::a as beta; }\npub mod z { pub use crate::m::beta::*; }\n",
+            "pub mod a { pub fn beta() {} }\npub mod m { pub use crate::a as beta; }\npub mod z { pub use crate::m::beta::*; }\n",
+            "`fixture::m::beta::alpha` and `fixture::z::alpha`.\n"
+        ),
         ["fixture::m::beta::alpha", "fixture::z::alpha"]
     );
 }
@@ -1613,10 +1509,10 @@ fn a_dependency_glob_reexport_of_another_crate_keeps_its_items_alive() {
     );
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"0.1\"\n",
+        &format!("{PACKAGE}\n[dependencies]\nhelper = \"0.1\"\n"),
     );
     repo.write("src/lib.rs", "pub struct Gadget;\n");
-    lock(&repo);
+    repo.lock();
     repo.commit("own Gadget");
     repo.write("src/lib.rs", "");
     repo.write("README.md", "`Gadget`\n");

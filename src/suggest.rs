@@ -115,16 +115,19 @@ fn within_distance(name: &str, other: &str) -> bool {
 /// for item mentions. The leading segments of `path` the mention leaves unwritten stay
 /// unwritten when `suggested` starts with them. Otherwise a bare name becomes the suggested
 /// name and a longer path the full suggested path.
-fn rewrite(path: &str, suggested: &str, written: &str, kind: ItemKind) -> Option<String> {
+fn rewrite<'w>(path: &str, suggested: &str, written: &'w str, kind: ItemKind) -> Option<String> {
     let rust = !kind.is_manifest_entry();
-    let mut words = path.rsplit("::");
-    let mut count = 0;
-    for word in written.rsplit("::") {
-        let word = if rust {
+    let strip = |word: &'w str| -> &'w str {
+        if rust {
             word.strip_prefix("r#").unwrap_or(word)
         } else {
             word
-        };
+        }
+    };
+    let mut words = path.rsplit("::");
+    let mut count = 0;
+    for word in written.rsplit("::") {
+        let word = strip(word);
         if words.next() != Some(word) {
             return None;
         }
@@ -143,13 +146,7 @@ fn rewrite(path: &str, suggested: &str, written: &str, kind: ItemKind) -> Option
         None if count == 1 => suggested.rsplit("::").next().unwrap_or(suggested),
         None => suggested,
     };
-    if suffix.split("::").eq(written.split("::").map(|word| {
-        if rust {
-            word.strip_prefix("r#").unwrap_or(word)
-        } else {
-            word
-        }
-    })) {
+    if suffix.split("::").eq(written.split("::").map(strip)) {
         return None;
     }
     let mut new = String::with_capacity(
