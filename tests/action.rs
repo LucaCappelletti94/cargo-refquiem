@@ -413,7 +413,11 @@ THREADS
       echo 'gh: HTTP {fail_status}' >&2
       exit 1
     fi
-    echo '{{"id": 104, "state": "CHANGES_REQUESTED"}}' ;;
+    if [[ "$body" == *'"event":"COMMENT"'* ]]; then
+      echo '{{"id": 104, "state": "COMMENTED"}}'
+    else
+      echo '{{"id": 104, "state": "CHANGES_REQUESTED"}}'
+    fi ;;
   *pulls/7/reviews*)
     cat <<'REVIEWS'
 {reviews}
@@ -960,6 +964,68 @@ fn a_single_finding_no_comment_holds_stays_in_the_review_body() {
         "{review}"
     );
     assert!(review.contains("README.md:3:7"), "{review}");
+}
+
+/// The `--json --no-fail` scan of a range raising `fixture::version::PROTOCOL_VERSION` from 1
+/// to 2 while `docs/protocol.md:3` still names it, with the extra `config` in `.refquiem.toml`.
+fn changed_scan(config: &str) -> String {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub mod version;\n");
+    repo.write("src/version.rs", "pub const PROTOCOL_VERSION: u32 = 1;\n");
+    repo.write(
+        "docs/protocol.md",
+        "# Protocol\n\n`PROTOCOL_VERSION` is 1.\n",
+    );
+    repo.write(".refquiem.toml", config);
+    repo.commit("protocol 1");
+    repo.write("src/version.rs", "pub const PROTOCOL_VERSION: u32 = 2;\n");
+    repo.commit("protocol 2");
+    scan(&repo, &["--base", "HEAD~1", "--head", "HEAD"])
+}
+
+#[test]
+fn a_changed_item_alone_comments_on_its_definition_without_requesting_changes() {
+    let gh = FakeGh::new(&["src/version.rs"], None);
+    let log = posted_log(&gh, &changed_scan(""));
+    assert_eq!(last_review(&log)["event"], "COMMENT", "{log}");
+    assert_eq!(
+        commented(&log),
+        [("src/version.rs".to_owned(), "1".to_owned())]
+    );
+    let comment = comment_call(&log, "src/version.rs", "1", "RIGHT");
+    assert!(
+        comment.starts_with(&format!(
+            "[`fixture::version::PROTOCOL_VERSION`]({BLOB}/{HEAD}/src/version.rs#L1) (const), value changed, and [`docs/protocol.md:3:2`]({BLOB}/{HEAD}/docs/protocol.md#L3), which this pull request leaves as it was, names it."
+        )),
+        "{comment}"
+    );
+    assert_eq!(
+        dismissed(&log),
+        ["101"],
+        "an earlier change request goes stale"
+    );
+}
+
+#[test]
+fn a_denied_changed_item_requests_changes() {
+    let gh = FakeGh::new(&["src/version.rs"], None);
+    let log = posted_log(&gh, &changed_scan("[changed]\nlevel = \"deny\"\n"));
+    assert_eq!(last_review(&log)["event"], "REQUEST_CHANGES", "{log}");
+}
+
+#[test]
+fn a_changed_definition_off_the_diff_stays_in_the_review_body() {
+    let gh = FakeGh::with_patches(&[("src/version.rs", ELSEWHERE)], None);
+    let log = posted_log(&gh, &changed_scan(""));
+    assert_eq!(last_review(&log)["comments"], serde_json::json!([]));
+    let review = review_call(&log);
+    assert!(
+        review.contains(
+            "refquiem found 1 changed item named 1 time in files this pull request leaves as they were."
+        ),
+        "{review}"
+    );
+    assert!(review.contains("docs/protocol.md:3:2"), "{review}");
 }
 
 #[test]
