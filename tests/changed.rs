@@ -153,32 +153,140 @@ fn the_level_fails_the_run_or_turns_the_check_off() {
 
     repo.write(".refquiem.toml", "[changed]\nlevel = \"allow\"\n");
     assert_eq!(changed(&scan(&repo, &base)), []);
+
+    repo.write(".refquiem.toml", "[changed]\ncompare = \"shapes\"\n");
+    assert_eq!(changed(&scan(&repo, &base)), [], "a value is no shape");
 }
 
-#[test]
-fn a_bare_name_two_items_share_is_skipped_and_a_path_still_reports() {
+/// `fixture::client::conf::Config` and `fixture::server::conf::Config`, mentioned by every
+/// spelling, committed as the base.
+fn two_configs() -> (Repo, String) {
     let repo = Repo::new();
     repo.write(
         "src/lib.rs",
-        "pub mod client {\n    pub struct Config { pub url: String }\n}\npub mod server {\n    pub struct Config { pub port: u16 }\n}\n",
+        "pub mod client {\n    pub mod conf {\n        pub struct Config { pub url: String }\n    }\n}\npub mod server {\n    pub mod conf {\n        pub struct Config { pub port: u16 }\n    }\n}\n",
     );
     repo.write(
         "README.md",
-        "Set up the `Config`.\n\nThe server reads `fixture::server::Config`.\n",
+        "Set up the `Config`.\n\nRead `conf::Config`.\n\nThe server reads `fixture::server::conf::Config`.\n\nThe client reads `fixture::client::conf::Config`.\n\nBoth hold a `std::vec::Vec` and no `nothing::here`.\n",
     );
     let base = repo.commit("configs");
+    (repo, base)
+}
+
+#[test]
+fn a_spelling_two_items_share_is_skipped_and_a_full_path_still_reports() {
+    let (repo, base) = two_configs();
     repo.write(
         "src/lib.rs",
-        "pub mod client {\n    pub struct Config { pub url: String }\n}\npub mod server {\n    pub struct Config { pub port: u32 }\n}\n",
+        "pub mod client {\n    pub mod conf {\n        pub struct Config { pub url: String }\n    }\n}\npub mod server {\n    pub mod conf {\n        pub struct Config { pub port: u32 }\n    }\n}\n",
     );
     repo.commit("widen the port");
 
     assert_eq!(
         changed(&scan(&repo, &base)),
         [(
-            "fixture::server::Config".to_owned(),
+            "fixture::server::conf::Config".to_owned(),
             ChangedPart::Shape,
             "README.md".to_owned(),
+            5
+        )]
+    );
+}
+
+#[test]
+fn two_changed_items_sharing_a_spelling_report_only_by_full_path() {
+    let (repo, base) = two_configs();
+    repo.write(
+        "src/lib.rs",
+        "pub mod client {\n    pub mod conf {\n        pub struct Config { pub uri: String }\n    }\n}\npub mod server {\n    pub mod conf {\n        pub struct Config { pub port: u32 }\n    }\n}\n",
+    );
+    repo.commit("change both");
+
+    let lines: Vec<(String, usize)> = changed(&scan(&repo, &base))
+        .into_iter()
+        .map(|(path, _, _, line)| (path, line))
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            ("fixture::client::conf::Config".to_owned(), 7),
+            ("fixture::server::conf::Config".to_owned(), 5),
+        ]
+    );
+}
+
+#[test]
+fn a_bare_name_running_text_claims_reports_only_as_code() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn budget(n: u32) {}\n");
+    repo.write("README.md", "Mind the budget.\n\nCall `budget` first.\n");
+    let base = repo.commit("budget");
+    repo.write("src/lib.rs", "pub fn budget(n: u64) {}\n");
+    repo.commit("widen the budget");
+
+    let report = scan(&repo, &base);
+    assert_eq!(
+        changed(&report),
+        [(
+            "fixture::budget".to_owned(),
+            ChangedPart::Shape,
+            "README.md".to_owned(),
+            3
+        )]
+    );
+    assert!(
+        report
+            .json()
+            .contains("\"headline\":\"`fixture::budget` (function), signature changed\""),
+        "{}",
+        report.json()
+    );
+}
+
+#[test]
+fn a_rust_comment_resolves_a_bare_name_through_its_module_first() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub mod a;\npub mod b;\npub mod c;\n");
+    repo.write("src/a.rs", "pub const MAX_DEPTH: u32 = 1;\n");
+    repo.write(
+        "src/b.rs",
+        "// MAX_DEPTH caps the queue.\npub use crate::a::MAX_DEPTH;\n",
+    );
+    repo.write("src/c.rs", "pub const MAX_DEPTH: u8 = 1;\n");
+    repo.write("README.md", "The `MAX_DEPTH` is 1.\n");
+    let base = repo.commit("depths");
+    repo.write("src/a.rs", "pub const MAX_DEPTH: u32 = 2;\n");
+    repo.commit("raise a");
+
+    assert_eq!(
+        changed(&scan(&repo, &base)),
+        [(
+            "fixture::a::MAX_DEPTH".to_owned(),
+            ChangedPart::Value,
+            "src/b.rs".to_owned(),
+            1
+        )],
+        "two public carriers leave the README's bare name ambiguous"
+    );
+}
+
+#[test]
+fn a_working_tree_scan_compares_uncommitted_definitions() {
+    let (repo, _) = protocol();
+    repo.write("src/version.rs", "pub const PROTOCOL_VERSION: u32 = 2;\n");
+    let mut options = refquiem::Options::new(repo.path().to_path_buf());
+    options.range = Range::Base {
+        base: "HEAD".to_owned(),
+        head: None,
+    };
+
+    assert_eq!(
+        changed(&refquiem::run(&options).unwrap()),
+        [(
+            "fixture::version::PROTOCOL_VERSION".to_owned(),
+            ChangedPart::Value,
+            "docs/protocol.md".to_owned(),
             3
         )]
     );

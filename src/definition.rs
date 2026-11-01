@@ -92,11 +92,13 @@ impl Definer<'_> {
     }
 
     pub(crate) fn structure(&self, item: &syn::ItemStruct) -> Definition {
-        let stop = match (&item.semi_token, &item.fields) {
-            (Some(semi), _) => finish(semi.spans[0]),
-            (None, Fields::Named(fields)) => fields.brace_token.span.close().byte_range().end,
-            (None, Fields::Unnamed(fields)) => fields.paren_token.span.close().byte_range().end,
-            (None, Fields::Unit) => finish(item.ident.span()),
+        // Only a struct with named fields ends at its brace, the others at their `;`.
+        let stop = match &item.fields {
+            Fields::Named(fields) => fields.brace_token.span.close().byte_range().end,
+            Fields::Unnamed(_) | Fields::Unit => item
+                .semi_token
+                .as_ref()
+                .map_or(self.source.len(), |semi| finish(semi.spans[0])),
         };
         let mut holes = Vec::new();
         field_holes(&item.fields, &mut holes);
@@ -545,6 +547,51 @@ mod tests {
         assert_ne!(
             definition("pub trait T { fn f(&self) -> u32 { 1 } }", &["T", "f"]).body,
             definition("pub trait T { fn f(&self) -> u32 { 2 } }", &["T", "f"]).body,
+        );
+    }
+
+    #[test]
+    fn a_trait_const_default_is_its_value_and_no_part_of_the_trait_shape() {
+        let one = "pub trait T { const N: u32 = 1; const M: u32; }";
+        let two = "pub trait T { const N: u32 = 2; const M: u32; }";
+        assert_eq!(definition(one, &["T"]), definition(two, &["T"]));
+        assert_ne!(
+            definition(one, &["T", "N"]).value,
+            definition(two, &["T", "N"]).value
+        );
+        assert_ne!(
+            definition(one, &["T", "M"]).shape,
+            definition(
+                "pub trait T { const N: u32 = 1; const M: u64; }",
+                &["T", "M"]
+            )
+            .shape,
+        );
+    }
+
+    #[test]
+    fn a_tuple_struct_shape_holds_its_field_types() {
+        let before = definition("pub struct S(pub u8, u16);", &["S"]);
+        assert_eq!(
+            before,
+            definition("pub struct S(u8, pub(crate) u16,);", &["S"])
+        );
+        assert_ne!(
+            before.shape,
+            definition("pub struct S(u8, u32);", &["S"]).shape
+        );
+    }
+
+    #[test]
+    fn a_foreign_item_safety_qualifier_is_its_shape() {
+        let block = |items: &str| format!("unsafe extern \"C\" {{ {items} }}");
+        assert_ne!(
+            definition(&block("pub fn f();"), &["f"]).shape,
+            definition(&block("pub safe fn f();"), &["f"]).shape,
+        );
+        assert_ne!(
+            definition(&block("pub static X: u8;"), &["X"]).shape,
+            definition(&block("pub safe static X: u8;"), &["X"]).shape,
         );
     }
 }

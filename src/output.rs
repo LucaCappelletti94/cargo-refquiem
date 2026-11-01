@@ -286,7 +286,14 @@ impl Report {
     fn changed_entry(&self, item: &ChangedItem, root: Option<&str>) -> String {
         let mut name = String::new();
         span(&mut name, &item.path);
-        let name = self.suggested(&name, item.declared_at.as_ref(), root);
+        let link = item
+            .declared_at
+            .as_ref()
+            .and_then(|at| self.head_link(root, &at.file, at.line));
+        let name = match link {
+            Some(url) => format!("[{name}]({url})"),
+            None => name,
+        };
         let mentions = item
             .mentions
             .iter()
