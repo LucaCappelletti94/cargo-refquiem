@@ -210,7 +210,15 @@ fn json_prints_the_report_with_snake_case_keys() {
     };
     assert_eq!(
         keys(&report),
-        ["base", "groups", "head", "skipped", "unused_markers"]
+        [
+            "base",
+            "changed",
+            "changed_level",
+            "groups",
+            "head",
+            "skipped",
+            "unused_markers"
+        ]
     );
     assert_eq!(report["head"], repo.rev("HEAD"));
     assert_eq!(report["base"], serde_json::Value::Null);

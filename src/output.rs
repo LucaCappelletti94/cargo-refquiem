@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use crate::{Change, Group, Position, RemovedIn, Report, web};
+use crate::{Change, ChangedItem, Group, Level, Position, RemovedIn, Report, web};
 
 impl Report {
     /// The report as JSON, with `snake_case` keys and kinds.
@@ -15,10 +15,16 @@ impl Report {
         serde_json::to_string(self).expect("a report always serializes")
     }
 
-    /// One workflow annotation per finding, at `error` level or `warning` when the run cannot fail.
+    /// One workflow annotation per finding, at `error` level or `warning` when the run cannot
+    /// fail. Changed items are errors only at the `deny` level.
     #[must_use]
     pub fn annotations(&self, no_fail: bool) -> String {
         let level = if no_fail { "warning" } else { "error" };
+        let changed_level = if no_fail || self.changed_level != Level::Deny {
+            "warning"
+        } else {
+            "error"
+        };
         let mut out = String::new();
         for group in &self.groups {
             let message = format!("{}, is still mentioned here", group.headline());
@@ -33,6 +39,18 @@ impl Report {
                 let _ = writeln!(
                     out,
                     "::{level} file={},line={},col={},title=refquiem::{message}",
+                    escape_property(&mention.file),
+                    mention.line,
+                    mention.column
+                );
+            }
+        }
+        for item in &self.changed {
+            let message = escape(&format!("{}, review this mention", item.headline()));
+            for mention in &item.mentions {
+                let _ = writeln!(
+                    out,
+                    "::{changed_level} file={},line={},col={},title=refquiem::{message}",
                     escape_property(&mention.file),
                     mention.line,
                     mention.column
@@ -224,10 +242,22 @@ impl Report {
         Some(web::blob(root?, head, file, line))
     }
 
-    /// The sections after the table, the unused suppression markers and the skipped
-    /// dependencies.
+    /// The sections after the table, the changed items, the unused suppression markers and the
+    /// skipped dependencies.
     fn closing(&self, root: Option<&str>) -> String {
         let mut out = String::new();
+        if !self.changed.is_empty() {
+            let _ = write!(
+                out,
+                "\n### Changed items\n\n{}. Files this range left as they were name items whose definition it changed, so their text may need review.\n\n",
+                self.changed_tally()
+            );
+            for item in &self.changed {
+                out.push_str("- ");
+                out.push_str(&self.changed_entry(item, root));
+                out.push('\n');
+            }
+        }
         if !self.unused_markers.is_empty() {
             out.push_str("\n### Unused suppression markers\n\n");
             for marker in &self.unused_markers {
@@ -249,6 +279,25 @@ impl Report {
             }
         }
         out
+    }
+
+    /// The changed item linked to its declaration at the head commit, with what changed and its
+    /// mentions.
+    fn changed_entry(&self, item: &ChangedItem, root: Option<&str>) -> String {
+        let mut name = String::new();
+        span(&mut name, &item.path);
+        let name = self.suggested(&name, item.declared_at.as_ref(), root);
+        let mentions = item
+            .mentions
+            .iter()
+            .map(|mention| self.position(&mention.file, mention.line, mention.column, root))
+            .collect::<Vec<_>>();
+        format!(
+            "{name} ({}), {} changed, named in {}",
+            item.kind.describe(),
+            item.part.describe(item.kind),
+            mentions.join(", ")
+        )
     }
 }
 
@@ -377,7 +426,7 @@ fn notice(count: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{Report, notice};
-    use crate::{Context, Group, HashSet, ItemKind, Kind, Mention, RemovedIn, Source};
+    use crate::{Context, Group, ItemKind, Kind, Mention, RemovedIn, Source};
 
     fn mention(file: &str, line: usize) -> Mention {
         Mention {
@@ -414,9 +463,7 @@ mod tests {
             base: None,
             head: Some("b".repeat(40)),
             groups,
-            skipped: vec![],
-            unused_markers: vec![],
-            edited: HashSet::new(),
+            ..Report::default()
         }
     }
 
@@ -519,9 +566,7 @@ mod tests {
                 candidates: vec![],
                 mentions: vec![mention],
             }],
-            skipped: vec![],
-            unused_markers: vec![],
-            edited: HashSet::new(),
+            ..Report::default()
         };
         assert!(
             report
@@ -558,9 +603,7 @@ mod tests {
             base: None,
             head: None,
             groups: vec![group("a::one"), group("a::two")],
-            skipped: vec![],
-            unused_markers: vec![],
-            edited: HashSet::new(),
+            ..Report::default()
         };
         let mut expected = report.prefix();
         expected.push_str(&report.row(&report.groups[0], None));

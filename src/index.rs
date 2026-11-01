@@ -10,6 +10,7 @@ use gix::ObjectId;
 use hashbrown::{DefaultHashBuilder, DefaultHasher};
 
 use crate::cache::{Expanded, FileCache};
+use crate::definition::Definition as ItemDefinition;
 use crate::git::{ManifestDirs, Snapshot, Trees};
 use crate::intern::{Interner, PathId, Sym};
 use crate::manifest::{self, Manifests, Member, TargetKind, join};
@@ -33,6 +34,12 @@ pub(crate) struct Index {
     pub(crate) locals: HashSet<Sym>,
     /// The signature of every function, method and trait method, as the parser records it.
     pub(crate) signatures: HashMap<PathId, Rc<str>>,
+    /// What each declared item says, merged over the declarations of one path.
+    pub(crate) definitions: HashMap<PathId, ItemDefinition>,
+    /// At head, the path each re-export, alias copy or lent member stands for.
+    pub(crate) origins: HashMap<PathId, PathId>,
+    /// At head, the paths reachable from outside their crate.
+    pub(crate) public: HashSet<PathId>,
     /// The dependency tables of every dependency entry, as [`manifest::NORMAL`] bits.
     pub(crate) tables: HashMap<PathId, u8>,
     /// The item-position macros head invokes without expanding them, by name.
@@ -77,6 +84,7 @@ struct Contribution {
     declared_traits: Vec<(PathId, bool)>,
     locals: Vec<Sym>,
     signatures: Vec<(PathId, Rc<str>)>,
+    definitions: Vec<(PathId, ItemDefinition)>,
     failure: Option<String>,
     /// The digest of the fields an alias resolution reads from this contribution.
     digest: [u64; 2],
@@ -467,8 +475,17 @@ impl Indexer {
                     .map(|c| (c.hidden.as_slice(), c.exposed.as_slice())),
             );
             self.expose_traits(&index.paths, &mut hidden, &uses, &lends, &traits, &crates);
-            self.resolve_aliases(&mut index.paths, &mut hidden, &uses, &lends, &crates)
-                .0
+            let private = hidden.clone();
+            let (reexports, origins) =
+                self.resolve_aliases(&mut index.paths, &mut hidden, &uses, &lends, &crates);
+            index.origins = origins;
+            index.public = index
+                .paths
+                .iter()
+                .copied()
+                .filter(|&id| public_path(id, &self.interner, &private, &hidden))
+                .collect();
+            reexports
         } else {
             let inputs = AliasInputs {
                 roots: roots
@@ -1049,6 +1066,8 @@ impl Indexer {
                 out.lines.push(decl.line);
                 out.signatures
                     .extend(decl.signature.as_deref().map(|s| (id, Rc::from(s))));
+                out.definitions
+                    .extend(decl.definition.map(|definition| (id, definition)));
             }
         }
         let imports = self.imports(&module, items, &out.paths);
@@ -1138,15 +1157,17 @@ impl Indexer {
                 .as_ref()
                 .map(|path| imported(imports, &within, self.syms(path)));
             let mut members = Vec::new();
-            for (name, kind, public, signature, line) in &block.items {
-                if *public || !public_only {
-                    base.push(self.interner.sym(name));
-                    let id = self.interner.path(&base, *kind);
+            for member in &block.items {
+                if member.public || !public_only {
+                    base.push(self.interner.sym(&member.name));
+                    let id = self.interner.path(&base, member.kind);
                     out.paths.push(id);
-                    out.lines.push(*line);
+                    out.lines.push(member.line);
                     out.signatures
-                        .extend(signature.as_deref().map(|s| (id, Rc::from(s))));
-                    if *public && source.is_none() {
+                        .extend(member.signature.as_deref().map(|s| (id, Rc::from(s))));
+                    out.definitions
+                        .extend(member.definition.map(|definition| (id, definition)));
+                    if member.public && source.is_none() {
                         out.exposed.push(id);
                     } else {
                         out.hidden.push(id);
@@ -2131,7 +2152,7 @@ fn parent(file: &str) -> &str {
     file.rsplit_once('/').map_or("", |(dir, _)| dir)
 }
 
-/// Adds the paths, signatures and files of `contribution` to `index` and `stack`.
+/// Adds the paths, signatures, definitions and files of `contribution` to `index` and `stack`.
 fn absorb(contribution: &Contribution, index: &mut Index, stack: &mut Vec<Rc<Visit>>) {
     index.paths.extend(contribution.paths.iter().copied());
     index.signatures.extend(
@@ -2140,6 +2161,13 @@ fn absorb(contribution: &Contribution, index: &mut Index, stack: &mut Vec<Rc<Vis
             .iter()
             .map(|(id, signature)| (*id, Rc::clone(signature))),
     );
+    for &(id, definition) in &contribution.definitions {
+        index
+            .definitions
+            .entry(id)
+            .and_modify(|merged| *merged = merged.merge(definition))
+            .or_insert(definition);
+    }
     stack.extend(contribution.visits.iter().map(Rc::clone));
 }
 

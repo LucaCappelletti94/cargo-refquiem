@@ -4,7 +4,9 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 mod cache;
+mod changed;
 mod config;
+mod definition;
 mod deps;
 mod entry;
 mod error;
@@ -367,17 +369,103 @@ impl serde::Serialize for Group {
     }
 }
 
-/// Every removed name still mentioned, by path.
+/// The part of an item's definition a range changed, from the least to the most frequent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangedPart {
+    /// Its signature, fields, variants, items, bounds, target, or a `serde` or `repr` attribute.
+    Shape,
+    /// The value of a `const` or `static`.
+    Value,
+    /// The body of a function or method.
+    Body,
+}
+
+impl ChangedPart {
+    /// The changed part in words, for an item of `kind`.
+    #[must_use]
+    pub fn describe(self, kind: ItemKind) -> &'static str {
+        match (self, kind) {
+            (Self::Shape, ItemKind::Function | ItemKind::Method) => "signature",
+            (Self::Shape, _) => "definition",
+            (Self::Value, _) => "value",
+            (Self::Body, _) => "body",
+        }
+    }
+}
+
+/// How a kind of finding affects the run, in the words of Cargo lint levels.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Level {
+    /// Not looked for.
+    Allow,
+    /// Reported without failing the run.
+    #[default]
+    Warn,
+    /// Reported and failing the run.
+    Deny,
+}
+
+/// An item whose definition the range changed, and its mentions in files the range left as
+/// they were.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangedItem {
+    /// Its full path.
+    pub path: String,
+    /// Its kind.
+    pub kind: ItemKind,
+    /// The part of its definition that changed.
+    pub part: ChangedPart,
+    /// Where head declares it, absent when no file of head declares it.
+    pub declared_at: Option<Position>,
+    /// Its mentions at head, by file and position.
+    pub mentions: Vec<Mention>,
+}
+
+/// The fields plus the `headline` a reader shows for the item.
+impl serde::Serialize for ChangedItem {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct as _;
+        let mut item = serializer.serialize_struct("ChangedItem", 6)?;
+        item.serialize_field("path", &self.path)?;
+        item.serialize_field("kind", &self.kind)?;
+        item.serialize_field("part", &self.part)?;
+        item.serialize_field("declared_at", &self.declared_at)?;
+        item.serialize_field("headline", &self.headline())?;
+        item.serialize_field("mentions", &self.mentions)?;
+        item.end()
+    }
+}
+
+impl ChangedItem {
+    /// The changed item with its kind and what changed.
+    fn headline(&self) -> String {
+        format!(
+            "`{}` ({}), {} changed",
+            self.path,
+            self.kind.describe(),
+            self.part.describe(self.kind)
+        )
+    }
+}
+
+/// Every removed name still mentioned, by path, and every changed item named where the range
+/// did not look.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Report {
-    /// The commit the range starts from, whose files the `declared_at` positions refer to,
-    /// absent for a full-history scan.
+    /// The commit the range starts from, whose files the `declared_at` positions of removed
+    /// names refer to, absent for a full-history scan.
     pub base: Option<String>,
     /// The scanned head commit, the `HEAD` commit when the working tree is scanned, absent
     /// without one.
     pub head: Option<String>,
     /// One group per removed name.
     pub groups: Vec<Group>,
+    /// The items a `--base` range changed that files it left as they were still name, by path.
+    pub changed: Vec<ChangedItem>,
+    /// Whether changed items fail the run.
+    pub changed_level: Level,
     /// Removed dependencies whose sources cargo could not resolve, so their items went
     /// unchecked.
     pub skipped: Vec<Skipped>,
@@ -439,10 +527,13 @@ impl Skipped {
 }
 
 impl Report {
-    /// Whether nothing stale was found and every suppression marker suppressed something.
+    /// Whether nothing stale was found, no changed item fails the run and every suppression
+    /// marker suppressed something.
     #[must_use]
     pub fn is_clean(&self) -> bool {
-        self.groups.is_empty() && self.unused_markers.is_empty()
+        self.groups.is_empty()
+            && self.unused_markers.is_empty()
+            && (self.changed_level != Level::Deny || self.changed.is_empty())
     }
 
     /// The report as printed by `cargo refquiem`.
@@ -466,29 +557,25 @@ impl Report {
     }
 
     fn findings(&self) -> String {
-        if self.groups.is_empty() {
+        if self.groups.is_empty() && self.changed.is_empty() {
             return "refquiem: no stale mentions\n".to_owned();
         }
-        let mut out = format!("refquiem: {}\n", self.tally());
-        for group in &self.groups {
-            let _ = writeln!(out, "\n{}", group.headline());
-            for mention in &group.mentions {
-                let _ = write!(
-                    out,
-                    "  {}:{}:{}  {}",
-                    mention.file,
-                    mention.line,
-                    mention.column,
-                    mention.context.describe()
-                );
-                if let Some(hint) = &mention.uppercase {
-                    let _ = write!(
-                        out,
-                        ", write {} to mark it as {}",
-                        hint.spelling, hint.vocabulary
-                    );
-                }
+        let mut out = String::new();
+        if !self.groups.is_empty() {
+            let _ = writeln!(out, "refquiem: {}", self.tally());
+            for group in &self.groups {
+                let _ = writeln!(out, "\n{}", group.headline());
+                list(&mut out, &group.mentions);
+            }
+        }
+        if !self.changed.is_empty() {
+            if !out.is_empty() {
                 out.push('\n');
+            }
+            let _ = writeln!(out, "refquiem: {}", self.changed_tally());
+            for item in &self.changed {
+                let _ = writeln!(out, "\n{}", item.headline());
+                list(&mut out, &item.mentions);
             }
         }
         out
@@ -502,6 +589,38 @@ impl Report {
             plural(self.groups.len(), "removed name", "removed names"),
             plural(mentions, "mention", "mentions"),
         )
+    }
+
+    /// How many changed items files outside the range name, and how often.
+    fn changed_tally(&self) -> String {
+        let mentions: usize = self.changed.iter().map(|c| c.mentions.len()).sum();
+        format!(
+            "{} named in files the range left alone, {} to review",
+            plural(self.changed.len(), "changed item", "changed items"),
+            plural(mentions, "mention", "mentions"),
+        )
+    }
+}
+
+/// Writes one line per mention of `mentions` to `out`.
+fn list(out: &mut String, mentions: &[Mention]) {
+    for mention in mentions {
+        let _ = write!(
+            out,
+            "  {}:{}:{}  {}",
+            mention.file,
+            mention.line,
+            mention.column,
+            mention.context.describe()
+        );
+        if let Some(hint) = &mention.uppercase {
+            let _ = write!(
+                out,
+                ", write {} to mark it as {}",
+                hint.spelling, hint.vocabulary
+            );
+        }
+        out.push('\n');
     }
 }
 
