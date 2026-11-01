@@ -757,7 +757,7 @@ fn attribute_boundaries_preserve_string_literal_mentions() {
     repo.commit("structure and serialized field");
     repo.write(
         "src/lib.rs",
-        "#![allow(dead_code, reason = \"old-alias-842\")]\n#[attr([inner] \"GoneThing went away\")]\npub struct Kept;\npub const DIRECT: &str = \"GoneThing went away\";\npub const ARRAY: [&str; 1] = [\"ArrayThing went away\"];\n",
+        "#![allow(dead_code, reason = \"old-alias-842\")]\n#[attr([inner] \"GoneThing stays here\")]\npub struct Kept;\npub const DIRECT: &str = \"GoneThing stays here\";\npub const ARRAY: [&str; 1] = [\"ArrayThing stays here\"];\n",
     );
     repo.commit("drop the structures");
 

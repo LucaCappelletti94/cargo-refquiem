@@ -309,7 +309,7 @@ fn removed_method_mentioned_in_a_doc_comment_is_reported() {
     repo.commit("add parser");
     repo.write(
         "src/lib.rs",
-        "pub struct Parser;\n\nimpl Parser {\n    /// Replaces `Parser::parse_expr`.\n    pub fn parse_item(&self) {}\n}\n",
+        "pub struct Parser;\n\nimpl Parser {\n    /// Explains `Parser::parse_expr`.\n    pub fn parse_item(&self) {}\n}\n",
     );
     let deleting = repo.commit("drop parse_expr");
 

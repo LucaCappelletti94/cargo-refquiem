@@ -105,3 +105,51 @@ fn comments_and_doc_comments_that_state_the_removal_are_not_reported() {
         [at("src/notes.rs", 8, 4), at("src/notes.rs", 11, 6)]
     );
 }
+
+#[test]
+fn markdown_that_records_a_rename_or_replacement_is_not_reported() {
+    let repo = removed();
+    repo.write(
+        "PLAN.md",
+        "1. Rename `fixture::Gone` to `fixture::Kept`.\n\
+         2. Supersede `fixture::Other`.\n\n\
+         `fixture::Other` was renamed `fixture::Kept`. `Gone` is replaced by `Kept`.\n\n\
+         `fixture::Gone` becomes `fixture::Kept`, with `fixture::Other` becoming `Kept`.\n\n\
+         `Kept` carries the fields in place of `fixture::Other`, and `Kept` replaces `fixture::Gone`.\n\n\
+         `fixture::Kept` (renamed from `fixture::Gone`) is the type.\n\n\
+         `fixture::Other` (`src/lib.rs`) is superseded by `Kept`.\n\n\
+         `Kept` therefore loses `fixture::Gone` and `fixture::Other`.\n\n\
+         `fixture::Gone` must go.\n\n\
+         ## `fixture::Other` renamed to `fixture::Kept`\n",
+    );
+    repo.commit("record the renames");
+
+    assert_eq!(reported(&repo), []);
+}
+
+#[test]
+fn markdown_that_describes_a_renamed_name_as_current_is_reported() {
+    let repo = removed();
+    repo.write(
+        "PLAN.md",
+        "`fixture::Gone` becomes internal.\n\n\
+         `fixture::Other` becomes the value of the field.\n\n\
+         The type was renamed `fixture::Gone`.\n\n\
+         `fixture::Gone` replaced `fixture::Other` in the handler.\n\n\
+         `fixture::Other` goes into the cache.\n\n\
+         `fixture::Gone` was not renamed.\n",
+    );
+    repo.commit("describe them");
+
+    assert_eq!(
+        reported(&repo),
+        [
+            at("PLAN.md", 1, 2),
+            at("PLAN.md", 3, 2),
+            at("PLAN.md", 5, 23),
+            at("PLAN.md", 7, 2),
+            at("PLAN.md", 9, 2),
+            at("PLAN.md", 11, 2),
+        ]
+    );
+}

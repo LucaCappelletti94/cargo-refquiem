@@ -35,7 +35,7 @@ cargo refquiem --markdown          # a table with each finding's status and sugg
 
 Each group shows the removed name, its kind, the removal commit id or `working tree`, and the name it most likely became. Mentions list `file:line:column` with the context, like `doc comment code block` or `Markdown code span`.
 
-Running text whose clause states the removal is no finding, as in `Delete X and Y`, `X is deleted`, `the removal of X`, `with X gone` or `X does not exist`. A sentence that describes the name as current is reported, and so are links and code blocks naming it, whatever the sentence says.
+Running text whose clause states the removal, rename or replacement is no finding, as in `Delete X and Y`, `X is deleted`, `the removal of X`, `with X gone`, `X does not exist`, `Rename X to Y`, `X was renamed Y`, `Y replaces X`, `X is superseded by Y` or `in place of X`. `X becomes Y` counts only when `Y` is a code span or a code-shaped name. A sentence that describes the name as current is reported, and so are links and code blocks naming it, whatever the sentence says.
 
 A suggestion names where the item most likely went. Verify it before applying.
 

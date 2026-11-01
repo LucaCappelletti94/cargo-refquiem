@@ -1,5 +1,5 @@
-//! Running text that states a mention's removal, such as `Delete X` or `X no longer exists`,
-//! which names it as gone and stays true once it is.
+//! Running text that states a mention's removal, rename or replacement, such as `Delete X`,
+//! `X no longer exists` or `Rename X to Y`, which names it as gone and stays true once it is.
 
 use std::ops::Range;
 
@@ -17,14 +17,58 @@ pub(crate) enum Segment {
     Stop,
 }
 
-/// Verbs that remove what follows them, as in `Delete X` or `deleting X`.
-const REMOVING: [&str; 12] = [
-    "delete", "deletes", "deleted", "deleting", "remove", "removes", "removed", "removing",
-    "retire", "retires", "retired", "retiring",
+/// Verbs that remove, rename or replace what follows them, as in `Delete X`, `Rename X to Y`
+/// or `Y replaces X`.
+const REMOVING: [&str; 28] = [
+    "delete",
+    "deletes",
+    "deleted",
+    "deleting",
+    "remove",
+    "removes",
+    "removed",
+    "removing",
+    "retire",
+    "retires",
+    "retired",
+    "retiring",
+    "rename",
+    "renames",
+    "renamed",
+    "renaming",
+    "replace",
+    "replaces",
+    "replaced",
+    "replacing",
+    "supersede",
+    "supersedes",
+    "superseded",
+    "superseding",
+    "lose",
+    "loses",
+    "lost",
+    "losing",
 ];
 
-/// Nouns whose `of` names what is removed, as in `the removal of X`.
-const REMOVAL: [&str; 3] = ["deletion", "removal", "retirement"];
+/// The participles of [`REMOVING`], which say what a name is once removed, renamed or replaced,
+/// as in `X is deleted`, and whose passive takes the new name after it, as in `X was renamed Y`.
+const PARTICIPLES: [&str; 7] = [
+    "deleted",
+    "removed",
+    "retired",
+    "renamed",
+    "replaced",
+    "superseded",
+    "lost",
+];
+
+/// The forms of `be` and `get` that make a participle passive.
+const PASSIVE: [&str; 10] = [
+    "is", "are", "was", "were", "be", "been", "being", "get", "gets", "got",
+];
+
+/// Nouns whose `of` names what is removed or replaced, as in `the removal of X`.
+const REMOVAL: [&str; 4] = ["deletion", "removal", "retirement", "replacement"];
 
 /// Words that may stand between a removing verb and what it removes.
 const DETERMINERS: [&str; 6] = ["the", "a", "an", "both", "all", "each"];
@@ -71,8 +115,11 @@ const AUXILIARIES: [&str; 38] = [
     "eventually",
 ];
 
-/// What a name is once removed, as in `X is deleted` or `with X gone`.
-const GONE: [&str; 4] = ["deleted", "removed", "retired", "gone"];
+/// Verbs whose following name is what the name turned into, as in `X becomes Y`.
+const BECOMING: [&str; 4] = ["become", "becomes", "became", "becoming"];
+
+/// Verbs saying a name leaves, as in `X must go`.
+const GOING: [&str; 3] = ["go", "goes", "went"];
 
 /// Existence, which a negation turns into absence, as in `X does not exist`.
 const EXISTING: [&str; 3] = ["exist", "exists", "existing"];
@@ -92,10 +139,11 @@ pub(crate) fn drop_records(
         return;
     }
     let pieces = pieces(text, base, segments);
+    let mut clause = Vec::new();
     let mut kept = from;
     for at in from..found.len() {
         let spelled = &found[at];
-        if !(prose(spelled) && records_removal(&pieces, spelled.start)) {
+        if !(prose(spelled) && records_removal(&pieces, spelled.start, &mut clause)) {
             found.swap(kept, at);
             kept += 1;
         }
@@ -116,6 +164,10 @@ enum Shape<'t> {
     Word(&'t str),
     Code,
     Comma,
+    /// An opening parenthesis, whose aside a clause around it skips.
+    Open,
+    /// A closing parenthesis.
+    Close,
     Stop,
 }
 
@@ -125,7 +177,7 @@ impl Piece<'_> {
         match self.shape {
             Shape::Code => true,
             Shape::Word(word) => code_shaped(word) || word.contains("::"),
-            Shape::Comma | Shape::Stop => false,
+            Shape::Comma | Shape::Open | Shape::Close | Shape::Stop => false,
         }
     }
 
@@ -134,7 +186,7 @@ impl Piece<'_> {
         match self.shape {
             Shape::Comma => true,
             Shape::Word(word) => is_any(word, &["and", "or", "nor"]),
-            Shape::Code | Shape::Stop => false,
+            Shape::Code | Shape::Open | Shape::Close | Shape::Stop => false,
         }
     }
 
@@ -246,6 +298,11 @@ fn words<'t>(text: &'t str, base: usize, range: Range<usize>, out: &mut Vec<Piec
                 end: base + at + 1,
                 shape: Shape::Comma,
             }),
+            '(' | ')' => out.push(Piece {
+                start: base + at,
+                end: base + at + 1,
+                shape: if c == '(' { Shape::Open } else { Shape::Close },
+            }),
             '.' | '!' | '?' | ';' | ':' | '|' | '\u{2013}' | '\u{2014}' => stop(out, base + at),
             '\n' => {
                 if blank_line {
@@ -259,18 +316,53 @@ fn words<'t>(text: &'t str, base: usize, range: Range<usize>, out: &mut Vec<Piec
     }
 }
 
-/// Whether the mention starting at `start` sits in a list that a removing verb takes as its
-/// object or of which the clause says it is gone or does not exist.
-fn records_removal(pieces: &[Piece<'_>], start: usize) -> bool {
+/// Whether the mention starting at `start` sits in a list that a removing, renaming or
+/// replacing verb takes as its object, or of which its clause says it is gone, does not exist
+/// or became another name. `clause` is scratch space.
+fn records_removal<'t>(pieces: &[Piece<'t>], start: usize, clause: &mut Vec<Piece<'t>>) -> bool {
     let Some(at) = pieces
         .partition_point(|piece| piece.start <= start)
         .checked_sub(1)
-        .filter(|&at| start < pieces[at].end && pieces[at].shape != Shape::Comma)
+        .filter(|&at| {
+            start < pieces[at].end && matches!(pieces[at].shape, Shape::Word(_) | Shape::Code)
+        })
     else {
         return false;
     };
-    let (first, last) = list(pieces, at);
-    removed_by_verb(&pieces[..first]) || said_gone(&pieces[last + 1..])
+    let at = clause_of(pieces, at, clause);
+    let (first, last) = list(clause, at);
+    removed_by_verb(&clause[..first]) || said_gone(&clause[last + 1..])
+}
+
+/// Fills `out` with the clause holding piece `at` of `pieces`, without the parenthesized asides
+/// inside it, and returns where piece `at` sits in it. A clause inside parentheses ends at them.
+fn clause_of<'t>(pieces: &[Piece<'t>], at: usize, out: &mut Vec<Piece<'t>>) -> usize {
+    out.clear();
+    let mut depth = 0_usize;
+    for piece in pieces[..at].iter().rev() {
+        match piece.shape {
+            Shape::Stop => break,
+            Shape::Open if depth == 0 => break,
+            Shape::Open => depth -= 1,
+            Shape::Close => depth += 1,
+            _ if depth == 0 => out.push(*piece),
+            _ => {}
+        }
+    }
+    out.reverse();
+    let index = out.len();
+    out.push(pieces[at]);
+    for piece in &pieces[at + 1..] {
+        match piece.shape {
+            Shape::Stop => break,
+            Shape::Close if depth == 0 => break,
+            Shape::Close => depth -= 1,
+            Shape::Open => depth += 1,
+            _ if depth == 0 => out.push(*piece),
+            _ => {}
+        }
+    }
+    index
 }
 
 /// The first and last piece of the list of items holding piece `at`.
@@ -300,20 +392,30 @@ fn list(pieces: &[Piece<'_>], at: usize) -> (usize, usize) {
     (first, last)
 }
 
-/// Whether `before`, the pieces ahead of a list, ends in a removing verb or a removal `of`.
+/// Whether `before`, the pieces ahead of a list, ends in a removing verb, a removal `of`,
+/// `in place of` or `renamed from`. A passive participle takes the new name, as in
+/// `X was renamed Y`.
 fn removed_by_verb(before: &[Piece<'_>]) -> bool {
     let mut end = before.len();
     while end > 0 && before[end - 1].word_in(&DETERMINERS) {
         end -= 1;
     }
     match before[..end] {
+        [.., within, place, of]
+            if within.word_in(&["in"]) && place.word_in(&["place"]) && of.word_in(&["of"]) =>
+        {
+            true
+        }
         [.., noun, of] if of.word_in(&["of"]) => noun.word_in(&REMOVAL),
+        [.., verb, from] if from.word_in(&["from"]) => verb.word_in(&["renamed"]),
+        [.., be, verb] if be.word_in(&PASSIVE) && verb.word_in(&PARTICIPLES) => false,
         [.., verb] => verb.word_in(&REMOVING),
         [] => false,
     }
 }
 
-/// Whether `after`, the pieces following a list, say it is gone or does not exist.
+/// Whether `after`, the pieces following a list, say it is gone, does not exist or became
+/// another name.
 fn said_gone(after: &[Piece<'_>]) -> bool {
     let mut negated = false;
     let mut at = 0;
@@ -343,9 +445,22 @@ fn said_gone(after: &[Piece<'_>]) -> bool {
     if negated {
         return piece.word_in(&EXISTING);
     }
-    // A participle right after the name is its verb when more follows, as in `X removed the rows`.
-    let ends = after
-        .get(at + 1)
-        .is_none_or(|next| matches!(next.shape, Shape::Comma | Shape::Stop));
-    piece.word_in(&["gone"]) || piece.word_in(&GONE) && (at > 0 || ends)
+    let next = after.get(at + 1);
+    if piece.word_in(&BECOMING) {
+        return next.is_some_and(Piece::is_item);
+    }
+    // A participle right after the name is its verb when more follows, as in `X removed the rows`,
+    // unless it is a rename's or a replacement's, as in `X renamed to Y` or `X replaced by Y`.
+    let bare = || match next {
+        None => true,
+        Some(next) if next.shape == Shape::Comma => true,
+        Some(next) if piece.word_in(&["renamed"]) => {
+            next.is_item() || next.word_in(&["to", "as", "into"])
+        }
+        Some(next) => piece.word_in(&["replaced", "superseded"]) && next.word_in(&["by"]),
+    };
+    let leaves = || next.is_none_or(|next| next.shape == Shape::Comma || next.word_in(&["away"]));
+    piece.word_in(&["gone"])
+        || piece.word_in(&GOING) && leaves()
+        || piece.word_in(&PARTICIPLES) && (at > 0 || bare())
 }

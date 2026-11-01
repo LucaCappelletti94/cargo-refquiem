@@ -27,7 +27,7 @@ cargo refquiem vocabularies                    # bundled vocabularies and their 
 cargo refquiem vocabularies --effective        # resolved workspace vocabulary selection
 ```
 
-The exit status is `0` when nothing is stale, `1` with findings and `2` on errors. A `.refquiem.toml` at the workspace root selects optional vocabularies through `builtins`, such as `english`, `sql@2023`, `android@36` or `posix@2017`, which `cargo refquiem vocabularies` lists, and project-owned `files`, and configures excludes and allowed names. Running text that states a name's removal, such as `Delete X` or `X no longer exists`, is no finding. A `refquiem: allow(Name)` comment silences one mention, and `cargo refquiem --help` lists every option.
+The exit status is `0` when nothing is stale, `1` with findings and `2` on errors. A `.refquiem.toml` at the workspace root selects optional vocabularies through `builtins`, such as `english`, `sql@2023`, `android@36` or `posix@2017`, which `cargo refquiem vocabularies` lists, and project-owned `files`, and configures excludes and allowed names. Running text that states a name's removal, rename or replacement, such as `Delete X`, `X no longer exists` or `Rename X to Y`, is no finding. A `refquiem: allow(Name)` comment silences one mention, and `cargo refquiem --help` lists every option.
 
 ## GitHub Action
 
