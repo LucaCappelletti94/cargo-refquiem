@@ -46,20 +46,14 @@ impl Report {
                 escape_property(&marker.file),
                 marker.line,
                 marker.column,
-                escape(&format!(
-                    "refquiem: allow({}) suppresses nothing",
-                    marker.name
-                ))
+                escape(&marker.message())
             );
         }
         for skipped in &self.skipped {
             let _ = writeln!(
                 out,
                 "::warning title=refquiem::{}",
-                escape(&format!(
-                    "removed dependency `{}` could not be resolved, so its items were not checked",
-                    skipped.dependency
-                ))
+                escape(&skipped.message())
             );
         }
         out
@@ -249,7 +243,9 @@ impl Report {
             for skipped in &self.skipped {
                 out.push_str("- ");
                 span(&mut out, &skipped.dependency);
-                out.push_str(" could not be resolved\n");
+                out.push_str(" could not be resolved: ");
+                span(&mut out, skipped.cause());
+                out.push('\n');
             }
         }
         out

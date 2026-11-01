@@ -330,6 +330,9 @@ const EARLIER_THREADS: &str = r#"{"id":"T1","isResolved":false,"comments":{"node
 /// The head commit the fake pull request 7 and the fake run 99 point at.
 const HEAD: &str = "f00df00df00df00df00df00df00df00df00df00d";
 
+/// The blob URL prefix of the fake repository, followed by a commit and a path.
+const BLOB: &str = "https://github.com/owner/repo/blob";
+
 impl FakeGh {
     /// `changed` are the pull request's files, each a hunk covering its first 200 lines on
     /// both sides. `fail` makes the review post fail with that status for `review`, only a
@@ -432,7 +435,7 @@ REVIEWS
     fi
     cat "{run}" ;;
   *'pulls?state=open'*) cat "{open}" ;;
-  *pulls/7*) echo 'f00df00df00df00df00df00df00df00df00df00d' ;;
+  *pulls/7*) echo '{HEAD}' ;;
   *) echo "unexpected gh $*" >&2; exit 1 ;;
 esac
 "#,
@@ -536,17 +539,6 @@ fn review(
     dry_run: bool,
     payload: &Path,
     report: &str,
-) -> (String, String) {
-    review_with(gh, mode, dry_run, payload, report, &[])
-}
-
-/// [`review`] with extra environment variables.
-fn review_with(
-    gh: &FakeGh,
-    mode: &str,
-    dry_run: bool,
-    payload: &Path,
-    report: &str,
     env: &[(&str, &str)],
 ) -> (String, String) {
     let (success, status, summary) = run_review(gh, mode, dry_run, payload, report, env);
@@ -603,16 +595,30 @@ fn run_review(
     )
 }
 
+/// Runs the review mode on `report` with a fresh payload and returns the `gh` log once the
+/// review is posted.
+fn posted_log(gh: &FakeGh, report: &str) -> String {
+    let payload = tempfile::tempdir().unwrap();
+    let (status, _) = review(gh, "review", false, payload.path(), report, &[]);
+    assert_eq!(status, "posted");
+    gh.log()
+}
+
 /// The environment of the `workflow_run` job posting the payload of run 99.
 const IN_WORKFLOW_RUN: &[(&str, &str)] = &[("EVENT_NAME", "workflow_run"), ("RUN_ID", "99")];
 
-/// The payload a `prepare` run leaves for `report` on pull request 7.
-fn prepared(report: &str) -> tempfile::TempDir {
+/// Runs the prepare mode on `report` and returns the payload it leaves for a later post.
+fn prepare(gh: &FakeGh, report: &str) -> tempfile::TempDir {
     let payload = tempfile::tempdir().unwrap();
-    let preparing = FakeGh::new(&["README.md", "src/lib.rs"], None);
-    let (status, _) = review(&preparing, "prepare", false, payload.path(), report);
+    let (status, _) = review(gh, "prepare", false, payload.path(), report, &[]);
     assert_eq!(status, "prepared");
     payload
+}
+
+/// The payload a `prepare` run leaves for `report` on pull request 7.
+fn prepared(report: &str) -> tempfile::TempDir {
+    let preparing = FakeGh::new(&["README.md", "src/lib.rs"], None);
+    prepare(&preparing, report)
 }
 
 /// Runs the posting job on `payload`, returning whether it exited successfully and its status.
@@ -752,7 +758,7 @@ fn a_review_comments_on_the_deleted_line_and_on_changed_files() {
     let report = stale_scan();
     let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
     let payload = tempfile::tempdir().unwrap();
-    let (status, summary) = review(&gh, "review", false, payload.path(), &report);
+    let (status, summary) = review(&gh, "review", false, payload.path(), &report, &[]);
     assert_eq!(status, "posted");
 
     let log = gh.log();
@@ -762,22 +768,25 @@ fn a_review_comments_on_the_deleted_line_and_on_changed_files() {
         [pair("README.md", "3"), pair("src/lib.rs", "1")]
     );
     let removal = comment_call(&log, "src/lib.rs", "1", "LEFT");
-    let blob = "https://github.com/owner/repo/blob/f00df00df00df00df00df00df00df00df00df00d";
     assert!(removal.contains(" (function), deleted in "), "{removal}");
     assert!(
         removal.contains("is still mentioned in these places."),
         "{removal}"
     );
     assert!(
-        removal.contains(&format!("- [`README.md:3:7`]({blob}/README.md#L3)")),
+        removal.contains(&format!("- [`README.md:3:7`]({BLOB}/{HEAD}/README.md#L3)")),
         "{removal}"
     );
     assert!(
-        removal.contains(&format!("- [`docs/old.md:9:2`]({blob}/docs/old.md#L9)")),
+        removal.contains(&format!(
+            "- [`docs/old.md:9:2`]({BLOB}/{HEAD}/docs/old.md#L9)"
+        )),
         "{removal}"
     );
     assert!(
-        removal.contains(&format!("\n{blob}/README.md#L3\n{blob}/docs/old.md#L9\n")),
+        removal.contains(&format!(
+            "\n{BLOB}/{HEAD}/README.md#L3\n{BLOB}/{HEAD}/docs/old.md#L9\n"
+        )),
         "{removal}"
     );
     assert!(
@@ -798,10 +807,7 @@ fn a_review_comments_on_the_deleted_line_and_on_changed_files() {
     assert_eq!(reviews_posted(&log).len(), 1, "{log}");
     assert!(!log.contains("pulls/7/comments"), "{log}");
     let posted = last_review(&log);
-    assert_eq!(
-        posted["commit_id"],
-        "f00df00df00df00df00df00df00df00df00df00d"
-    );
+    assert_eq!(posted["commit_id"], HEAD);
     assert_eq!(posted["event"], "REQUEST_CHANGES");
 
     let review = review_call(&log);
@@ -831,21 +837,16 @@ fn a_review_comments_on_the_deleted_line_and_on_changed_files() {
 fn a_name_without_a_declaration_line_lists_its_mentions_in_the_body() {
     let report = stale_scan_of_the_full_history();
     let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
-    let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &report);
-    assert_eq!(status, "posted");
-
-    let log = gh.log();
+    let log = posted_log(&gh, &report);
     assert_eq!(on_deleted_lines(&log), Vec::<(String, String)>::new());
     let review = review_call(&log);
-    let blob = "https://github.com/owner/repo/blob/f00df00df00df00df00df00df00df00df00df00d";
     assert!(
         review.contains("These are not on a line of this pull request diff"),
         "{review}"
     );
     assert!(
         review.contains(&format!(
-            ", is still mentioned in [`docs/old.md:9:2`]({blob}/docs/old.md#L9)."
+            ", is still mentioned in [`docs/old.md:9:2`]({BLOB}/{HEAD}/docs/old.md#L9)."
         )),
         "the one place left names itself in the sentence\n{review}"
     );
@@ -872,16 +873,11 @@ fn single_mention_scan() -> String {
 fn a_name_mentioned_once_names_the_place_in_its_sentence() {
     let report = single_mention_scan();
     let gh = FakeGh::new(&["src/lib.rs"], None);
-    let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &report);
-    assert_eq!(status, "posted");
-
-    let log = gh.log();
+    let log = posted_log(&gh, &report);
     let removal = comment_call(&log, "src/lib.rs", "1", "LEFT");
-    let blob = "https://github.com/owner/repo/blob/f00df00df00df00df00df00df00df00df00df00d";
     assert!(
         removal.contains(&format!(
-            ", is still mentioned in [`README.md:3:7`]({blob}/README.md#L3).\n\n{blob}/README.md#L3\n"
+            ", is still mentioned in [`README.md:3:7`]({BLOB}/{HEAD}/README.md#L3).\n\n{BLOB}/{HEAD}/README.md#L3\n"
         )),
         "{removal}"
     );
@@ -902,11 +898,8 @@ fn an_inline_comment_carries_the_uppercase_hint_of_its_mention() {
     repo.commit("drop array_agg");
     let report = scan(&repo, &["--since", "HEAD~1"]);
     let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
-    let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &report);
-    assert_eq!(status, "posted");
-
-    let inline = comment_call(&gh.log(), "README.md", "1", "RIGHT");
+    let log = posted_log(&gh, &report);
+    let inline = comment_call(&log, "README.md", "1", "RIGHT");
     assert!(
         inline.contains(", is still mentioned here. Write `ARRAY_AGG` to mark it as `sql@2023`."),
         "{inline}"
@@ -919,23 +912,17 @@ fn a_removal_comment_links_the_removed_name_to_the_base_and_its_replacement_to_h
     let base: serde_json::Value = serde_json::from_str(&report).unwrap();
     let base = base["base"].as_str().unwrap().to_owned();
     let gh = FakeGh::new(&["src/lib.rs"], None);
-    let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &report);
-    assert_eq!(status, "posted");
-
-    let log = gh.log();
+    let log = posted_log(&gh, &report);
     let removal = comment_call(&log, "src/lib.rs", "1", "LEFT");
-    let blob = "https://github.com/owner/repo/blob";
-    let head = "f00df00df00df00df00df00df00df00df00df00d";
     assert!(
         removal.contains(&format!(
-            "[`fixture::gone`]({blob}/{base}/src/lib.rs#L1) (function), deleted in "
+            "[`fixture::gone`]({BLOB}/{base}/src/lib.rs#L1) (function), deleted in "
         )),
         "{removal}"
     );
     assert!(
         removal.contains(&format!(
-            ", replaced by [`fixture::kept`]({blob}/{head}/src/lib.rs#L1), is still mentioned in "
+            ", replaced by [`fixture::kept`]({BLOB}/{HEAD}/src/lib.rs#L1), is still mentioned in "
         )),
         "{removal}"
     );
@@ -944,11 +931,7 @@ fn a_removal_comment_links_the_removed_name_to_the_base_and_its_replacement_to_h
 #[test]
 fn a_single_finding_its_comment_holds_leaves_the_review_body_bare() {
     let gh = FakeGh::new(&["src/lib.rs"], None);
-    let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &single_mention_scan());
-    assert_eq!(status, "posted");
-
-    let log = gh.log();
+    let log = posted_log(&gh, &single_mention_scan());
     assert_eq!(
         on_deleted_lines(&log),
         [("src/lib.rs".to_owned(), "1".to_owned())]
@@ -969,11 +952,7 @@ const ELSEWHERE: &str = "@@ -50 +50 @@\n-old\n+new";
 #[test]
 fn a_single_finding_no_comment_holds_stays_in_the_review_body() {
     let gh = FakeGh::with_patches(&[("src/lib.rs", ELSEWHERE)], None);
-    let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &single_mention_scan());
-    assert_eq!(status, "posted");
-
-    let log = gh.log();
+    let log = posted_log(&gh, &single_mention_scan());
     assert_eq!(last_review(&log)["comments"], serde_json::json!([]));
     let review = review_call(&log);
     assert!(
@@ -996,10 +975,7 @@ fn a_deleted_line_outside_the_hunks_moves_its_mentions_to_the_review_body() {
         ],
         None,
     );
-    let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &report);
-    assert_eq!(status, "posted");
-    let log = gh.log();
+    let log = posted_log(&gh, &report);
     assert_eq!(on_deleted_lines(&log), Vec::<(String, String)>::new());
     assert_eq!(commented(&log), [pair("README.md", "3")]);
     let review = review_call(&log);
@@ -1024,10 +1000,7 @@ fn a_mention_outside_the_hunks_stays_with_its_deleted_line_comment() {
         ],
         None,
     );
-    let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &report);
-    assert_eq!(status, "posted");
-    let log = gh.log();
+    let log = posted_log(&gh, &report);
     assert_eq!(on_deleted_lines(&log), [pair("src/lib.rs", "1")]);
     assert_eq!(commented(&log), [pair("src/lib.rs", "1")]);
     let review = review_call(&log);
@@ -1045,10 +1018,10 @@ fn a_mention_on_a_context_line_of_a_later_hunk_is_commented() {
         )],
         None,
     );
-    let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &report);
-    assert_eq!(status, "posted");
-    assert_eq!(commented(&gh.log()), [pair("README.md", "3")]);
+    assert_eq!(
+        commented(&posted_log(&gh, &report)),
+        [pair("README.md", "3")]
+    );
 }
 
 #[test]
@@ -1058,10 +1031,7 @@ fn a_deleted_line_shown_only_as_context_takes_no_comment() {
         &[("src/lib.rs", "@@ -1,2 +1,2 @@\n pub fn gone() {}\n-a\n+b")],
         None,
     );
-    let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &report);
-    assert_eq!(status, "posted");
-    let log = gh.log();
+    let log = posted_log(&gh, &report);
     assert_eq!(on_deleted_lines(&log), Vec::<(String, String)>::new());
     assert!(review_call(&log).contains("README.md:3:7"), "{log}");
 }
@@ -1075,10 +1045,7 @@ fn a_file_without_a_patch_keeps_its_findings_in_the_body() {
         "{\"filename\":\"src/lib.rs\",\"patch\":null}\n{\"filename\":\"README.md\"}\n",
     )
     .unwrap();
-    let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &report);
-    assert_eq!(status, "posted");
-    let log = gh.log();
+    let log = posted_log(&gh, &report);
     assert_eq!(last_review(&log)["comments"], serde_json::json!([]));
     for place in ["README.md:3:7", "docs/old.md:9:2", "src/lib.rs:1:20"] {
         assert!(review_call(&log).contains(place), "{place}\n{log}");
@@ -1101,10 +1068,7 @@ fn new_and_deleted_files_use_their_own_side_of_the_diff() {
         ],
         None,
     );
-    let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &report);
-    assert_eq!(status, "posted");
-    let log = gh.log();
+    let log = posted_log(&gh, &report);
     assert_eq!(on_deleted_lines(&log), [pair("src/lib.rs", "1")]);
     assert_eq!(commented(&log), [pair("README.md", "3")]);
     assert!(review_call(&log).contains("src/lib.rs:1:20"), "{log}");
@@ -1114,10 +1078,7 @@ fn new_and_deleted_files_use_their_own_side_of_the_diff() {
 fn a_review_github_rejects_is_posted_again_with_every_finding_in_its_body() {
     let report = stale_scan();
     let gh = FakeGh::new(&["README.md", "src/lib.rs"], Some(("review-comments", 422)));
-    let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &report);
-    assert_eq!(status, "posted");
-    let log = gh.log();
+    let log = posted_log(&gh, &report);
     let posted = reviews_posted(&log);
     assert_eq!(posted.len(), 2, "{log}");
     assert_ne!(posted[0]["comments"], serde_json::json!([]));
@@ -1150,7 +1111,7 @@ fn a_read_only_token_skips_the_review_and_dismisses_nothing() {
     let report = stale_scan();
     let gh = FakeGh::new(&["README.md", "src/lib.rs"], Some(("review", 403)));
     let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &report);
+    let (status, _) = review(&gh, "review", false, payload.path(), &report, &[]);
     assert_eq!(status, "skipped-readonly");
     let log = gh.log();
     assert_eq!(reviews_posted(&log).len(), 1, "{log}");
@@ -1163,7 +1124,7 @@ fn a_dry_run_renders_every_comment_into_the_summary_and_posts_nothing() {
     let report = stale_scan();
     let gh = FakeGh::new(&["README.md"], None);
     let payload = tempfile::tempdir().unwrap();
-    let (status, summary) = review(&gh, "review", true, payload.path(), &report);
+    let (status, summary) = review(&gh, "review", true, payload.path(), &report, &[]);
     assert_eq!(status, "dry-run");
     assert!(!gh.log().contains("comments"), "{}", gh.log());
     assert!(!gh.log().contains("reviews"), "{}", gh.log());
@@ -1191,7 +1152,7 @@ fn a_dry_run_without_a_pull_request_reports_wrong_reviews_against_the_run() {
     let report = stale_scan();
     let gh = FakeGh::new(&[], None);
     let payload = tempfile::tempdir().unwrap();
-    let (status, summary) = review_with(
+    let (status, summary) = review(
         &gh,
         "review",
         true,
@@ -1213,15 +1174,13 @@ fn a_dry_run_without_a_pull_request_reports_wrong_reviews_against_the_run() {
 #[test]
 fn prepare_then_post_posts_the_review_a_read_only_job_computed() {
     let report = stale_scan();
-    let payload = tempfile::tempdir().unwrap();
     let preparing = FakeGh::new(&["README.md", "src/lib.rs"], None);
-    let (status, _) = review(&preparing, "prepare", false, payload.path(), &report);
-    assert_eq!(status, "prepared");
+    let payload = prepare(&preparing, &report);
     assert!(!preparing.log().contains("comments"), "{}", preparing.log());
     assert!(!preparing.log().contains("reviews"), "{}", preparing.log());
 
     let posting = FakeGh::new(&["README.md", "src/lib.rs"], None);
-    let (status, _) = review_with(&posting, "post", false, payload.path(), "", IN_WORKFLOW_RUN);
+    let (status, _) = review(&posting, "post", false, payload.path(), "", IN_WORKFLOW_RUN);
     assert_eq!(status, "posted");
     let log = posting.log();
     assert_eq!(on_deleted_lines(&log), [pair("src/lib.rs", "1")]);
@@ -1244,14 +1203,11 @@ fn prepare_then_post_posts_the_review_a_read_only_job_computed() {
 #[test]
 fn a_prepared_review_in_dry_run_posts_nothing() {
     let report = stale_scan();
-    let payload = tempfile::tempdir().unwrap();
     let preparing = FakeGh::new(&["README.md", "src/lib.rs"], None);
-    let (status, _) = review(&preparing, "prepare", false, payload.path(), &report);
-    assert_eq!(status, "prepared");
+    let payload = prepare(&preparing, &report);
 
     let posting = FakeGh::new(&[], None);
-    let (status, summary) =
-        review_with(&posting, "post", true, payload.path(), "", IN_WORKFLOW_RUN);
+    let (status, summary) = review(&posting, "post", true, payload.path(), "", IN_WORKFLOW_RUN);
     let log = posting.log();
     assert!(!log.contains("comments"), "{log}");
     assert!(!log.contains("reviews"), "{log}");
@@ -1264,16 +1220,15 @@ fn a_prepared_review_in_dry_run_posts_nothing() {
 #[test]
 fn post_skips_a_payload_whose_pull_request_is_not_at_the_run_head() {
     let report = stale_scan();
-    let payload = tempfile::tempdir().unwrap();
     let preparing = FakeGh::new(&["README.md", "src/lib.rs"], None);
-    review(&preparing, "prepare", false, payload.path(), &report);
+    let payload = prepare(&preparing, &report);
 
     let posting = FakeGh::new(&[], None);
     posting.run(
         &serde_json::json!({"event": "pull_request"}),
         "0123456789012345678901234567890123456789",
     );
-    let (status, _) = review_with(&posting, "post", false, payload.path(), "", IN_WORKFLOW_RUN);
+    let (status, _) = review(&posting, "post", false, payload.path(), "", IN_WORKFLOW_RUN);
     assert_eq!(status, "skipped-stale");
     assert!(!posting.log().contains("comments"), "{}", posting.log());
     assert!(!posting.log().contains("reviews"), "{}", posting.log());
@@ -1409,7 +1364,7 @@ fn review_and_post_post_the_same_review() {
     let report = stale_scan();
     let reviewing = FakeGh::new(&["README.md", "src/lib.rs"], None);
     let payload = tempfile::tempdir().unwrap();
-    review(&reviewing, "review", false, payload.path(), &report);
+    review(&reviewing, "review", false, payload.path(), &report, &[]);
 
     let posting = FakeGh::new(&["README.md", "src/lib.rs"], None);
     let payload = prepared(&report);
@@ -1471,7 +1426,7 @@ fn every_headline_shape_renders() {
     ] {
         let gh = FakeGh::new(&[], None);
         let payload = tempfile::tempdir().unwrap();
-        let (status, summary) = review(&gh, "review", true, payload.path(), &report);
+        let (status, summary) = review(&gh, "review", true, payload.path(), &report, &[]);
         assert_eq!(status, "dry-run", "{summary}");
         for headline in headlines {
             assert!(summary.contains(headline), "{headline}\n{summary}");
@@ -1483,32 +1438,16 @@ fn every_headline_shape_renders() {
 fn a_review_whose_changed_files_cannot_be_read_fails_without_posting() {
     let gh = FakeGh::new(&["README.md"], Some(("files", 500)));
     let dir = tempfile::tempdir().unwrap();
-    let report = dir.path().join("report.json");
-    let status = dir.path().join("status");
-    std::fs::write(&report, stale_scan()).unwrap();
-    let result = Command::new("bash")
-        .arg(script("review.sh"))
-        .env(
-            "PATH",
-            format!(
-                "{}:{}",
-                gh.dir.path().display(),
-                std::env::var("PATH").unwrap()
-            ),
-        )
-        .env("MODE", "review")
-        .env("DRY_RUN", "false")
-        .env("PR_NUMBER", "7")
-        .env("REPORT", &report)
-        .env("PAYLOAD", dir.path().join("payload"))
-        .env("STATUS", &status)
-        .env("GITHUB_REPOSITORY", "owner/repo")
-        .env("GITHUB_SERVER_URL", "https://github.com")
-        .env("GITHUB_STEP_SUMMARY", dir.path().join("summary.md"))
-        .output()
-        .unwrap();
-    assert!(!result.status.success());
-    assert_eq!(std::fs::read_to_string(&status).unwrap().trim(), "failed");
+    let (success, status, _) = run_review(
+        &gh,
+        "review",
+        false,
+        &dir.path().join("payload"),
+        &stale_scan(),
+        &[],
+    );
+    assert!(!success);
+    assert_eq!(status, "failed");
     assert!(!gh.log().contains("comments"), "{}", gh.log());
     assert!(!gh.log().contains("reviews"), "{}", gh.log());
 }
@@ -1526,7 +1465,7 @@ fn clean_scan() -> String {
 fn a_clean_run_dismisses_only_its_own_change_requests() {
     let gh = FakeGh::new(&["README.md"], None);
     let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &clean_scan());
+    let (status, _) = review(&gh, "review", false, payload.path(), &clean_scan(), &[]);
     assert_eq!(status, "skipped-clean");
     let log = gh.log();
     assert!(!log.contains("-X POST"), "{log}");
@@ -1538,7 +1477,7 @@ fn a_clean_run_dismisses_only_its_own_change_requests() {
 fn a_clean_run_closes_every_open_thread_of_its_earlier_reviews() {
     let gh = FakeGh::new(&["README.md"], None);
     let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &clean_scan());
+    let (status, _) = review(&gh, "review", false, payload.path(), &clean_scan(), &[]);
     assert_eq!(status, "skipped-clean");
     let log = gh.log();
     // T1 holds a reply and closes too, the maintainer's T3 and the resolved T4 stay as they are.
@@ -1549,10 +1488,7 @@ fn a_clean_run_closes_every_open_thread_of_its_earlier_reviews() {
 #[test]
 fn a_posted_review_closes_the_earlier_threads_and_keeps_its_own() {
     let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
-    let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &stale_scan());
-    assert_eq!(status, "posted");
-    let log = gh.log();
+    let log = posted_log(&gh, &stale_scan());
     assert_eq!(
         resolved(&log),
         ["T1", "T2"],
@@ -1607,10 +1543,7 @@ fn review_threads_that_cannot_be_read_leave_the_run_status_as_it_was() {
 #[test]
 fn a_run_with_findings_dismisses_its_earlier_request_once_its_own_lands() {
     let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
-    let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &stale_scan());
-    assert_eq!(status, "posted");
-    let log = gh.log();
+    let log = posted_log(&gh, &stale_scan());
     assert_eq!(dismissed(&log), ["101"], "the new review 104 stays");
     assert!(
         log.find("-X POST").unwrap() < log.find("/dismissals").unwrap(),
@@ -1623,19 +1556,17 @@ fn a_run_with_findings_dismisses_its_earlier_request_once_its_own_lands() {
 fn a_dismissal_the_token_may_not_make_is_skipped() {
     let gh = FakeGh::new(&["README.md"], Some(("dismissals", 403)));
     let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &clean_scan());
+    let (status, _) = review(&gh, "review", false, payload.path(), &clean_scan(), &[]);
     assert_eq!(status, "skipped-clean");
 }
 
 #[test]
 fn a_clean_prepared_review_in_a_dry_run_dismisses_nothing() {
-    let payload = tempfile::tempdir().unwrap();
     let preparing = FakeGh::new(&["README.md"], None);
-    let (status, _) = review(&preparing, "prepare", false, payload.path(), &clean_scan());
-    assert_eq!(status, "prepared");
+    let payload = prepare(&preparing, &clean_scan());
 
     let dry = FakeGh::new(&[], None);
-    let (status, _) = review_with(&dry, "post", true, payload.path(), "", IN_WORKFLOW_RUN);
+    let (status, _) = review(&dry, "post", true, payload.path(), "", IN_WORKFLOW_RUN);
     assert_eq!(status, "skipped-clean");
     assert!(!dry.log().contains("reviews"), "{}", dry.log());
 }
@@ -1644,7 +1575,7 @@ fn a_clean_prepared_review_in_a_dry_run_dismisses_nothing() {
 fn a_clean_dry_run_touches_no_review() {
     let gh = FakeGh::new(&["README.md"], None);
     let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", true, payload.path(), &clean_scan());
+    let (status, _) = review(&gh, "review", true, payload.path(), &clean_scan(), &[]);
     assert_eq!(status, "skipped-clean");
     assert!(!gh.log().contains("reviews"), "{}", gh.log());
     assert!(!gh.log().contains("graphql"), "{}", gh.log());
@@ -1652,10 +1583,8 @@ fn a_clean_dry_run_touches_no_review() {
 
 #[test]
 fn a_clean_prepare_lets_the_post_job_dismiss_at_the_run_head() {
-    let payload = tempfile::tempdir().unwrap();
     let preparing = FakeGh::new(&["README.md"], None);
-    let (status, _) = review(&preparing, "prepare", false, payload.path(), &clean_scan());
-    assert_eq!(status, "prepared");
+    let payload = prepare(&preparing, &clean_scan());
     assert!(!preparing.log().contains("reviews"), "{}", preparing.log());
 
     let moved_on = FakeGh::new(&[], None);
@@ -1663,7 +1592,7 @@ fn a_clean_prepare_lets_the_post_job_dismiss_at_the_run_head() {
         &serde_json::json!({"event": "pull_request"}),
         "0123456789012345678901234567890123456789",
     );
-    let (status, _) = review_with(
+    let (status, _) = review(
         &moved_on,
         "post",
         false,
@@ -1676,7 +1605,7 @@ fn a_clean_prepare_lets_the_post_job_dismiss_at_the_run_head() {
     assert_no_thread_closed(&moved_on.log());
 
     let posting = FakeGh::new(&[], None);
-    let (status, _) = review_with(&posting, "post", false, payload.path(), "", IN_WORKFLOW_RUN);
+    let (status, _) = review(&posting, "post", false, payload.path(), "", IN_WORKFLOW_RUN);
     assert_eq!(status, "skipped-clean");
     let log = posting.log();
     assert_eq!(dismissed(&log), ["101"]);
@@ -1697,11 +1626,7 @@ fn a_line_with_rewrites_becomes_one_comment_with_a_suggestion_block() {
     repo.commit("replace gone");
     let report = scan(&repo, &["--since", "HEAD~1"]);
     let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
-    let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(&gh, "review", false, payload.path(), &report);
-    assert_eq!(status, "posted");
-
-    let log = gh.log();
+    let log = posted_log(&gh, &report);
     assert_eq!(
         commented(&log),
         [pair("README.md", "1"), pair("README.md", "3")]
@@ -1722,9 +1647,10 @@ fn a_line_with_rewrites_becomes_one_comment_with_a_suggestion_block() {
         "{third}"
     );
     let removal = comment_call(&log, "src/lib.rs", "1", "LEFT");
-    let blob = "https://github.com/owner/repo/blob/f00df00df00df00df00df00df00df00df00df00d";
     assert_eq!(
-        removal.matches(&format!("\n{blob}/README.md#L1\n")).count(),
+        removal
+            .matches(&format!("\n{BLOB}/{HEAD}/README.md#L1\n"))
+            .count(),
         1,
         "two mentions on one line embed it once\n{removal}"
     );

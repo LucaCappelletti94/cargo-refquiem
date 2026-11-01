@@ -1,34 +1,16 @@
 //! Removed dependencies, features, binaries, examples and packages, and where they are still named.
 
 mod common;
+#[path = "common/features.rs"]
+mod features;
 #[path = "common/found_kinds.rs"]
 mod found_kinds;
 #[path = "common/vendor.rs"]
 mod vendor;
 
-use common::Repo;
-use found_kinds::found;
+use common::{PACKAGE, Repo};
+use found_kinds::{found, mention};
 use refquiem::{ItemKind, RemovedIn};
-
-const PACKAGE: &str = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
-
-fn mention(
-    name: &str,
-    kind: ItemKind,
-    file: &str,
-    line: usize,
-    column: usize,
-    text: &str,
-) -> (String, ItemKind, String, usize, usize, String) {
-    (
-        name.to_owned(),
-        kind,
-        file.to_owned(),
-        line,
-        column,
-        text.to_owned(),
-    )
-}
 
 #[test]
 fn historical_dependency_names_cannot_overwrite_files_outside_the_cache() {
@@ -362,10 +344,7 @@ fn a_renamed_package_leaves_its_old_cargo_flags_stale() {
 #[test]
 fn features_requested_for_the_package_in_a_toml_block_are_checked() {
     let repo = Repo::new();
-    repo.write("src/lib.rs", "");
-    repo.write("Cargo.toml", &format!("{PACKAGE}\n[features]\nfast = []\n"));
-    repo.commit("fast");
-    repo.write("Cargo.toml", PACKAGE);
+    repo.gone_features(&["fast"], "fast");
     repo.write(
         "README.md",
         "```toml
@@ -556,10 +535,7 @@ fn a_member_path_override_fills_the_inherited_spec() {
 #[test]
 fn autolib_false_keeps_the_lib_file_unindexed() {
     let repo = Repo::new();
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\nautolib = false\n",
-    );
+    repo.write("Cargo.toml", &format!("{PACKAGE}autolib = false\n"));
     repo.write("src/lib.rs", "pub fn hidden() {}\n");
     repo.commit("autolib off");
     repo.write("src/lib.rs", "");
@@ -594,10 +570,7 @@ fn autobins_discovers_src_main_as_the_package_bin() {
 #[test]
 fn a_declared_build_path_is_indexed_as_the_build_script() {
     let repo = Repo::new();
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\nbuild = \"custom.rs\"\n",
-    );
+    repo.write("Cargo.toml", &format!("{PACKAGE}build = \"custom.rs\"\n"));
     repo.write("src/lib.rs", "");
     repo.write("custom.rs", "pub fn configure() {}\n");
     repo.commit("custom build");
@@ -624,10 +597,7 @@ fn a_declared_build_path_is_indexed_as_the_build_script() {
 #[test]
 fn build_false_keeps_build_rs_unindexed() {
     let repo = Repo::new();
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\nbuild = false\n",
-    );
+    repo.write("Cargo.toml", &format!("{PACKAGE}build = false\n"));
     repo.write("src/lib.rs", "");
     repo.write("build.rs", "pub fn hidden() {}\n");
     repo.commit("build off");
@@ -670,7 +640,7 @@ fn a_declared_bin_named_by_the_package_falls_back_to_src_main() {
     let repo = Repo::new();
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\nautobins = false\n\n[[bin]]\nname = \"fixture\"\n\n[[bin]]\nname = \"other\"\n\n[[example]]\nname = \"fixture\"\n",
+        &format!("{PACKAGE}autobins = false\n\n[[bin]]\nname = \"fixture\"\n\n[[bin]]\nname = \"other\"\n\n[[example]]\nname = \"fixture\"\n"),
     );
     repo.write("src/main.rs", "fn main() {}\n");
     repo.commit("declared targets");
@@ -836,10 +806,7 @@ fn a_feature_of_a_moved_member_is_looked_up_where_the_member_is_now() {
 #[test]
 fn a_feature_in_a_cfg_attribute_spread_over_lines_is_found() {
     let repo = Repo::new();
-    repo.write("src/lib.rs", "");
-    repo.write("Cargo.toml", &format!("{PACKAGE}\n[features]\nfast = []\n"));
-    repo.commit("fast");
-    repo.write("Cargo.toml", PACKAGE);
+    repo.gone_features(&["fast"], "fast");
     repo.write(
         "README.md",
         "```rust\n#[cfg(\n    feature = \"fast\"\n)]\nfn quick() {}\n// Here feature = \"fast\" is no predicate.\n```\n\nA prose feature = \"fast\" is no predicate.\n",
@@ -862,13 +829,7 @@ fn a_feature_in_a_cfg_attribute_spread_over_lines_is_found() {
 #[test]
 fn only_the_closed_strings_of_a_features_array_are_features() {
     let repo = Repo::new();
-    repo.write("src/lib.rs", "");
-    repo.write(
-        "Cargo.toml",
-        &format!("{PACKAGE}\n[features]\nfast = []\npar = []\n"),
-    );
-    repo.commit("fast and par");
-    repo.write("Cargo.toml", PACKAGE);
+    repo.gone_features(&["fast", "par"], "fast and par");
     repo.write(
         "README.md",
         "```toml\n[dependencies]\nfixture = { branch = \"fast\", features = [\"par\"] }\nfixture = { features = [\"par\", \"fast] }\n```\n",
