@@ -18,6 +18,7 @@ mod intern;
 mod manifest;
 mod output;
 mod parse;
+mod removal;
 mod scan;
 mod serde_names;
 mod stdlib;
