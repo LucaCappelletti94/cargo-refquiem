@@ -45,6 +45,16 @@ A suggestion names where the item most likely went. Verify it before applying.
 
 Fix the references themselves. Matching uses parsed names rather than type checking, so run the affected build or documentation checks after rewriting them.
 
+## Changed items
+
+A `--base` scan also reports, under `changed` in JSON, each item whose definition the range changed while a comment, doc comment or Markdown file the range left as it was still names it. The shape counts by default (signatures, fields, variants, trait items, alias targets, `serde` and `repr` attributes), and so do `const` and `static` values. Whitespace, comments, visibility and other attributes never count. A bare name counts when it names exactly one item, or when exactly one of the items carrying it is public or belongs to the mentioning file's crate. Reread each mention against the new definition and rewrite what no longer holds.
+
+```toml
+[changed]
+level = "warn"     # "deny" fails the run, "allow" skips the check
+compare = "values" # "shapes", or "bodies" to add function bodies
+```
+
 ## Skipped dependencies
 
 `skipped` entries identify removed dependencies whose sources Cargo could not resolve. Their items were not checked, and these warnings do not change the exit status or clean verdict. Read each reason before claiming coverage of historical dependency APIs.

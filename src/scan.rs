@@ -9,7 +9,9 @@ use std::rc::Rc;
 use gix::ObjectId;
 
 use crate::cache::FileCache;
+use crate::changed::Changed;
 use crate::config::{self, Category, Config, Filter, load_custom};
+use crate::definition::Definition;
 use crate::deps::{self, Removal, Scratch};
 use crate::git::{self, Head, Snapshot, TreeSnapshot, Trees, WorkTreeSnapshot};
 use crate::index::{Index, Indexer, Reexports};
@@ -17,9 +19,9 @@ use crate::intern::{Interner, PathId, Sym};
 use crate::parse::SERDE_MARKER;
 use crate::text::{self, Named, Spelled};
 use crate::{
-    Context, Error, Group, HashMap, HashSet, ItemKind, Kind, Mention, Options, Position, Range,
-    RemovedIn, Report, Source, Suggestion, UnusedMarker, Uppercase, entry, manifest, stdlib,
-    suggest, vocabulary,
+    ChangedItem, Context, Error, Group, HashMap, HashSet, ItemKind, Kind, Level, Mention, Options,
+    Position, Range, RemovedIn, Report, Source, Suggestion, UnusedMarker, Uppercase, entry,
+    manifest, stdlib, suggest, vocabulary,
 };
 
 /// What the commits of the range declare beyond head, each distinct tree stored once.
@@ -87,6 +89,8 @@ struct IndexedRange {
     /// For each parent of a range commit that lies outside the range, the paths its tree has
     /// and head lacks, `None` when the commit is absent or its tree could not be read entirely.
     boundary: HashMap<ObjectId, Option<HashSet<PathId>>>,
+    /// What the asked starting revision declares, empty when none was asked.
+    start_definitions: HashMap<PathId, Definition>,
 }
 
 struct Suggestable {
@@ -164,7 +168,29 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let head_index = indexer.index(&*head_snapshot, &layout.workspace, true)?;
     indexer.use_head_macros(&head_index);
 
-    let walk = index_range(&mut indexer, &repo, &commits, &layout, &head_index)?;
+    // Only a range starting from a chosen base has changes the files it left alone may miss.
+    let compared = (matches!(range, Range::Base { .. }) && config.changed.level != Level::Allow)
+        .then_some(start)
+        .flatten();
+    let walk = index_range(
+        &mut indexer,
+        &repo,
+        &commits,
+        &layout,
+        &head_index,
+        compared,
+    )?;
+    let changed = if compared.is_some() {
+        Changed::new(
+            &indexer.interner,
+            &head_index,
+            &dependencies.paths,
+            &walk.start_definitions,
+            config.changed.compare(),
+        )
+    } else {
+        Changed::default()
+    };
     let states = &walk.states;
 
     let mut removed: Vec<PathId> = states
@@ -207,10 +233,21 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         &workspace_dir,
         &layout.workspace,
     )?;
-    let Found { mentions, markers } = find_mentions(
+    let start_snapshot = compared
+        .and_then(|start| commits.iter().find(|commit| commit.id == start))
+        .map(|start| TreeSnapshot::new(&repo, start.tree, &indexer.trees));
+    let Found {
+        mentions,
+        changed_mentions,
+        markers,
+    } = find_mentions(
         &*head_snapshot,
         &head_index,
         &matcher,
+        (
+            &changed,
+            start_snapshot.as_ref().map(|s| s as &dyn Snapshot),
+        ),
         &layout.target_prefix,
         &filter,
     )?;
@@ -237,13 +274,16 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         &walk.first_seen,
         &mut groups,
     )?;
+    let mut changed_items = changed_items(&mut indexer, &scan, &changed, changed_mentions)?;
     indexer.save();
-    let unused_markers = suppress(&mut groups, markers, &config.allow);
+    let unused_markers = suppress(&mut groups, &mut changed_items, markers, &config.allow);
     suggest::replacements(&mut groups, |file| scan.head_text(file));
     let mut report = Report {
         base: start.map(|id| id.to_string()),
         head: head_id(&head),
         groups,
+        changed: changed_items,
+        changed_level: config.changed.level,
         skipped: dependency_removals.skipped,
         unused_markers,
         edited: HashSet::new(),
@@ -276,11 +316,15 @@ impl Report {
         };
         let at_head = TreeSnapshot::new(repo, git::commit_tree(repo, *commit)?, trees);
         let mut files = HashSet::new();
-        for group in &self.groups {
-            for mention in &group.mentions {
-                files.insert(mention.file.as_str());
-            }
-        }
+        let changed = self.changed.iter().flat_map(|item| {
+            let declared = item.declared_at.iter().map(|at| at.file.as_str());
+            item.mentions
+                .iter()
+                .map(|m| m.file.as_str())
+                .chain(declared)
+        });
+        let removed = self.groups.iter().flat_map(|group| &group.mentions);
+        files.extend(removed.map(|m| m.file.as_str()).chain(changed));
         for marker in &self.unused_markers {
             files.insert(marker.file.as_str());
         }
@@ -387,6 +431,35 @@ fn declarations(
         group.declared_at = declared_at;
     }
     Ok(())
+}
+
+/// The changed items `found` mentions, by path, each where head declares it.
+fn changed_items(
+    indexer: &mut Indexer,
+    scan: &Historical<'_>,
+    changed: &Changed,
+    found: HashMap<PathId, Vec<Mention>>,
+) -> Result<Vec<ChangedItem>, Error> {
+    let mut found: Vec<(PathId, Vec<Mention>)> = found.into_iter().collect();
+    found.sort_by_cached_key(|&(id, _)| display(&indexer.interner, id));
+    let ids: Vec<PathId> = found.iter().map(|&(id, _)| id).collect();
+    let places = positions(indexer, scan.head_snapshot, scan.workspace, &ids, |_| false)?;
+    let interner = &indexer.interner;
+    Ok(found
+        .into_iter()
+        .zip(places)
+        .map(|((id, mut mentions), declared_at)| {
+            mentions.sort_by(|a, b| (&a.file, a.line, a.column).cmp(&(&b.file, b.line, b.column)));
+            mentions.dedup_by(|a, b| (&a.file, a.line, a.column) == (&b.file, b.line, b.column));
+            ChangedItem {
+                path: display(interner, id),
+                kind: interner.kind(id),
+                part: changed.parts[&id],
+                declared_at,
+                mentions,
+            }
+        })
+        .collect())
 }
 
 /// Where `snapshot` declares each of `ids`, a manifest entry at its key and an item as
@@ -546,14 +619,20 @@ fn filter(
     Filter::new(config, workspace_dir, workspace, package_dir)
 }
 
-/// Indexes each distinct tree of the range once, returning what each commit declares beyond head.
+/// Indexes each distinct tree of the range once, returning what each commit declares beyond head
+/// and what the commit `start` declares.
 fn index_range(
     indexer: &mut Indexer,
     repo: &gix::Repository,
     commits: &[git::Commit],
     layout: &Layout,
     head_index: &Index,
+    start: Option<ObjectId>,
 ) -> Result<IndexedRange, Error> {
+    let start_tree = start
+        .and_then(|start| commits.iter().find(|commit| commit.id == start))
+        .map(|commit| commit.tree);
+    let mut start_definitions = HashMap::new();
     let mut states = States::default();
     let mut first_seen: HashMap<PathId, usize> = HashMap::new();
     // Head's paths by table position, an id interned after head reading as absent.
@@ -578,7 +657,10 @@ fn index_range(
         }
         let oldest = *oldest;
         let snapshot = TreeSnapshot::new(repo, commit.tree, &indexer.trees);
-        let index = indexer.index(&snapshot, &layout.workspace, false)?;
+        let mut index = indexer.index(&snapshot, &layout.workspace, false)?;
+        if start_tree == Some(commit.tree) {
+            start_definitions = std::mem::take(&mut index.definitions);
+        }
         let missing = index.paths.iter().filter_map(|&path| {
             if in_head.get(head_at(path)) == Some(&true) {
                 first_seen
@@ -622,6 +704,7 @@ fn index_range(
         states,
         first_seen,
         boundary,
+        start_definitions,
     })
 }
 
@@ -634,21 +717,33 @@ struct Marker {
     used: bool,
 }
 
-/// Drops the groups `allow` names and the mentions a marker names, returning the unused markers.
+/// Drops the removed names and changed items `allow` names and the mentions a marker names,
+/// returning the unused markers.
 fn suppress(
     groups: &mut Vec<Group>,
+    changed: &mut Vec<ChangedItem>,
     mut markers: Vec<Marker>,
     allow: &[String],
 ) -> Vec<UnusedMarker> {
-    groups.retain(|group| !allow.iter().any(|entry| names(&group.path, entry)));
-    for group in groups.iter_mut() {
-        group.mentions.retain(|mention| {
+    let allowed = |path: &str| allow.iter().any(|entry| names(path, entry));
+    groups.retain(|group| !allowed(&group.path));
+    changed.retain(|item| !allowed(&item.path));
+    let found = groups
+        .iter_mut()
+        .map(|group| (&group.path, &mut group.mentions))
+        .chain(
+            changed
+                .iter_mut()
+                .map(|item| (&item.path, &mut item.mentions)),
+        );
+    for (path, mentions) in found {
+        mentions.retain(|mention| {
             let mut kept = true;
             for marker in markers.iter_mut().filter(|marker| {
                 marker.file == mention.file
                     && (marker.line == mention.line || marker.line + 1 == mention.line)
             }) {
-                if names(&group.path, &marker.name) || mention.text == marker.name {
+                if names(path, &marker.name) || mention.text == marker.name {
                     marker.used = true;
                     kept = false;
                 }
@@ -657,6 +752,7 @@ fn suppress(
         });
     }
     groups.retain(|group| !group.mentions.is_empty());
+    changed.retain(|item| !item.mentions.is_empty());
     markers
         .into_iter()
         .filter(|marker| !marker.used)
@@ -752,18 +848,23 @@ fn layout(options: &Options, repo: &gix::Repository) -> Result<Layout, Error> {
 /// What the files a scan reads hold.
 struct Found {
     mentions: HashMap<PathId, Vec<Mention>>,
+    /// The mentions of changed items, by item.
+    changed_mentions: HashMap<PathId, Vec<Mention>>,
     markers: Vec<Marker>,
 }
 
-/// The mentions and suppression markers in the comments and Markdown `filter` keeps.
+/// The mentions and suppression markers in the comments and Markdown `filter` keeps, with the
+/// mentions of `changed` items in files the same in `start` as at head.
 fn find_mentions(
     snapshot: &dyn Snapshot,
     head: &Index,
     matcher: &Matcher<'_>,
+    (changed, start): (&Changed, Option<&dyn Snapshot>),
     target_prefix: &str,
     filter: &Filter,
 ) -> Result<Found, Error> {
     let mut mentions: HashMap<PathId, Vec<Mention>> = HashMap::new();
+    let mut changed_mentions: HashMap<PathId, Vec<Mention>> = HashMap::new();
     let mut markers = Vec::new();
     for file in snapshot.files()? {
         if !target_prefix.is_empty() && file.starts_with(&format!("{target_prefix}/")) {
@@ -803,24 +904,47 @@ fn find_mentions(
         if read.mentions.is_empty() {
             continue;
         }
+        // A file the range edits had its author's eyes on it.
+        let unedited = match start {
+            Some(start) if !changed.is_empty() => start.blob(&file)? == Some(id),
+            _ => false,
+        };
         let module = head.file_modules.get(&file).map(Vec::as_slice);
         for path in read.mentions {
-            let Some(removed) = matcher.stale(&path, &file, is_rust, module) else {
-                continue;
+            let mention = |uppercase| {
+                let (line, column) = text::line_column(&starts, source, path.start);
+                Mention {
+                    file: file.clone(),
+                    line,
+                    column,
+                    text: source[path.start..path.end].to_owned(),
+                    context: path.context,
+                    replacement: None,
+                    uppercase,
+                }
             };
-            let (line, column) = text::line_column(&starts, source, path.start);
-            mentions.entry(removed).or_default().push(Mention {
-                file: file.clone(),
-                line,
-                column,
-                text: source[path.start..path.end].to_owned(),
-                context: path.context,
-                replacement: None,
-                uppercase: matcher.uppercase(&path, removed),
-            });
+            if let Some(removed) = matcher.stale(&path, &file, is_rust, module) {
+                let uppercase = matcher.uppercase(&path, removed);
+                mentions
+                    .entry(removed)
+                    .or_default()
+                    .push(mention(uppercase));
+            } else if unedited
+                && path.context.source != Source::StringLiteral
+                && let Some(item) = matcher.changed(changed, &path, is_rust, module)
+            {
+                changed_mentions
+                    .entry(item)
+                    .or_default()
+                    .push(mention(None));
+            }
         }
     }
-    Ok(Found { mentions, markers })
+    Ok(Found {
+        mentions,
+        changed_mentions,
+        markers,
+    })
 }
 
 fn canonical(path: &Path) -> Result<PathBuf, Error> {
@@ -1319,7 +1443,8 @@ fn needs_lowercase(word: &str) -> bool {
         .any(|character| character.to_lowercase().ne(std::iter::once(character)))
 }
 
-/// Decides which spelled paths, bare names and manifest names name something removed.
+/// Decides which spelled paths, bare names and manifest names name something removed, and
+/// which name a changed item.
 struct Matcher<'a> {
     interner: &'a Interner,
     alive: HashSet<Box<[Sym]>>,
@@ -1329,6 +1454,8 @@ struct Matcher<'a> {
     names: HashSet<Sym>,
     /// The identifiers item-position macros of head may turn into items, in any module.
     macro_idents: HashSet<Sym>,
+    /// The names of head no path reaches.
+    locals: &'a HashSet<Sym>,
     /// Removed items other than serialized spellings, by last segment, ranked.
     removed_names: HashMap<Sym, Vec<PathId>>,
     /// Removed serialized spellings, by spelling, ranked.
@@ -1417,6 +1544,7 @@ impl<'a> Matcher<'a> {
                 .chain(&dependencies.macro_idents)
                 .copied()
                 .collect(),
+            locals: &head.locals,
             removed_names,
             removed_spellings,
             libs: head.libs.iter().map(|&lib| interner.name(lib)).collect(),
@@ -1473,6 +1601,104 @@ impl<'a> Matcher<'a> {
             }
             _ => None,
         }
+    }
+
+    /// The changed item `path`, found in a file read as `module`, names and no other item does.
+    fn changed(
+        &self,
+        changed: &Changed,
+        path: &Spelled,
+        in_rust: bool,
+        module: Option<&[Sym]>,
+    ) -> Option<PathId> {
+        match &path.named {
+            Named::Path => self.changed_path(changed, path, in_rust, module),
+            Named::Name { word, data: false } if !word.contains('-') => {
+                self.changed_name(changed, word, path.context, module.filter(|_| in_rust))
+            }
+            _ => None,
+        }
+    }
+
+    /// The changed item the bare `word` names: the item of that name in a Rust file's
+    /// `module`, else the item [`Changed::named_bare`] picks, unless something else claims it.
+    fn changed_name(
+        &self,
+        changed: &Changed,
+        word: &str,
+        context: Context,
+        module: Option<&[Sym]>,
+    ) -> Option<PathId> {
+        let sym = self.interner.find_sym(word)?;
+        let claimed = self.locals.contains(&sym)
+            || self.macro_idents.contains(&sym)
+            || self.std.iter().any(|layer| layer.has_name(word))
+            || self.vocabularies.claims(word, context.kind);
+        if claimed {
+            return None;
+        }
+        if let Some(module) = module {
+            let mut path = module.to_vec();
+            path.push(sym);
+            if self.alive.contains(path.as_slice()) {
+                return changed.named(&path);
+            }
+        }
+        changed.named_bare(sym, module.and_then(|module| module.first().copied()))
+    }
+
+    /// The changed item every reading of `path` that names a live item names.
+    fn changed_path(
+        &self,
+        changed: &Changed,
+        path: &Spelled,
+        in_rust: bool,
+        module: Option<&[Sym]>,
+    ) -> Option<PathId> {
+        let mut readings = self.readings(path, in_rust, module);
+        if path.context.kind == (Kind::CodeBlock { compiled: false }) {
+            readings.retain(|reading| self.is_crate(reading[0]));
+        }
+        let mut found = None;
+        for reading in &readings {
+            match self.live_prefix(changed, reading) {
+                Live::Changed(item) if found.is_none_or(|found| found == item) => {
+                    found = Some(item);
+                }
+                Live::Changed(_) | Live::Other => return None,
+                Live::Unknown => {}
+            }
+        }
+        found
+    }
+
+    /// What the longest prefix of `path` alive in head, a dependency or the standard library
+    /// names among the items of `changed`.
+    fn live_prefix(&self, changed: &Changed, path: &[&str]) -> Live {
+        if self.reexports_alive(path) {
+            return Live::Other;
+        }
+        for len in (2..=path.len()).rev() {
+            let prefix = &path[..len];
+            if self
+                .std
+                .iter()
+                .any(|layer| layer.ends_a_path(&prefix.join("::")))
+            {
+                return Live::Other;
+            }
+            let Some(syms) = prefix
+                .iter()
+                .map(|name| self.interner.find_sym(name))
+                .collect::<Option<Vec<Sym>>>()
+            else {
+                continue;
+            };
+            if self.alive.contains(syms.as_slice()) {
+                return changed.named(&syms).map_or(Live::Other, Live::Changed);
+            }
+        }
+        Live::Unknown
     }
 
     /// Resolves a bare item or serialized name, subject to live names and vocabulary ambiguity.
@@ -1688,6 +1914,16 @@ enum Hit {
     Alive,
     Removed(PathId),
     Unknown,
+}
+
+/// What the longest live prefix of a reading names among the changed items.
+enum Live {
+    /// No prefix is alive.
+    Unknown,
+    /// An unchanged item, several items, or one outside the workspace.
+    Other,
+    /// That changed item alone.
+    Changed(PathId),
 }
 
 /// Removed and live manifest entries, by kind, name and member directory.

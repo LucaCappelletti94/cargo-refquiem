@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
-use crate::Error;
 use crate::error::CustomFailure;
+use crate::{ChangedPart, Error, Level};
 
 /// The file name looked up at the workspace root.
 pub(crate) const FILE_NAME: &str = ".refquiem.toml";
@@ -44,8 +44,44 @@ pub(crate) struct Config {
     pub(crate) scan_commented_code: bool,
     /// The revision a scan of the full history starts at instead.
     pub(crate) since: Option<String>,
+    /// How a `--base` scan treats the items the range changed.
+    #[serde(default)]
+    pub(crate) changed: Changed,
     /// Optional ambiguity vocabularies, English when the table is absent.
     vocabularies: Option<Vocabularies>,
+}
+
+/// The `[changed]` table.
+#[derive(Debug, Default, Clone, Copy, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Changed {
+    /// Whether mentions of changed items are looked for, and whether they fail the run.
+    #[serde(default)]
+    pub(crate) level: Level,
+    /// The parts of a definition compared.
+    #[serde(default)]
+    compare: Compare,
+}
+
+impl Changed {
+    /// The last part of a definition compared, the parts before it compared too.
+    pub(crate) fn compare(self) -> ChangedPart {
+        match self.compare {
+            Compare::Shapes => ChangedPart::Shape,
+            Compare::Values => ChangedPart::Value,
+            Compare::Bodies => ChangedPart::Body,
+        }
+    }
+}
+
+/// How much of a definition a `[changed]` table compares, each value including those before.
+#[derive(Debug, Default, Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum Compare {
+    Shapes,
+    #[default]
+    Values,
+    Bodies,
 }
 
 impl Config {

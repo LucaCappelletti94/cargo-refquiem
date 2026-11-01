@@ -210,7 +210,15 @@ fn json_prints_the_report_with_snake_case_keys() {
     };
     assert_eq!(
         keys(&report),
-        ["base", "groups", "head", "skipped", "unused_markers"]
+        [
+            "base",
+            "changed",
+            "changed_level",
+            "groups",
+            "head",
+            "skipped",
+            "unused_markers"
+        ]
     );
     assert_eq!(report["head"], repo.rev("HEAD"));
     assert_eq!(report["base"], serde_json::Value::Null);
@@ -830,4 +838,128 @@ fn rendered_summary(summary: &str) -> (usize, Vec<String>) {
         }
     }
     (rows, codes)
+}
+
+/// A repository whose last commit raised `fixture::version::PROTOCOL_VERSION` from 1 to 2
+/// while `docs/protocol.md:3` names it, with `config` as its `.refquiem.toml`. Returns the
+/// repository and the head commit.
+fn changed_fixture(config: &str) -> (Repo, String) {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub mod version;\n");
+    repo.write("src/version.rs", "pub const PROTOCOL_VERSION: u32 = 1;\n");
+    repo.write(
+        "docs/protocol.md",
+        "# Protocol\n\n`PROTOCOL_VERSION` is 1.\n",
+    );
+    repo.write(".refquiem.toml", config);
+    repo.commit("protocol 1");
+    repo.write("src/version.rs", "pub const PROTOCOL_VERSION: u32 = 2;\n");
+    let head = repo.commit("protocol 2");
+    (repo, head)
+}
+
+const CHANGED_ANNOTATION: &str = "file=docs/protocol.md,line=3,col=2,title=refquiem::`fixture::version::PROTOCOL_VERSION` (const), value changed, review this mention\n";
+
+#[test]
+fn a_changed_item_prints_its_mentions_and_warns_without_failing() {
+    let (repo, _) = changed_fixture("");
+    let range = ["--base", "HEAD~1", "--head", "HEAD"];
+
+    let output = cargo_refquiem(repo.path(), &range, None);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "refquiem: 1 changed item named in files the range left alone, 1 mention to review\n\n`fixture::version::PROTOCOL_VERSION` (const), value changed\n  docs/protocol.md:3:2  Markdown code span\n"
+    );
+
+    let output = cargo_refquiem(repo.path(), &[&range[..], &["--github"]].concat(), None);
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.ends_with(&format!("::warning {CHANGED_ANNOTATION}")),
+        "{stdout}"
+    );
+
+    let output = cargo_refquiem(repo.path(), &[&range[..], &["--json"]].concat(), None);
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["changed_level"], "warn");
+    assert_eq!(
+        report["changed"][0],
+        serde_json::json!({
+            "path": "fixture::version::PROTOCOL_VERSION",
+            "kind": "const",
+            "part": "value",
+            "declared_at": {"file": "src/version.rs", "line": 1},
+            "headline": "`fixture::version::PROTOCOL_VERSION` (const), value changed",
+            "mentions": [{
+                "file": "docs/protocol.md", "line": 3, "column": 2, "text": "PROTOCOL_VERSION",
+                "context": {"source": "markdown", "kind": "code_span"},
+                "replacement": null, "uppercase": null
+            }]
+        })
+    );
+}
+
+#[test]
+fn a_denied_changed_item_fails_with_an_error_annotation() {
+    let (repo, _) = changed_fixture("[changed]\nlevel = \"deny\"\n");
+    let args = ["--base", "HEAD~1", "--head", "HEAD", "--github"];
+
+    let output = cargo_refquiem(repo.path(), &args, None);
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.ends_with(&format!("::error {CHANGED_ANNOTATION}")),
+        "{stdout}"
+    );
+
+    let output = cargo_refquiem(repo.path(), &[&args[..], &["--no-fail"]].concat(), None);
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.ends_with(&format!("::warning {CHANGED_ANNOTATION}")),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn the_markdown_links_a_changed_item_to_its_declaration_and_mentions_at_head() {
+    let (repo, head) = changed_fixture("");
+    let output = cargo_refquiem_env(
+        repo.path(),
+        &["--base", "HEAD~1", "--head", "HEAD", "--markdown"],
+        None,
+        &[
+            ("GITHUB_SERVER_URL", "https://github.com"),
+            ("GITHUB_REPOSITORY", "o/r"),
+        ],
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        format!(
+            "## refquiem\n\nNo stale mentions\n\n### Changed items\n\n1 changed item named in files the range left alone, 1 mention to review. Files this range left as they were name items whose definition it changed, so their text may need review.\n\n- [`fixture::version::PROTOCOL_VERSION`](https://github.com/o/r/blob/{head}/src/version.rs#L1) (const), value changed, named in [`docs/protocol.md:3:2`](https://github.com/o/r/blob/{head}/docs/protocol.md#L3)\n"
+        )
+    );
+}
+
+#[test]
+fn a_working_tree_scan_leaves_an_edited_declaration_unlinked() {
+    let (repo, head) = changed_fixture("");
+    repo.write("src/version.rs", "pub const PROTOCOL_VERSION: u32 = 3;\n");
+    let output = cargo_refquiem_env(
+        repo.path(),
+        &["--base", "HEAD", "--markdown"],
+        None,
+        &[
+            ("GITHUB_SERVER_URL", "https://github.com"),
+            ("GITHUB_REPOSITORY", "o/r"),
+        ],
+    );
+    let summary = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        summary.contains(&format!(
+            "- `fixture::version::PROTOCOL_VERSION` (const), value changed, named in [`docs/protocol.md:3:2`](https://github.com/o/r/blob/{head}/docs/protocol.md#L3)\n"
+        )),
+        "{summary}"
+    );
 }
