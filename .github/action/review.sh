@@ -117,6 +117,9 @@ def linked: "- [`\(at)`](\(.link))";
 def places: if length == 1
   then "is still mentioned in [`\(.[0] | at)`](\(.[0].link))."
   else "is still mentioned in these places.\n\n" + (map(linked) | join("\n")) end;
+def named_in: if length == 1
+  then "and [`\(.[0] | at)`](\(.[0].link)), which this pull request leaves as it was, names it. Its text may need review."
+  else "and these places, which this pull request leaves as they were, name it. Their text may need review.\n\n" + (map(linked) | join("\n")) end;
 def footer($mention):
   "[👎 Report a wrong review](https://github.com/LucaCappelletti94/cargo-refquiem/issues/new?template=wrong-review.yml&title=\("Wrong review on \($reviewed)" | @uri)&version=\($version | @uri)&review=\($review_url | @uri)&mention=\($mention | @uri)) [❤️ Support refquiem](https://github.com/sponsors/LucaCappelletti94)";
 def plural($n; $one; $many): "\($n) \(if $n == 1 then $one else $many end)";
@@ -195,11 +198,29 @@ def group:
            and (.spelling | name) and (.vocabulary | line) and (.vocabulary | length > 0))))
        | {file, line, column, text, replacement,
           uppercase: (if .uppercase == null then null else .uppercase | {spelling, vocabulary} end)}]};
+# The words for the changed part of an item, as the scanner writes them.
+def changed_words: if .part == "shape"
+  then (if .kind == "function" or .kind == "method" then "signature" else "definition" end)
+  else .part end;
+def changed_item:
+  need(type == "object" and (.path | name) and (.kind | str) and kinds[.kind] != null
+    and (.part as $p | any(("shape", "value", "body"); . == $p))
+    and (.headline | str) and (.mentions | type == "array"))
+  | need(. as $c | "`\($c.path)` (\(kinds[$c.kind])), \($c | changed_words) changed" == $c.headline)
+  | {path, kind, part, declared_at: (.declared_at | position), headline,
+     mentions: [.mentions[]
+       | need(type == "object" and (.file | name) and (.line | int) and (.column | int)
+         and (.text | str))
+       | {file, line, column, text}]};
 .[0]
 | need(type == "object" and (.groups | type == "array") and (.unused_markers | type == "array")
-  and (.skipped | type == "array") and (.base == null or (.base | commit)))
+  and (.skipped | type == "array") and (.base == null or (.base | commit))
+  and ((.changed // []) | type == "array")
+  and ((.changed_level // "warn") as $l | any(("allow", "warn", "deny"); . == $l)))
 | {base,
    groups: [.groups[] | group],
+   changed: [(.changed // [])[] | changed_item],
+   changed_level: (.changed_level // "warn"),
    unused_markers: [.unused_markers[]
      | need(type == "object" and (.file | name) and (.line | int) and (.column | int)
        and (.name | name))
@@ -227,6 +248,12 @@ def headlined($base):
       | "[\($s)](\(link(.suggested_at.file; .suggested_at.line)))" as $l
       | $h | split($s) | join($l)
     else $h end;
+# The headline of a changed item with its path linked to its declaration at head.
+def changed_headlined:
+  "`\(.path)`" as $name
+  | if .declared_at != null and (.headline | startswith($name))
+    then "[\($name)](\(link(.declared_at.file; .declared_at.line)))\(.headline | ltrimstr($name))"
+    else .headline end;
 . as $report
 | [$report.groups | to_entries[] | .key as $id | .value | {
     id: $id,
@@ -236,8 +263,17 @@ def headlined($base):
       elif (.candidates | length) > 0 then "candidates" else "none" end),
     mentions: [.mentions[] | {path: .file, line, column, link: link(.file; .line)}]
   }] as $groups
+| [($report.changed // []) | to_entries[] | .key as $id | .value | {
+    id: $id,
+    headline: changed_headlined,
+    declared_at,
+    mentions: [.mentions[] | {path: .file, line, column, link: link(.file; .line)}]
+  }] as $changed
 | {
   groups: $groups,
+  changed: $changed,
+  blocking: (($report.groups | length) + ($report.unused_markers | length) > 0
+    or ($report.changed_level == "deny" and ($changed | length) > 0)),
   markers: [$report.unused_markers[] | {path: .file, line, column, link: link(.file; .line),
     text: "This `refquiem: allow(\(.name))` marker suppresses nothing."}],
   skipped: [$report.skipped[].dependency],
@@ -252,6 +288,17 @@ def headlined($base):
     body: ("\(.headline), \(.mentions | places)"
       + "\n\n" + (reduce .mentions[].link as $link ([];
           if index($link) then . else . + [$link] end) | .[:3] | join("\n"))
+      + "\n\n" + footer("\(.declared_at.file):\(.declared_at.line)"))
+  }],
+  changes: [$changed[] | select(.declared_at != null) | {
+    kind: "changed",
+    item: .id,
+    path: .declared_at.file,
+    line: .declared_at.line,
+    side: "RIGHT",
+    at: "\(.declared_at.file):\(.declared_at.line)",
+    text: .headline,
+    body: ("\(.headline), \(.mentions | named_in)"
       + "\n\n" + footer("\(.declared_at.file):\(.declared_at.line)"))
   }],
   inline: ([($report.groups | to_entries[] | .key as $id | (.value | headlined($report.base)) as $h
@@ -281,35 +328,40 @@ def headlined($base):
         + "\n\n" + footer(.at))}))
 }'
 
-# Renders the review body from the plan in "$meta", given the groups whose removal comment the
-# review holds and the `path:line` of every inline comment it holds. A lone finding its comments
-# hold already carries the links, so its body is the marker alone.
+# Renders the review body from "$meta", given the findings the planned comments already hold.
 review_body() {
   jq -r --arg server "$GITHUB_SERVER_URL" --arg repo "$repo" --arg sha "$head_sha" \
     --arg reviewed "$reviewed" --arg review_url "$review_url" --arg version "$version" \
-    --argjson anchored "$1" --argjson posted "$2" \
+    --argjson anchored "$1" --argjson posted "$2" --argjson anchored_changed "$3" \
     --arg run "$GITHUB_SERVER_URL/$repo/actions/runs/${GITHUB_RUN_ID:-}" --arg marker "$marker" \
     "$defs"'
 .plan as $p
 | ($p.groups | length) as $names
 | ([$p.groups[].mentions[]] | length) as $mentions
+| ($p.changed | length) as $items
+| ([$p.changed[].mentions[]] | length) as $named
 | ($p.markers | length) as $markers
 | def unposted: select(("\(.path):\(.line)") as $key | $posted | index($key) | not);
 [ $p.groups[] | select(.id as $id | $anchored | index($id) | not)
   | .headline as $h | [.mentions[] | unposted]
   | select(length > 0)
   | "\($h), \(places)" ]
++ [ $p.changed[] | select(.id as $id | $anchored_changed | index($id) | not)
+  | "\(.headline), \(.mentions | named_in)" ]
 + [ [$p.markers[] | unposted | "\(linked) \(.text)"] | select(length > 0) | join("\n") ]
 | . as $unplaced
-| if $names + $markers == 1 and ($unplaced | length) == 0 and ($p.skipped | length) == 0
+| if $names + $items + $markers == 1 and ($unplaced | length) == 0 and ($p.skipped | length) == 0
   then $marker
   else
   "refquiem found "
-  + (if $names > 0 then plural($names; "removed name"; "removed names") + " still mentioned "
-      + plural($mentions; "time"; "times") else "" end)
-  + (if $names > 0 and $markers > 0 then " and " else "" end)
-  + (if $markers > 0 then plural($markers; "suppression marker that suppresses nothing";
-      "suppression markers that suppress nothing") else "" end)
+  + ([ (if $names > 0 then plural($names; "removed name"; "removed names") + " still mentioned "
+        + plural($mentions; "time"; "times") else empty end),
+      (if $items > 0 then plural($items; "changed item"; "changed items") + " named "
+        + plural($named; "time"; "times") + " in files this pull request leaves as they were"
+        else empty end),
+      (if $markers > 0 then plural($markers; "suppression marker that suppresses nothing";
+        "suppression markers that suppress nothing") else empty end) ]
+    | if length > 1 then (.[:-1] | join(", ")) + " and " + .[-1] else .[0] end)
   + "."
   + ([["suggested", "with a suggested replacement"],
       ["candidates", "with several possible replacements"],
@@ -333,6 +385,7 @@ review_body() {
 # Tracks findings held by the planned comments.
 held() {
   anchored="$(jq -s '[.[] | select(.kind == "removal") | .group]' "$comments")"
+  anchored_changed="$(jq -s '[.[] | select(.kind == "changed") | .item]' "$comments")"
   posted="$(jq -s '[.[] | select(.kind == "inline") | "\(.path):\(.line)"]' "$comments")"
 }
 
@@ -346,7 +399,7 @@ render_dry_run() {
     rendered+=$'\n\n'"$(jq -r .body <<< "$row")"$'\n\n'
   done < "$comments"
   held
-  rendered+=$'#### Review body\n\n'"$(review_body "$anchored" "$posted")"$'\n'
+  rendered+=$'#### Review body\n\n'"$(review_body "$anchored" "$posted" "$anchored_changed")"$'\n'
   {
     echo
     echo '### refquiem review, dry run'
@@ -447,7 +500,7 @@ case "$MODE" in
     ;;
 esac
 
-if [ "$(jq '(.groups | length) + (.unused_markers | length)' "$report")" = 0 ]; then
+if [ "$(jq '(.groups | length) + (.changed | length) + (.unused_markers | length)' "$report")" = 0 ]; then
   echo "refquiem: no stale mention, the review is not posted"
   if [ "$DRY_RUN" != true ] && [ -n "$pr" ]; then
     dismiss
@@ -486,10 +539,18 @@ plan="$(jq -c --arg server "$GITHUB_SERVER_URL" --arg repo "$repo" --arg sha "$h
   "$plan_program" "$report")"
 # GitHub rejects a whole review holding a comment off the diff, a dry run shows them all.
 jq -c --argjson lines "$lines" --arg dry "$DRY_RUN" \
-  '.removals[], .inline[]
+  '.removals[], .changes[], .inline[]
   | select($dry == "true" or (.line as $line | ($lines[.path][.side] // []) | any(.[]; . == $line)))' \
   <<< "$plan" > "$comments"
-jq -n --argjson plan "$plan" '{plan: ($plan | {groups, markers, skipped})}' > "$meta"
+jq -n --argjson plan "$plan" '{plan: ($plan | {groups, changed, blocking, markers, skipped})}' > "$meta"
+# Changed items alone leave a comment that requests nothing.
+if [ "$(jq -r .plan.blocking "$meta")" = true ]; then
+  event=REQUEST_CHANGES
+  expected=CHANGES_REQUESTED
+else
+  event=COMMENT
+  expected=COMMENTED
+fi
 
 if [ "$DRY_RUN" = true ]; then
   render_dry_run
@@ -503,20 +564,20 @@ readonly_notice() {
 # Leaves the review response in `response`.
 post_review() {
   response="$(jq -n -c --arg commit "$head_sha" --arg body "$1" --argjson comments "$2" \
-    '{commit_id: $commit, event: "REQUEST_CHANGES", body: $body, comments: $comments}' \
+    --arg event "$event" '{commit_id: $commit, event: $event, body: $body, comments: $comments}' \
     | gh api -X POST "repos/$repo/pulls/$pr/reviews" --input - 2>&1)"
 }
 
 # Keep the previous change request until the replacement lands.
 held
-body="$(review_body "$anchored" "$posted")"
+body="$(review_body "$anchored" "$posted" "$anchored_changed")"
 post_review "$body" "$(jq -s -c 'map({path, line, side, body})' "$comments")"
 code=$?
 anchors=true
 if [ "$code" != 0 ] && http_status "$response" 422; then
   echo "refquiem: GitHub rejected a comment, the review is posted with every finding in its body"
   printf '%s\n' "$response"
-  body="$(review_body '[]' '[]')"
+  body="$(review_body '[]' '[]' '[]')"
   post_review "$body" '[]'
   code=$?
   anchors=false
@@ -537,7 +598,7 @@ if [ "$code" != 0 ]; then
   printf '%s\n' "$response"
   finish failed 1
 fi
-if [ "$(jq -r .state <<< "$response" 2>/dev/null)" != CHANGES_REQUESTED ]; then
+if [ "$(jq -r .state <<< "$response" 2>/dev/null)" != "$expected" ]; then
   echo "refquiem: the review response is unexpected"
   printf '%s\n' "$response"
   finish failed 1
