@@ -4,7 +4,7 @@ mod common;
 #[path = "common/vendor.rs"]
 mod vendor;
 
-use common::Repo;
+use common::{PACKAGE, Repo};
 use std::process::{Command, Output};
 
 fn cargo_refquiem(
@@ -402,26 +402,69 @@ fn a_skipped_dependency_is_a_warning_annotation_and_a_summary_section() {
     );
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nbroken = \"1\"\n",
+        &format!("{PACKAGE}\n[dependencies]\nbroken = \"1\"\n"),
     );
     repo.write("src/lib.rs", "");
     repo.commit("broken without a lock");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
+    repo.write("Cargo.toml", PACKAGE);
     repo.commit("drop broken");
     let summary = repo.path().join("summary.md");
 
     let output = cargo_refquiem(repo.path(), &["--github"], Some(&summary));
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(
-        stdout.contains("::warning title=refquiem::removed dependency `broken` could not be resolved, so its items were not checked\n"),
-        "{stdout}"
-    );
+    let warning = stdout
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("::warning title=refquiem::removed dependency `broken` could not be resolved, so its items were not checked: ")
+        })
+        .expect(&stdout);
+    assert!(!warning.is_empty(), "{stdout}");
     let summary = std::fs::read_to_string(&summary).unwrap();
+    let (head, cause) = summary
+        .split_once("\n### Skipped dependencies\n\n- `broken` could not be resolved: `")
+        .expect(&summary);
     assert!(
-        summary.ends_with("\n### Skipped dependencies\n\n- `broken` could not be resolved\n"),
+        !head.is_empty() && cause.ends_with("`\n") && cause.lines().count() == 1,
+        "{summary}"
+    );
+}
+
+#[test]
+fn a_skipped_dependency_names_cargos_error_line_else_the_first_line() {
+    let skipped = |dependency: &str, reason: &str| refquiem::Skipped {
+        dependency: dependency.to_owned(),
+        reason: reason.to_owned(),
+    };
+    let mut report = refquiem::Report::default();
+    report.skipped = vec![
+        skipped(
+            "broken",
+            "`cargo metadata` exited with an error: exit status: 101\n    Updating index\nerror: no matching package named `absent` found\n",
+        ),
+        skipped(
+            "other",
+            "`cargo metadata` exited with an error: exit status: 101\n    Updating index\n",
+        ),
+    ];
+
+    let annotations = report.annotations(false);
+    let prefix = "::warning title=refquiem::removed dependency";
+    let suffix = "could not be resolved, so its items were not checked:";
+    assert!(
+        annotations.contains(&format!(
+            "{prefix} `broken` {suffix} error: no matching package named `absent` found\n"
+        )) && annotations.contains(&format!(
+            "{prefix} `other` {suffix} `cargo metadata` exited with an error: exit status: 101\n"
+        )),
+        "{annotations}"
+    );
+    let summary = report.job_summary(None);
+    assert!(
+        summary.contains(
+            "- `broken` could not be resolved: ``error: no matching package named `absent` found``\n"
+        ) && summary.contains(
+            "- `other` could not be resolved: `` `cargo metadata` exited with an error: exit status: 101 ``\n"
+        ),
         "{summary}"
     );
 }
@@ -522,13 +565,10 @@ fn the_job_summary_survives_a_backtick_in_a_dependency_key() {
     repo.write("src/lib.rs", "");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n\"weird:`key\" = { package = \"absent-xyz-123\", version = \"1\" }\n",
+        &format!("{PACKAGE}\n[dependencies]\n\"weird:`key\" = {{ package = \"absent-xyz-123\", version = \"1\" }}\n"),
     );
     repo.commit("a key cargo rejects");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
+    repo.write("Cargo.toml", PACKAGE);
     repo.commit("drop the key");
     let summary = repo.path().join("summary.md");
 
@@ -576,19 +616,27 @@ fn the_job_summary_renders_edge_backtick_and_space_keys() {
     repo.write("src/lib.rs", "");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n\"`x\" = { package = \"absent-xyz-101\", version = \"1\" }\n\"x`\" = { package = \"absent-xyz-102\", version = \"1\" }\n\" x\" = { package = \"absent-xyz-103\", version = \"1\" }\n\"x \" = { package = \"absent-xyz-104\", version = \"1\" }\n\"ok\" = { package = \"absent-xyz-105\", version = \"1\" }\n\" x \" = { package = \"absent-xyz-106\", version = \"1\" }\n",
+        &format!("{PACKAGE}\n[dependencies]\n\"`x\" = {{ package = \"absent-xyz-101\", version = \"1\" }}\n\"x`\" = {{ package = \"absent-xyz-102\", version = \"1\" }}\n\" x\" = {{ package = \"absent-xyz-103\", version = \"1\" }}\n\"x \" = {{ package = \"absent-xyz-104\", version = \"1\" }}\n\"ok\" = {{ package = \"absent-xyz-105\", version = \"1\" }}\n\" x \" = {{ package = \"absent-xyz-106\", version = \"1\" }}\n"),
     );
     repo.commit("keys cargo rejects");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
+    repo.write("Cargo.toml", PACKAGE);
     repo.commit("drop the keys");
     let summary = repo.path().join("summary.md");
 
     cargo_refquiem(repo.path(), &["--github"], Some(&summary));
     let summary = std::fs::read_to_string(&summary).unwrap();
-    let (_, codes) = rendered_summary(&summary);
+    let mut codes = Vec::new();
+    let mut item_start = false;
+    for event in pulldown_cmark::Parser::new(&summary) {
+        match event {
+            pulldown_cmark::Event::Start(pulldown_cmark::Tag::Item) => item_start = true,
+            pulldown_cmark::Event::Code(code) if item_start => {
+                codes.push(code.to_string());
+                item_start = false;
+            }
+            _ => {}
+        }
+    }
     let mut expected = vec![
         "`x".to_owned(),
         "x`".to_owned(),
@@ -598,7 +646,6 @@ fn the_job_summary_renders_edge_backtick_and_space_keys() {
         "ok".to_owned(),
     ];
     expected.sort();
-    let mut codes = codes;
     codes.sort();
     assert_eq!(codes, expected, "{summary:?}");
 }

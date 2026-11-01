@@ -6,27 +6,9 @@ mod found_kinds;
 #[path = "common/vendor.rs"]
 mod vendor;
 
-use common::Repo;
-use found_kinds::found;
+use common::{PACKAGE, Repo};
+use found_kinds::{found, mention};
 use refquiem::ItemKind;
-
-fn mention(
-    name: &str,
-    kind: ItemKind,
-    file: &str,
-    line: usize,
-    column: usize,
-    text: &str,
-) -> (String, ItemKind, String, usize, usize, String) {
-    (
-        name.to_owned(),
-        kind,
-        file.to_owned(),
-        line,
-        column,
-        text.to_owned(),
-    )
-}
 
 #[test]
 fn text_after_an_autolink_is_scanned_like_the_autolink_url() {
@@ -142,14 +124,10 @@ fn docs_rs_about_and_release_pages_are_not_crate_links() {
     repo.write("src/lib.rs", "");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\
-         [dependencies]\nreleases = \"0.1\"\n",
+        &format!("{PACKAGE}[dependencies]\nreleases = \"0.1\"\n"),
     );
     repo.commit("releases");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
+    repo.write("Cargo.toml", PACKAGE);
     repo.write("README.md", "[docs](https://docs.rs/releases)\n");
     repo.commit("drop releases");
 
@@ -164,14 +142,10 @@ fn published_crate_names_with_hyphens_and_underscores_are_not_dependencies() {
     repo.write("src/lib.rs", "");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\
-         [dependencies]\ngone-crate = \"0.1\"\nunder_score = \"0.1\"\n",
+        &format!("{PACKAGE}[dependencies]\ngone-crate = \"0.1\"\nunder_score = \"0.1\"\n"),
     );
     repo.commit("both");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
+    repo.write("Cargo.toml", PACKAGE);
     let links = "[a](https://docs.rs/gone-crate) and [b](https://docs.rs/under_score)\n";
     repo.write("README.md", links);
     repo.commit("drop both");

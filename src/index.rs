@@ -391,7 +391,11 @@ impl Indexer {
     fn entries(&mut self, member: &Member, index: &mut Index) {
         let owner = self.interner.sym(&entry::member(&member.dir));
         let mut add = |interner: &mut Interner, kind: ItemKind, name: &str| {
-            let path = [owner, interner.sym(entry::marker(kind)), interner.sym(name)];
+            let path = [
+                owner,
+                interner.sym(entry::marker(kind).expect("manifest entries have markers")),
+                interner.sym(name),
+            ];
             let id = interner.path(&path, kind);
             index.paths.insert(id);
             id

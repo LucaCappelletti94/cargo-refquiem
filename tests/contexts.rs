@@ -2,6 +2,8 @@
 //! standard library paths that keep a spelling alive.
 
 mod common;
+#[path = "common/context.rs"]
+mod context;
 #[path = "common/found.rs"]
 mod found;
 #[path = "common/found_by_path.rs"]
@@ -9,7 +11,8 @@ mod found_by_path;
 #[path = "common/vendor.rs"]
 mod vendor;
 
-use common::Repo;
+use common::{PACKAGE, Repo};
+use context::context;
 use found_by_path::found_by_path;
 use refquiem::{Context, Kind, Source};
 
@@ -47,10 +50,6 @@ fixture::gone();
 [method](struct.Thing.html#method.old), [docs.rs](https://docs.rs/fixture/latest/fixture/fn.gone.html), [up](../fixture/fn.gone.html), [kept](struct.Thing.html).
 ";
 
-fn context(source: Source, kind: Kind) -> Context {
-    Context { source, kind }
-}
-
 #[test]
 fn unicode_blank_doc_lines_preserve_reference_offsets() {
     let repo = Repo::new();
@@ -87,6 +86,23 @@ fn in_file<'a>(
         .filter(|m| m.1 == file)
         .map(|m| (m.0.as_str(), m.2, m.3, m.4, m.5.as_str()))
         .collect()
+}
+
+/// Asserts that the only mention is `fixture::gone` in `src/lib.rs` at `line`, `column` in a doc
+/// comment of `kind`.
+fn one_mention(repo: &Repo, line: usize, column: usize, kind: Kind) {
+    let doc = context(Source::DocComment, kind);
+    assert_eq!(
+        found_by_path(repo),
+        [(
+            "fixture::gone".to_owned(),
+            "src/lib.rs".to_owned(),
+            line,
+            column,
+            doc,
+            "fixture::gone".to_owned()
+        )]
+    );
 }
 
 #[test]
@@ -276,17 +292,14 @@ fn uncompiled_code_blocks_only_count_paths_naming_a_workspace_crate() {
     );
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nredis = \"0.25\"\n",
+        &format!("{PACKAGE}\n[dependencies]\nredis = \"0.25\"\n"),
     );
     repo.write(
         "src/lib.rs",
         "pub mod images {\n    pub mod postgres {\n        pub struct Postgres;\n    }\n}\n",
     );
     repo.commit("bundled images");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
+    repo.write("Cargo.toml", PACKAGE);
     repo.write("src/lib.rs", "");
     repo.write(
         "README.md",
@@ -317,8 +330,6 @@ let q = fixture::images::postgres::Postgres::default();
         ]
     );
 }
-
-const MANIFEST: &str = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
 
 #[test]
 fn inner_docs_followed_by_outer_docs_do_not_share_a_code_fence() {
@@ -361,11 +372,11 @@ fn a_doc_comment_run_stops_at_the_next_attribute() {
     repo.vendor("gone_feature", "0.3.0", "");
     repo.write(
         "Cargo.toml",
-        &format!("{MANIFEST}\n[dependencies]\ngone_feature = \"0.3\"\n"),
+        &format!("{PACKAGE}\n[dependencies]\ngone_feature = \"0.3\"\n"),
     );
     repo.write("src/lib.rs", "pub fn gone() {}\n");
     repo.commit("start");
-    repo.write("Cargo.toml", MANIFEST);
+    repo.write("Cargo.toml", PACKAGE);
     repo.write(
         "src/lib.rs",
         "/// names fixture::gone\n\
@@ -375,18 +386,7 @@ fn a_doc_comment_run_stops_at_the_next_attribute() {
     );
     repo.commit("drop gone and gone_feature");
 
-    let text = context(Source::DocComment, Kind::Text);
-    assert_eq!(
-        found_by_path(&repo),
-        [(
-            "fixture::gone".to_owned(),
-            "src/lib.rs".to_owned(),
-            1,
-            11,
-            text,
-            "fixture::gone".to_owned()
-        )]
-    );
+    one_mention(&repo, 1, 11, Kind::Text);
 }
 
 #[test]
@@ -446,18 +446,7 @@ fn a_decorated_block_doc_fences_its_content_as_a_code_block() {
     );
     repo.commit("drop gone");
 
-    let block = context(Source::DocComment, Kind::CodeBlock { compiled: true });
-    assert_eq!(
-        found_by_path(&repo),
-        [(
-            "fixture::gone".to_owned(),
-            "src/lib.rs".to_owned(),
-            5,
-            10,
-            block,
-            "fixture::gone".to_owned()
-        )]
-    );
+    one_mention(&repo, 5, 10, Kind::CodeBlock { compiled: true });
 }
 
 #[test]
@@ -471,18 +460,7 @@ fn an_indented_block_doc_line_keeps_its_indent() {
     );
     repo.commit("drop gone");
 
-    let text = context(Source::DocComment, Kind::Text);
-    assert_eq!(
-        found_by_path(&repo),
-        [(
-            "fixture::gone".to_owned(),
-            "src/lib.rs".to_owned(),
-            2,
-            11,
-            text,
-            "fixture::gone".to_owned()
-        )]
-    );
+    one_mention(&repo, 2, 11, Kind::Text);
 }
 
 #[test]
@@ -496,18 +474,7 @@ fn the_doc_indent_is_the_shortest_line_indent() {
     );
     repo.commit("drop gone");
 
-    let block = context(Source::DocComment, Kind::CodeBlock { compiled: true });
-    assert_eq!(
-        found_by_path(&repo),
-        [(
-            "fixture::gone".to_owned(),
-            "src/lib.rs".to_owned(),
-            2,
-            9,
-            block,
-            "fixture::gone".to_owned()
-        )]
-    );
+    one_mention(&repo, 2, 9, Kind::CodeBlock { compiled: true });
 }
 
 #[test]
@@ -521,18 +488,7 @@ fn an_uneven_doc_line_keeps_the_mention_out_of_code() {
     );
     repo.commit("drop gone");
 
-    let text = context(Source::DocComment, Kind::Text);
-    assert_eq!(
-        found_by_path(&repo),
-        [(
-            "fixture::gone".to_owned(),
-            "src/lib.rs".to_owned(),
-            2,
-            8,
-            text,
-            "fixture::gone".to_owned()
-        )]
-    );
+    one_mention(&repo, 2, 8, Kind::Text);
 }
 
 #[test]

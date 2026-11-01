@@ -3,6 +3,10 @@
 use std::path::Path;
 use std::process::Command;
 
+/// The `fixture` package manifest that `Repo::new` stages.
+pub const PACKAGE: &str =
+    "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
+
 /// A temporary git repository with an isolated configuration.
 pub struct Repo {
     dir: tempfile::TempDir,
@@ -15,10 +19,7 @@ impl Repo {
             dir: tempfile::tempdir().unwrap(),
         };
         repo.git(&["init", "-q", "-b", "main"]);
-        repo.write(
-            "Cargo.toml",
-            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-        );
+        repo.write("Cargo.toml", PACKAGE);
         repo.write(".gitignore", "/target\n");
         repo
     }

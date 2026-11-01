@@ -308,7 +308,7 @@ impl Filter {
 }
 
 /// Whether `file` lies inside directory `dir`, both from the repository root.
-fn below(dir: &str, file: &str) -> bool {
+pub(crate) fn below(dir: &str, file: &str) -> bool {
     dir.is_empty()
         || file
             .strip_prefix(dir)

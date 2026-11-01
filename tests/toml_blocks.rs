@@ -1,33 +1,29 @@
 //! Cargo flags, TOML tables, dotted headers and feature arrays, and where each names its item.
 
 mod common;
+#[path = "common/features.rs"]
+mod features;
 #[path = "common/found_kinds.rs"]
 mod found_kinds;
 #[path = "common/vendor.rs"]
 mod vendor;
 
-use common::Repo;
-use found_kinds::found;
+use common::{PACKAGE, Repo};
+use found_kinds::{found, mention};
 use refquiem::ItemKind;
 
-const PACKAGE: &str = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
-
-fn mention(
-    name: &str,
-    kind: ItemKind,
-    file: &str,
-    line: usize,
-    column: usize,
-    text: &str,
-) -> (String, ItemKind, String, usize, usize, String) {
-    (
-        name.to_owned(),
-        kind,
-        file.to_owned(),
-        line,
-        column,
-        text.to_owned(),
-    )
+/// Vendors `crate_name`, commits it as a dependency, and drops it from the manifest.
+fn gone_dependency(crate_name: &str) -> Repo {
+    let repo = Repo::new();
+    repo.vendor(crate_name, "0.3.0", "");
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "Cargo.toml",
+        &format!("{PACKAGE}\n[dependencies]\n{crate_name} = \"0.3\"\n"),
+    );
+    repo.commit(crate_name);
+    repo.write("Cargo.toml", PACKAGE);
+    repo
 }
 
 #[test]
@@ -133,13 +129,7 @@ fn toml_dependency_headers_and_keys_name_removed_crates() {
 #[test]
 fn toml_tables_count_their_feature_lines() {
     let repo = Repo::new();
-    repo.write(
-        "Cargo.toml",
-        &format!("{PACKAGE}\n[features]\ngone_feature = []\nanother_gone = []\n"),
-    );
-    repo.write("src/lib.rs", "");
-    repo.commit("both");
-    repo.write("Cargo.toml", PACKAGE);
+    repo.gone_features(&["gone_feature", "another_gone"], "both");
     repo.write(
         "README.md",
         "```toml\n[dependencies.fixture]\nfeatures = [\"gone_feature\"]\nextra-features = [\"another_gone\"]\n```\n",
@@ -162,17 +152,11 @@ fn toml_tables_count_their_feature_lines() {
 #[test]
 fn indented_toml_feature_lines_keep_their_offset() {
     let repo = Repo::new();
-    repo.write(
-        "Cargo.toml",
-        &format!("{PACKAGE}\n[features]\ngone_feature = []\n"),
-    );
-    repo.write("src/lib.rs", "");
-    repo.commit("feature");
+    repo.gone_features(&["gone_feature"], "feature");
     repo.write(
         "src/lib.rs",
         "/// ```toml\n///     [dependencies.fixture]\n///     features = [\"gone_feature\"]\n/// ```\npub fn kept() {}\n",
     );
-    repo.write("Cargo.toml", PACKAGE);
     repo.commit("drop the feature");
 
     assert_eq!(
@@ -191,13 +175,7 @@ fn indented_toml_feature_lines_keep_their_offset() {
 #[test]
 fn toml_feature_arrays_count_each_quoted_name() {
     let repo = Repo::new();
-    repo.write(
-        "Cargo.toml",
-        &format!("{PACKAGE}\n[features]\ngone_feature = []\n"),
-    );
-    repo.write("src/lib.rs", "");
-    repo.commit("feature");
-    repo.write("Cargo.toml", PACKAGE);
+    repo.gone_features(&["gone_feature"], "feature");
     repo.write(
         "README.md",
         "```toml\n[dependencies.fixture]\nfeatures = [ \"gone_feature\" ]\n```\n",
@@ -219,15 +197,7 @@ fn toml_feature_arrays_count_each_quoted_name() {
 
 #[test]
 fn quoted_kind_headers_name_their_second_key() {
-    let repo = Repo::new();
-    repo.vendor("gone_crate", "0.3.0", "");
-    repo.write("src/lib.rs", "");
-    repo.write(
-        "Cargo.toml",
-        &format!("{PACKAGE}\n[dependencies]\ngone_crate = \"0.3\"\n"),
-    );
-    repo.commit("gone_crate");
-    repo.write("Cargo.toml", PACKAGE);
+    let repo = gone_dependency("gone_crate");
     repo.write(
         "README.md",
         "```toml\n[\"dependencies\".gone_crate]\nkeep = \"1.0\"\n```\n",
@@ -249,15 +219,7 @@ fn quoted_kind_headers_name_their_second_key() {
 
 #[test]
 fn dotted_headers_end_at_their_closing_quote() {
-    let repo = Repo::new();
-    repo.vendor("gone_crate2", "0.3.0", "");
-    repo.write("src/lib.rs", "");
-    repo.write(
-        "Cargo.toml",
-        &format!("{PACKAGE}\n[dependencies]\ngone_crate2 = \"0.3\"\n"),
-    );
-    repo.commit("gone_crate2");
-    repo.write("Cargo.toml", PACKAGE);
+    let repo = gone_dependency("gone_crate2");
     repo.write(
         "README.md",
         "```toml\n[dependencies.\"gone_crate\ngone_crate2 = \"1.0\"\n```\n",
@@ -279,15 +241,7 @@ fn dotted_headers_end_at_their_closing_quote() {
 
 #[test]
 fn whitespace_after_dots_offsets_toml_keys() {
-    let repo = Repo::new();
-    repo.vendor("gone_crate", "0.3.0", "");
-    repo.write("src/lib.rs", "");
-    repo.write(
-        "Cargo.toml",
-        &format!("{PACKAGE}\n[dependencies]\ngone_crate = \"0.3\"\n"),
-    );
-    repo.commit("gone_crate");
-    repo.write("Cargo.toml", PACKAGE);
+    let repo = gone_dependency("gone_crate");
     repo.write("README.md", "```toml\n[dependencies. gone_crate]\n```\n");
     repo.commit("drop gone_crate");
 
@@ -306,15 +260,7 @@ fn whitespace_after_dots_offsets_toml_keys() {
 
 #[test]
 fn quoted_keys_adjust_their_offset_once() {
-    let repo = Repo::new();
-    repo.vendor("gone_crate", "0.3.0", "");
-    repo.write("src/lib.rs", "");
-    repo.write(
-        "Cargo.toml",
-        &format!("{PACKAGE}\n[dependencies]\ngone_crate = \"0.3\"\n"),
-    );
-    repo.commit("gone_crate");
-    repo.write("Cargo.toml", PACKAGE);
+    let repo = gone_dependency("gone_crate");
     repo.write("README.md", "```toml\n[dependencies.\"gone_crate\"]\n```\n");
     repo.commit("drop gone_crate");
 
@@ -333,15 +279,7 @@ fn quoted_keys_adjust_their_offset_once() {
 
 #[test]
 fn unquoted_keys_never_adjust_their_offset() {
-    let repo = Repo::new();
-    repo.vendor("gone_crate", "0.3.0", "");
-    repo.write("src/lib.rs", "");
-    repo.write(
-        "Cargo.toml",
-        &format!("{PACKAGE}\n[dependencies]\ngone_crate = \"0.3\"\n"),
-    );
-    repo.commit("gone_crate");
-    repo.write("Cargo.toml", PACKAGE);
+    let repo = gone_dependency("gone_crate");
     repo.write("README.md", "```toml\n[dependencies.gone_crate]\n```\n");
     repo.commit("drop gone_crate");
 
@@ -360,15 +298,7 @@ fn unquoted_keys_never_adjust_their_offset() {
 
 #[test]
 fn three_key_toml_headers_end_at_their_last_key() {
-    let repo = Repo::new();
-    repo.vendor("gone_crate", "0.3.0", "");
-    repo.write("src/lib.rs", "");
-    repo.write(
-        "Cargo.toml",
-        &format!("{PACKAGE}\n[dependencies]\ngone_crate = \"0.3\"\n"),
-    );
-    repo.commit("gone_crate");
-    repo.write("Cargo.toml", PACKAGE);
+    let repo = gone_dependency("gone_crate");
     repo.write(
         "README.md",
         "```toml\n[target.x86_64.dependencies]\ngone_crate = \"1.0\"\n```\n",
@@ -430,13 +360,7 @@ fn bare_words_in_dependency_tables_are_not_keys() {
 #[test]
 fn every_feature_of_a_feature_array_is_checked() {
     let repo = Repo::new();
-    repo.write(
-        "Cargo.toml",
-        &format!("{PACKAGE}\n[features]\ngone_a = []\ngone_b = []\n"),
-    );
-    repo.write("src/lib.rs", "");
-    repo.commit("two features");
-    repo.write("Cargo.toml", PACKAGE);
+    repo.gone_features(&["gone_a", "gone_b"], "two features");
     repo.write(
         "README.md",
         "```toml\n[dependencies]\nfixture = { version = \"0.1\", features = [\"gone_a\", \"gone_b\"] }\n```\n",

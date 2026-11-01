@@ -1,30 +1,21 @@
 //! The dependency layer, removed dependencies at their locked version, and what a mention names.
 
 mod common;
+#[path = "common/context.rs"]
+mod context;
 #[path = "common/found.rs"]
 mod found;
 #[path = "common/found_by_path.rs"]
 mod found_by_path;
+#[path = "common/lock.rs"]
+mod lock;
 #[path = "common/vendor.rs"]
 mod vendor;
 
-use common::Repo;
+use common::{PACKAGE, Repo};
+use context::context;
 use found_by_path::found_by_path;
 use refquiem::{Context, ItemKind, Kind, Source};
-
-fn context(source: Source, kind: Kind) -> Context {
-    Context { source, kind }
-}
-
-/// Writes `Cargo.lock` without touching the network, as every dependency is a path or vendored.
-fn lock(repo: &Repo) {
-    let status = std::process::Command::new("cargo")
-        .args(["generate-lockfile", "--offline", "--quiet"])
-        .current_dir(repo.path())
-        .status()
-        .unwrap();
-    assert!(status.success());
-}
 
 #[test]
 fn a_removed_dependency_is_read_from_the_registry_its_manifest_named() {
@@ -42,7 +33,7 @@ fn a_removed_dependency_is_read_from_the_registry_its_manifest_named() {
     );
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nlocked-hdep = { version = \"0.2\", registry = \"myreg\" }\n",
+        &format!("{PACKAGE}\n[dependencies]\nlocked-hdep = {{ version = \"0.2\", registry = \"myreg\" }}\n"),
     );
     repo.write(
         "Cargo.lock",
@@ -50,11 +41,8 @@ fn a_removed_dependency_is_read_from_the_registry_its_manifest_named() {
     );
     repo.write("src/lib.rs", "");
     repo.commit("locked on myreg");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    lock(&repo);
+    repo.write("Cargo.toml", PACKAGE);
+    repo.lock();
     repo.write("README.md", "The `locked_hdep::LockedItem` item.\n");
     repo.commit("drop locked-hdep");
 
@@ -81,7 +69,7 @@ fn a_removed_dependency_is_pinned_to_the_version_its_member_locked() {
     repo.vendor("helper", "0.2.0", "pub struct NewThing;\n");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"0\"\n",
+        &format!("{PACKAGE}\n[dependencies]\nhelper = \"0\"\n"),
     );
     repo.write(
         "Cargo.lock",
@@ -89,11 +77,8 @@ fn a_removed_dependency_is_pinned_to_the_version_its_member_locked() {
     );
     repo.write("src/lib.rs", "");
     repo.commit("helper locked at 0.1.0");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    lock(&repo);
+    repo.write("Cargo.toml", PACKAGE);
+    repo.lock();
     repo.write("README.md", "`helper::OldThing` and `helper::NewThing`.\n");
     repo.commit("drop helper");
 
@@ -117,7 +102,9 @@ fn a_removed_dependency_is_read_at_the_version_locked_by_its_member_not_siblings
     repo.vendor("helper", "0.2.0", "pub struct NewThing;\n");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"widget\"]\n\n[dependencies]\nhelper = \"0.1\"\n",
+        &format!(
+            "{PACKAGE}\n[workspace]\nmembers = [\"widget\"]\n\n[dependencies]\nhelper = \"0.1\"\n"
+        ),
     );
     repo.write(
         "widget/Cargo.toml",
@@ -125,13 +112,13 @@ fn a_removed_dependency_is_read_at_the_version_locked_by_its_member_not_siblings
     );
     repo.write("src/lib.rs", "");
     repo.write("widget/src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("two helpers");
     repo.write(
         "widget/Cargo.toml",
         "[package]\nname = \"widget\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
-    lock(&repo);
+    repo.lock();
     repo.write("README.md", "The `NewThing` and `OldThing` items.\n");
     repo.commit("drop the widget helper");
 
@@ -157,7 +144,7 @@ fn two_removed_members_read_their_own_locked_versions_of_a_shared_dependency() {
     };
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"a\", \"b\"]\n",
+        &format!("{PACKAGE}\n[workspace]\nmembers = [\"a\", \"b\"]\n"),
     );
     repo.write(
         "a/Cargo.toml",
@@ -170,11 +157,11 @@ fn two_removed_members_read_their_own_locked_versions_of_a_shared_dependency() {
     for file in ["src/lib.rs", "a/src/lib.rs", "b/src/lib.rs"] {
         repo.write(file, "");
     }
-    lock(&repo);
+    repo.lock();
     repo.commit("both use their helper");
     repo.write("a/Cargo.toml", &member("a", ""));
     repo.write("b/Cargo.toml", &member("b", ""));
-    lock(&repo);
+    repo.lock();
     repo.write(
         "README.md",
         "The `helper::OldThing` and `helper::NewThing` items.\n",
@@ -206,7 +193,9 @@ fn items_of_a_dependency_head_no_longer_has_match_only_from_its_crate_root() {
     repo.vendor("helper", "0.2.0", "pub struct NewThing;\n");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"app\"]\n\n[dependencies]\nhelper = \"0.2\"\n",
+        &format!(
+            "{PACKAGE}\n[workspace]\nmembers = [\"app\"]\n\n[dependencies]\nhelper = \"0.2\"\n"
+        ),
     );
     repo.write(
         "app/Cargo.toml",
@@ -214,13 +203,13 @@ fn items_of_a_dependency_head_no_longer_has_match_only_from_its_crate_root() {
     );
     repo.write("src/lib.rs", "");
     repo.write("app/src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("app with gone_dep and the old helper");
     repo.write(
         "app/Cargo.toml",
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
-    lock(&repo);
+    repo.lock();
     repo.write(
         "README.md",
         "`Widget`, `Widget::build`, `gone_dep::Widget::build`, `OldThing` and `helper::OldThing`.\n",
@@ -257,13 +246,13 @@ fn a_live_dependency_built_as_an_rlib_or_dylib_keeps_its_names_alive() {
         repo.write("vendor/helper/.cargo-checksum.json", "{\"files\":{}}");
         repo.write(
             "Cargo.toml",
-            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
+            &format!("{PACKAGE}\n[dependencies]\nhelper = {{ path = \"vendor/helper\" }}\n"),
         );
         repo.write(
             "src/lib.rs",
             "pub struct Frame {\n    pub frame_tag: u8,\n}\n",
         );
-        lock(&repo);
+        repo.lock();
         repo.commit("own frame_tag");
         repo.write("src/lib.rs", "");
         repo.write("README.md", "`frame_tag`\n");
@@ -288,13 +277,13 @@ fn a_dependency_keeps_the_names_of_a_file_it_includes_from_its_manifest_dir() {
     repo.write("vendor/helper/.cargo-checksum.json", "{\"files\":{}}");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
+        &format!("{PACKAGE}\n[dependencies]\nhelper = {{ path = \"vendor/helper\" }}\n"),
     );
     repo.write(
         "src/lib.rs",
         "pub struct Frame {\n    pub frame_tag: u8,\n}\n",
     );
-    lock(&repo);
+    repo.lock();
     repo.commit("own frame_tag");
     repo.write("src/lib.rs", "");
     repo.write("README.md", "`frame_tag`\n");
@@ -325,16 +314,13 @@ fn a_removed_entry_is_named_by_its_toml_key_not_its_bare_name() {
     repo.write("vendor/helper/src/lib.rs", "pub struct Thing;\n");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
+        &format!("{PACKAGE}\n[dependencies]\nhelper = {{ path = \"vendor/helper\" }}\n"),
     );
     repo.write("src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("with helper");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    lock(&repo);
+    repo.write("Cargo.toml", PACKAGE);
+    repo.lock();
     std::fs::remove_dir_all(repo.path().join("vendor/helper")).unwrap();
     repo.write(
         "README.md",
@@ -355,16 +341,13 @@ fn a_rustdoc_page_link_to_a_single_item_names_nothing() {
     repo.vendor("Tool", "1.0.0", "pub struct Tool;\n");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nTool = \"1\"\n",
+        &format!("{PACKAGE}\n[dependencies]\nTool = \"1\"\n"),
     );
     repo.write("src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("with Tool");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    lock(&repo);
+    repo.write("Cargo.toml", PACKAGE);
+    repo.lock();
     repo.write("README.md", "[Tool](struct.Tool.html)\n");
     repo.commit("drop Tool");
 
@@ -377,7 +360,9 @@ fn a_path_spelled_from_a_live_crate_name_names_nothing_removed() {
     repo.vendor("widget", "1.0.0", "pub struct DepThing;\n");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"widget\"]\n\n[dependencies]\nwidget = \"1\"\n",
+        &format!(
+            "{PACKAGE}\n[workspace]\nmembers = [\"widget\"]\n\n[dependencies]\nwidget = \"1\"\n"
+        ),
     );
     repo.write(
         "widget/Cargo.toml",
@@ -385,17 +370,17 @@ fn a_path_spelled_from_a_live_crate_name_names_nothing_removed() {
     );
     repo.write("src/lib.rs", "");
     repo.write("widget/src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("with the widget dep");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"widget\"]\n",
+        &format!("{PACKAGE}\n[workspace]\nmembers = [\"widget\"]\n"),
     );
     repo.write(
         "src/lib.rs",
         "/// Was `widget::Brandnew`.\npub fn kept() {}\n",
     );
-    lock(&repo);
+    repo.lock();
     repo.commit("drop the widget dep");
 
     assert_eq!(found_by_path(&repo), []);
@@ -421,10 +406,10 @@ fn a_toml_dependency_key_naming_a_head_package_is_alive() {
     repo.write("widget/src/lib.rs", "");
     repo.write("app/Cargo.toml", &app("widget = \"0.1\"", "widget = []"));
     repo.write("app/src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("app depends on a published widget");
     repo.write("app/Cargo.toml", &app("", ""));
-    lock(&repo);
+    repo.lock();
     repo.write(
         "app/README.md",
         "```toml\n[dependencies]\nwidget = \"0.1\"\n```\n\nRun `cargo build --features widget`.\n",
@@ -471,7 +456,7 @@ fn a_crate_relative_path_reads_only_from_its_own_crate() {
     let repo = Repo::new();
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"widget\"]\n",
+        &format!("{PACKAGE}\n[workspace]\nmembers = [\"widget\"]\n"),
     );
     repo.write(
         "widget/Cargo.toml",
@@ -533,13 +518,13 @@ fn a_module_a_dependency_macro_declares_is_indexed() {
     );
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n",
+        &format!("{PACKAGE}\n[dependencies]\nhelper = \"1\"\n"),
     );
     repo.write(
         "src/lib.rs",
         "pub mod old {\n    pub struct Mutex;\n}\n\nhelper::declare!(sync);\n",
     );
-    lock(&repo);
+    repo.lock();
     repo.write("src/sync.rs", "pub struct Mutex;\npub struct Gone;\n");
     repo.commit("declared module");
     repo.write("src/lib.rs", "helper::declare!(sync);\n");
@@ -574,7 +559,7 @@ fn macro_generated_dependency(call: &str) -> Repo {
     );
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"a\", \"b\"]\n",
+        &format!("{PACKAGE}\n[workspace]\nmembers = [\"a\", \"b\"]\n"),
     );
     // `a` also names `flagmac` itself, so head's own dependencies define `flags!`.
     for (member, extra) in [("a", "flagmac = \"1\"\n"), ("b", "")] {
@@ -585,7 +570,7 @@ fn macro_generated_dependency(call: &str) -> Repo {
         repo.write(&format!("{member}/src/lib.rs"), "");
     }
     repo.write("src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("both members use behavior");
     repo
 }
@@ -598,7 +583,7 @@ fn an_item_a_dependency_macro_generates_stays_alive_while_a_member_keeps_its_cra
             "b/Cargo.toml",
             "[package]\nname = \"b\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
         );
-        lock(&repo);
+        repo.lock();
         repo.write(
             "README.md",
             "Register it with `behavior::Flags::INNOCUOUS`.\n",
@@ -621,7 +606,7 @@ fn an_item_a_removed_dependency_macro_generated_is_reported() {
                 ),
             );
         }
-        lock(&repo);
+        repo.lock();
         repo.write(
             "README.md",
             "Register it with `behavior::Flags::RETIRED`.\n",
@@ -648,7 +633,7 @@ fn a_dependency_without_a_library_target_leaves_its_siblings_indexed() {
     );
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"a\", \"b\"]\n",
+        &format!("{PACKAGE}\n[workspace]\nmembers = [\"a\", \"b\"]\n"),
     );
     let member = |name: &str, dependencies: &str| {
         format!(
@@ -666,10 +651,10 @@ fn a_dependency_without_a_library_target_leaves_its_siblings_indexed() {
     for file in ["src/lib.rs", "a/src/lib.rs", "b/src/lib.rs"] {
         repo.write(file, "");
     }
-    lock(&repo);
+    repo.lock();
     repo.commit("both members use helper");
     repo.write("b/Cargo.toml", &member("b", ""));
-    lock(&repo);
+    repo.lock();
     repo.write("README.md", "`helper::Thing`\n");
     repo.commit("b drops helper");
 
@@ -682,7 +667,7 @@ fn a_removed_entry_is_labeled_by_the_package_that_owned_it() {
     repo.vendor("helper", "1.0.0", "pub struct Thing;\n");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"widget\"]\n",
+        &format!("{PACKAGE}\n[workspace]\nmembers = [\"widget\"]\n"),
     );
     repo.write(
         "widget/Cargo.toml",
@@ -690,13 +675,13 @@ fn a_removed_entry_is_labeled_by_the_package_that_owned_it() {
     );
     repo.write("src/lib.rs", "");
     repo.write("widget/src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("widget with helper");
     repo.write(
         "widget/Cargo.toml",
         "[package]\nname = \"widget\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
-    lock(&repo);
+    repo.lock();
     repo.write(
         "widget/README.md",
         "Run `cargo add helper` for `helper::Thing`.\n",
@@ -721,20 +706,20 @@ fn an_item_several_removed_dependencies_provided_is_blamed_on_the_last_removal()
     let with_helper = "\n[dependencies]\nhelper = \"1\"\n";
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"a\", \"b\"]\n",
+        &format!("{PACKAGE}\n[workspace]\nmembers = [\"a\", \"b\"]\n"),
     );
     repo.write("a/Cargo.toml", &member("a", with_helper));
     repo.write("b/Cargo.toml", &member("b", with_helper));
     for file in ["src/lib.rs", "a/src/lib.rs", "b/src/lib.rs"] {
         repo.write(file, "");
     }
-    lock(&repo);
+    repo.lock();
     repo.commit("both use helper");
     repo.write("a/Cargo.toml", &member("a", ""));
-    lock(&repo);
+    repo.lock();
     repo.commit("a drops helper");
     repo.write("b/Cargo.toml", &member("b", ""));
-    lock(&repo);
+    repo.lock();
     repo.write("README.md", "`helper::Thing`\n");
     let last = repo.commit("b drops helper");
 
@@ -772,10 +757,10 @@ fn a_path_the_workspace_removed_after_a_dependency_on_it_went_is_blamed_on_its_o
         &app("\n[dependencies]\ncore_lib = { path = \"../core_lib\" }\n"),
     );
     repo.write("app/src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("app uses core_lib");
     repo.write("app/Cargo.toml", &app(""));
-    lock(&repo);
+    repo.lock();
     repo.commit("app drops core_lib");
     repo.write("core_lib/src/lib.rs", "");
     repo.write("README.md", "`core_lib::Thing`\n");
@@ -800,10 +785,10 @@ fn a_module_public_on_one_cfg_branch_stays_public() {
     );
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n",
+        &format!("{PACKAGE}\n[dependencies]\nhelper = \"1\"\n"),
     );
     repo.write("src/lib.rs", "pub struct Runtime;\npub struct Deep;\n");
-    lock(&repo);
+    repo.lock();
     repo.commit("start");
     repo.write("src/lib.rs", "");
     repo.write("README.md", "`Runtime` and `Deep`.\n");
@@ -819,16 +804,13 @@ fn a_hyphenated_spelling_matches_a_name_with_underscores() {
     repo.vendor("helper_lib", "1.0.0", "pub struct Thing;\n");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper_lib = \"1\"\n",
+        &format!("{PACKAGE}\n[dependencies]\nhelper_lib = \"1\"\n"),
     );
     repo.write("src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("with helper_lib");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    lock(&repo);
+    repo.write("Cargo.toml", PACKAGE);
+    repo.lock();
     repo.write("README.md", "Run `cargo add helper-lib`.\n");
     repo.commit("drop helper_lib");
 
@@ -849,13 +831,13 @@ fn a_public_reexport_keeps_the_path_it_shares_with_a_private_module() {
     );
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n",
+        &format!("{PACKAGE}\n[dependencies]\nhelper = \"1\"\n"),
     );
     repo.write(
         "src/lib.rs",
         "pub fn blank_out() {}\npub fn hidden_fn() {}\n",
     );
-    lock(&repo);
+    repo.lock();
     repo.commit("start");
     repo.write("src/lib.rs", "");
     repo.write("README.md", "`blank_out` and `hidden_fn`.\n");
@@ -875,9 +857,7 @@ fn a_renamed_dependency_also_reads_under_its_crate_name() {
         "pub struct OldThing;\npub struct NewThing;\n",
     );
     let root = |dependency: &str| {
-        format!(
-            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"app\"]\n\n[dependencies]\n{dependency}\n"
-        )
+        format!("{PACKAGE}\n[workspace]\nmembers = [\"app\"]\n\n[dependencies]\n{dependency}\n")
     };
     repo.write("Cargo.toml", &root(""));
     repo.write(
@@ -886,7 +866,7 @@ fn a_renamed_dependency_also_reads_under_its_crate_name() {
     );
     repo.write("src/lib.rs", "");
     repo.write("app/src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("app with helper 0.2");
     repo.write(
         "app/Cargo.toml",
@@ -896,7 +876,7 @@ fn a_renamed_dependency_also_reads_under_its_crate_name() {
         "Cargo.toml",
         &root("helper_01 = { package = \"helper\", version = \"0.1\" }"),
     );
-    lock(&repo);
+    repo.lock();
     repo.write("README.md", "`helper::OldThing` and `helper::NewThing`.\n");
     repo.commit("the root renames the old helper");
 
@@ -924,14 +904,14 @@ fn a_renamed_old_version_of_a_workspace_crate_keeps_nothing_of_it_alive() {
     repo.write("helper/src/lib.rs", "pub struct Gone;\n");
     repo.write("app/Cargo.toml", &app(""));
     repo.write("app/src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("helper has Gone");
     repo.write("helper/src/lib.rs", "");
     repo.write(
         "app/Cargo.toml",
         &app("helper_old = { package = \"helper\", version = \"0.1\" }"),
     );
-    lock(&repo);
+    repo.lock();
     repo.write("README.md", "`helper::Gone`.\n");
     repo.commit("Gone goes, an old helper stays");
 
@@ -1082,16 +1062,15 @@ fn a_workspace_in_a_subdirectory_is_exported_at_the_export_root() {
 fn a_removed_crate_name_counts_only_where_it_acts_as_a_dependency() {
     let repo = Repo::new();
     repo.vendor("tower", "0.4.0", "pub struct Service;\n");
-    let manifest = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
     repo.write(
         "Cargo.toml",
-        &format!("{manifest}\n[dependencies]\ntower = \"0.4\"\n"),
+        &format!("{PACKAGE}\n[dependencies]\ntower = \"0.4\"\n"),
     );
     repo.write("src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("with tower");
-    repo.write("Cargo.toml", manifest);
-    lock(&repo);
+    repo.write("Cargo.toml", PACKAGE);
+    repo.lock();
     repo.write(
         "README.md",
         "[docs](https://docs.rs/tower), the `tower` crate, `cargo add tower`, `cargo update -p tower`.\n[page](https://docs.rs/tower/0.4.0/tower/fn.gone.html)\n\n```toml\n[dependencies]\ntower = \"0.4\"\n```\n",
@@ -1119,16 +1098,15 @@ fn a_removed_crate_name_counts_only_where_it_acts_as_a_dependency() {
 fn cargo_add_names_every_crate_up_to_its_first_flag_or_punctuation() {
     let repo = Repo::new();
     repo.vendor("tower", "0.4.0", "pub struct Service;\n");
-    let manifest = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
     repo.write(
         "Cargo.toml",
-        &format!("{manifest}\n[dependencies]\ntower = \"0.4\"\n"),
+        &format!("{PACKAGE}\n[dependencies]\ntower = \"0.4\"\n"),
     );
     repo.write("src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("with tower");
-    repo.write("Cargo.toml", manifest);
-    lock(&repo);
+    repo.write("Cargo.toml", PACKAGE);
+    repo.lock();
     repo.write(
         "README.md",
         "`cargo add tower@0.4 tower -F x tower`\n\nRun cargo add tower, then tower.\n\n`cargo address tower`\n",
@@ -1150,13 +1128,13 @@ fn a_reexported_dependency_item_keeps_its_members_alive_under_the_alias() {
         "1.0.0",
         "pub struct Request;\nimpl Request {\n    pub fn new() {}\n}\npub mod shapes {\n    pub struct Circle;\n    impl Circle {\n        pub fn area() {}\n    }\n}\n",
     );
-    let manifest = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n";
-    repo.write("Cargo.toml", manifest);
+    let manifest = format!("{PACKAGE}\n[dependencies]\nhelper = \"1\"\n");
+    repo.write("Cargo.toml", &manifest);
     repo.write(
         "src/lib.rs",
         "pub struct Request;\nimpl Request {\n    pub fn new() {}\n    pub fn gone() {}\n}\npub mod shapes {\n    pub struct Circle;\n    impl Circle {\n        pub fn area() {}\n    }\n}\n",
     );
-    lock(&repo);
+    repo.lock();
     repo.commit("own request and shapes");
     repo.write(
         "src/lib.rs",
@@ -1179,7 +1157,7 @@ fn a_bare_name_goes_to_a_workspace_item_before_a_dependency_item() {
     repo.vendor("able", "0.2.0", "");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"app\"]\n\n[dependencies]\nable = \"0.2\"\n",
+        &format!("{PACKAGE}\n[workspace]\nmembers = [\"app\"]\n\n[dependencies]\nable = \"0.2\"\n"),
     );
     let app = |dependency: &str| {
         format!("[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n{dependency}")
@@ -1187,12 +1165,12 @@ fn a_bare_name_goes_to_a_workspace_item_before_a_dependency_item() {
     repo.write("app/Cargo.toml", &app("\n[dependencies]\nable = \"0.1\"\n"));
     repo.write("app/src/lib.rs", "");
     repo.write("src/lib.rs", "pub struct Gadget;\n");
-    lock(&repo);
+    repo.lock();
     repo.commit("both have a Gadget");
     repo.write("src/lib.rs", "");
     repo.commit("fixture drops Gadget");
     repo.write("app/Cargo.toml", &app(""));
-    lock(&repo);
+    repo.lock();
     // A member owning neither candidate leaves the choice to the workspace rule.
     repo.write("app/README.md", "`Gadget`\n");
     repo.commit("app drops the old able");
@@ -1206,7 +1184,7 @@ fn a_removed_dependency_and_its_items_are_reported_from_qualified_and_toml_names
     let repo = Repo::new();
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = { path = \"vendor/helper\" }\n",
+        &format!("{PACKAGE}\n[dependencies]\nhelper = {{ path = \"vendor/helper\" }}\n"),
     );
     repo.write(
         "vendor/helper/Cargo.toml",
@@ -1214,13 +1192,10 @@ fn a_removed_dependency_and_its_items_are_reported_from_qualified_and_toml_names
     );
     repo.write("vendor/helper/src/lib.rs", "pub struct Thing;\n");
     repo.write("src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("with helper");
-    repo.write(
-        "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    lock(&repo);
+    repo.write("Cargo.toml", PACKAGE);
+    repo.lock();
     std::fs::remove_dir_all(repo.path().join("vendor/helper")).unwrap();
     repo.write("README.md", "The `helper` crate and its `helper::Thing` item.\n\n```toml\n[dependencies]\nhelper = \"1\"\n```\n");
     repo.commit("drop helper");
@@ -1289,13 +1264,13 @@ fn dependency_trait_members_follow_the_traits_public_reachability() {
         );
         repo.write(
             "Cargo.toml",
-            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n",
+            &format!("{PACKAGE}\n[dependencies]\nhelper = \"1\"\n"),
         );
         repo.write(
             "src/lib.rs",
             "pub struct Local;\nimpl Local { pub fn retired_probe_842(&self) {} }\n",
         );
-        lock(&repo);
+        repo.lock();
         repo.commit("method");
         repo.write("src/lib.rs", "pub struct Local;\n");
         repo.write("README.md", "`retired_probe_842`\n");
@@ -1314,7 +1289,7 @@ fn dependency_trait_members_follow_the_traits_public_reachability() {
 #[test]
 fn explicit_package_identity_keeps_a_custom_library_under_the_dependency_key() {
     let repo = Repo::new();
-    let manifest = "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nexclude = [\"vendor/helper\"]\n";
+    let manifest = format!("{PACKAGE}\n[workspace]\nexclude = [\"vendor/helper\"]\n");
     repo.write(
         "Cargo.toml",
         &format!("{manifest}\n[dependencies]\nhelper = {{ package = \"helper\", path = \"vendor/helper\" }}\n"),
@@ -1325,11 +1300,11 @@ fn explicit_package_identity_keeps_a_custom_library_under_the_dependency_key() {
     );
     repo.write("vendor/helper/src/lib.rs", "pub struct RetiredProbe842;\n");
     repo.write("src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("explicit package with a custom library name");
-    repo.write("Cargo.toml", manifest);
+    repo.write("Cargo.toml", &manifest);
     std::fs::remove_dir_all(repo.path().join("vendor")).unwrap();
-    lock(&repo);
+    repo.lock();
     repo.write("README.md", "`helper::RetiredProbe842`\n");
     repo.commit("drop the dependency");
 
@@ -1354,10 +1329,10 @@ fn only_public_dependency_fields_claim_removed_local_names() {
         );
         repo.write(
             "Cargo.toml",
-            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n",
+            &format!("{PACKAGE}\n[dependencies]\nhelper = \"1\"\n"),
         );
         repo.write("src/lib.rs", "pub fn retired_probe_842() {}\n");
-        lock(&repo);
+        repo.lock();
         repo.commit("local function and dependency fields");
         repo.write("src/lib.rs", "");
         repo.write("README.md", "`retired_probe_842`\n");
@@ -1379,21 +1354,21 @@ fn a_known_library_root_is_not_attributed_to_a_removed_dependency() {
     repo.vendor("helper", "0.1.0", "");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[lib]\nname = \"live_root\"\n[dependencies]\nlive_root = { package = \"helper\", version = \"0.1\" }\n",
+        &format!("{PACKAGE}[lib]\nname = \"live_root\"\n[dependencies]\nlive_root = {{ package = \"helper\", version = \"0.1\" }}\n"),
     );
     repo.write("src/lib.rs", "pub fn retired_probe842() {}\n");
-    lock(&repo);
+    repo.lock();
     repo.commit("dependency");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[lib]\nname = \"live_root\"\n",
+        &format!("{PACKAGE}[lib]\nname = \"live_root\"\n"),
     );
     repo.write("src/lib.rs", "");
     repo.write(
         "README.md",
         "`live_root::unknown_in_the_index` and `live_root::retired_probe842`.\n",
     );
-    lock(&repo);
+    repo.lock();
     repo.commit("remove dependency and function");
 
     let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
@@ -1427,7 +1402,7 @@ fn an_excluded_path_dependency_shares_workspace_package_identity() {
         "[package]\nname = \"fixture-web\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[workspace]\n\n[dependencies]\nfixture-client = { path = \"../client\" }\n",
     );
     repo.write("web/src/lib.rs", "pub struct WebMarker;\n");
-    lock(&repo);
+    repo.lock();
     repo.commit("workspace and excluded web crate");
     repo.write("client/src/lib.rs", "pub struct Kept;\n");
     repo.write(
@@ -1466,7 +1441,7 @@ fn an_absolute_path_dependency_shares_the_member_package_identity() {
         ),
     );
     repo.write("fixture-app/src/lib.rs", "");
-    lock(&repo);
+    repo.lock();
     repo.commit("an absolute path to the core member");
     repo.write("fixture-core/src/lib.rs", "pub struct Kept;\n");
     repo.write("README.md", "`fixture_core::RetiredProbe`.\n");
@@ -1512,7 +1487,7 @@ fn an_excluded_dependency_preserves_a_transitive_reexport() {
         "[package]\nname = \"fixture-web\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[workspace]\n\n[dependencies]\nfixture-core = { path = \"../fixture-core\" }\nhelper = \"1\"\n",
     );
     repo.write("fixture-web/src/lib.rs", "pub use helper::SharedProbe;\n");
-    lock(&repo);
+    repo.lock();
     repo.commit("local methods");
     repo.write(
         "fixture-app/src/lib.rs",
@@ -1631,7 +1606,7 @@ fn an_external_workspace_preserves_transitive_apis_inheritance_and_member_identi
         "fixture-app/src/lib.rs",
         "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} pub fn gone() {} }\n",
     );
-    lock(&repo);
+    repo.lock();
     repo.commit("local methods");
     let lockfile = std::fs::read(repo.path().join("Cargo.lock")).unwrap();
     repo.write(
@@ -1703,7 +1678,7 @@ fn a_committed_head_reads_local_dependency_manifests_and_apis_from_the_snapshot(
         "fixture-web/src/lib.rs",
         "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} }\n",
     );
-    lock(&repo);
+    repo.lock();
     let base = repo.commit("local methods");
     repo.write(
         "fixture-app/src/lib.rs",
@@ -1767,7 +1742,7 @@ fn external_package_ownership_preserves_member_identity_and_public_apis() {
         repo.write(
             "Cargo.toml",
             &format!(
-                "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"core\"]\nresolver = \"2\"\n\n[dependencies]\nfixture-outer = {{ path = {dependency} }}\n"
+                "{PACKAGE}\n[workspace]\nmembers = [\"core\"]\nresolver = \"2\"\n\n[dependencies]\nfixture-outer = {{ path = {dependency} }}\n"
             ),
         );
         repo.write(
@@ -1779,7 +1754,7 @@ fn external_package_ownership_preserves_member_identity_and_public_apis() {
             "src/lib.rs",
             "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} pub fn gone() {} }\n",
         );
-        lock(&repo);
+        repo.lock();
         repo.commit("local methods");
         repo.write("src/lib.rs", "pub use fixture_outer::SharedProbe;\n");
         repo.write(
@@ -1808,7 +1783,9 @@ fn target_specific_path_dependencies_preserve_their_public_apis() {
     let repo = Repo::new();
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[target.'cfg(all())'.dependencies]\nhelper = { path = \"./helper\" }\n",
+        &format!(
+            "{PACKAGE}\n[target.'cfg(all())'.dependencies]\nhelper = {{ path = \"./helper\" }}\n"
+        ),
     );
     repo.write(
         "helper/Cargo.toml",
@@ -1823,7 +1800,7 @@ fn target_specific_path_dependencies_preserve_their_public_apis() {
         "src/lib.rs",
         "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} pub fn gone() {} }\n",
     );
-    lock(&repo);
+    repo.lock();
     repo.commit("local methods");
     repo.write("src/lib.rs", "pub use helper::SharedProbe;\n");
     repo.write(
@@ -1850,7 +1827,7 @@ fn local_registry_overrides_preserve_the_selected_public_apis() {
         repo.write(
             "Cargo.toml",
             &format!(
-                "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"=1.0.0\"\n\n{table} = {{ path = \"./local-helper\" }}\n"
+                "{PACKAGE}\n[dependencies]\nhelper = \"=1.0.0\"\n\n{table} = {{ path = \"./local-helper\" }}\n"
             ),
         );
         repo.write(
@@ -1866,7 +1843,7 @@ fn local_registry_overrides_preserve_the_selected_public_apis() {
             "src/lib.rs",
             "pub struct SharedProbe;\nimpl SharedProbe { pub fn kept() {} pub fn gone() {} }\n",
         );
-        lock(&repo);
+        repo.lock();
         repo.commit("local methods");
         repo.write("src/lib.rs", "pub use helper::SharedProbe;\n");
         repo.write(
@@ -1903,9 +1880,7 @@ fn missing_local_manifests_retain_the_cargo_dependency_error() {
         let dependency = toml::Value::String(missing.display().to_string());
         repo.write(
             "Cargo.toml",
-            &format!(
-                "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nfixture-absent = {{ path = {dependency} }}\n"
-            ),
+            &format!("{PACKAGE}\n[dependencies]\nfixture-absent = {{ path = {dependency} }}\n"),
         );
         repo.write("src/lib.rs", "pub struct Marker;\n");
         repo.commit("missing local dependency");
@@ -1928,10 +1903,10 @@ fn a_conflicting_cache_file_is_reported_without_deleting_it() {
     repo.vendor("helper", "1.0.0", "pub struct Helper;\n");
     repo.write(
         "Cargo.toml",
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n",
+        &format!("{PACKAGE}\n[dependencies]\nhelper = \"1\"\n"),
     );
     repo.write("src/lib.rs", "pub struct Marker;\n");
-    lock(&repo);
+    repo.lock();
     repo.commit("dependency");
     let cache = tempfile::tempdir().unwrap();
     let blocker = cache.path().join("metadata");
