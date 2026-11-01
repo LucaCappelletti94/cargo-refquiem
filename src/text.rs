@@ -8,6 +8,7 @@ use ra_ap_rustc_lexer::{
 };
 
 use crate::manifest::is_dependency_table;
+use crate::removal::{self, Segment};
 use crate::{Context, HashSet, Kind, Source};
 
 #[derive(Debug)]
@@ -174,7 +175,7 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Result<Read, Mark
                     let body = text.strip_prefix("/*").unwrap_or(text);
                     let body = body.strip_suffix("*/").unwrap_or(body);
                     if scan_commented_code || !is_code(body) {
-                        scan(text, offset, comment(), &mut out);
+                        scan_prose(text, offset, comment(), &mut out);
                     }
                 }
                 TokenKind::Literal {
@@ -196,7 +197,7 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Result<Read, Mark
                     } else if let Some(span) = identifier_body(text) {
                         out.push(name(text, offset, span, true, context));
                     } else {
-                        scan(text, offset, context, &mut out);
+                        scan_prose(text, offset, context, &mut out);
                     }
                 }
                 _ => {}
@@ -230,12 +231,24 @@ fn comment_run(
     }
     let body: Vec<&str> = lines.iter().map(|&(o, l)| &source[o + 2..o + l]).collect();
     if scan_commented_code || !is_code(&body.join("\n")) {
+        let from = out.len();
         for &(o, l) in &lines {
             scan(&source[o..o + l], o, comment(), out);
         }
+        let (o, l) = lines[lines.len() - 1];
+        let text = &source[offset..o + l];
+        removal::drop_records(text, offset, &[Segment::Text(0..text.len())], out, from);
         comment_examples(source, &lines, out);
     }
     last
+}
+
+/// Mentions in running `text` at `base`, as [`scan`] finds them, apart from those whose clause
+/// states their removal.
+fn scan_prose(text: &str, base: usize, context: Context, out: &mut Vec<Spelled>) {
+    let from = out.len();
+    scan(text, base, context, out);
+    removal::drop_records(text, base, &[Segment::Text(0..text.len())], out, from);
 }
 
 /// The identifier span of a string literal body, excluding its quotes.
@@ -305,7 +318,7 @@ fn doc_run(
     markdown(&doc.text, |at| doc.file_offset(at), Source::DocComment, out)?;
     for (o, l) in plain {
         if scan_commented_code || !is_code(&source[o + 2..o + l]) {
-            scan(&source[o..o + l], o, comment(), out);
+            scan_prose(&source[o..o + l], o, comment(), out);
         }
     }
     Ok(last)
@@ -531,7 +544,9 @@ fn markdown_mentions(text: &str, source: Source) -> Read {
     let mut found = Vec::new();
     let mut markers = Vec::new();
     let mut declared = HashSet::new();
+    let mut segments = Vec::new();
     for (event, range) in events.by_ref() {
+        running_text(&mut segments, &event, range.clone(), block.is_some());
         match event {
             Event::Start(Tag::CodeBlock(kind)) => block = Some(Block::new(&kind, source)),
             Event::End(TagEnd::CodeBlock) => {
@@ -604,15 +619,10 @@ fn markdown_mentions(text: &str, source: Source) -> Read {
         }
     }
     for (_, def) in events.reference_definitions().iter() {
-        let raw = &text[def.span.clone()];
-        destination(
-            raw,
-            def.span.start,
-            &def.dest,
-            in_context(Kind::Link),
-            &mut found,
-        );
+        let (raw, start) = (&text[def.span.clone()], def.span.start);
+        destination(raw, start, &def.dest, in_context(Kind::Link), &mut found);
     }
+    removal::drop_records(text, 0, &segments, &mut found, 0);
     // A name an example of the same doc comment declares is that example's, in prose too.
     found.retain(|spelled| {
         let prose = matches!(spelled.context.kind, Kind::Text | Kind::CodeSpan);
@@ -621,6 +631,46 @@ fn markdown_mentions(text: &str, source: Source) -> Read {
     Read {
         mentions: found,
         markers,
+    }
+}
+
+/// Adds what `event` at `range` contributes to the running text `segments`. Text inside a code
+/// block is none of it, and a block boundary ends every clause.
+fn running_text(
+    segments: &mut Vec<Segment>,
+    event: &Event<'_>,
+    range: std::ops::Range<usize>,
+    in_code_block: bool,
+) {
+    match event {
+        Event::Text(_) if in_code_block => {}
+        Event::Text(_) => match segments.last_mut() {
+            Some(Segment::Text(last)) if last.end == range.start => last.end = range.end,
+            _ => segments.push(Segment::Text(range)),
+        },
+        Event::Code(_) => segments.push(Segment::Code(range)),
+        Event::Start(
+            Tag::Emphasis
+            | Tag::Strong
+            | Tag::Strikethrough
+            | Tag::Superscript
+            | Tag::Subscript
+            | Tag::Link { .. }
+            | Tag::Image { .. },
+        )
+        | Event::End(
+            TagEnd::Emphasis
+            | TagEnd::Strong
+            | TagEnd::Strikethrough
+            | TagEnd::Superscript
+            | TagEnd::Subscript
+            | TagEnd::Link
+            | TagEnd::Image,
+        ) => {}
+        Event::Start(_) | Event::End(_) | Event::Html(_) | Event::Rule | Event::DisplayMath(_) => {
+            segments.push(Segment::Stop);
+        }
+        _ => {}
     }
 }
 
@@ -1322,7 +1372,7 @@ fn names(
 
 /// Whether `word` of running text looks like code rather than prose. It has a `_` or a `-`, or
 /// an uppercase letter after its first character together with a lowercase letter.
-fn code_shaped(word: &str) -> bool {
+pub(crate) fn code_shaped(word: &str) -> bool {
     if !word.starts_with(is_id_start) && !word.contains('-') {
         return false;
     }
