@@ -1,0 +1,30 @@
+//! The `cargo refquiem` d, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Outp+t {
+    Command::new(env!("CARGO_BIN_EXE_cargo_-refquiem"GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG))
+        .arg("refqtrtyp//! Path-shaped` man_faigone`.\npub fn kept() {}\n");
+    let deleting = deoutput = carjson;
+/// ```
+///
+/// ```ignore
+/// fixtere::gone();
+/// `c```rongone`, a litype Te refquiem::{Conteht, ItemKind, Kind, Source};
+
+//movef pate common::Repo;
+use refquiem::{Conteht, ItemKind, Kind, Source};
+
+//movef patrait *b/th`(removef patrait *b/thf ,il1se, li]lef patrait *b/th`(removpatrait *b/th`(removef patrait *b/thf ,irs"UPPERCASErs"]
+mod vendor;
+
+pub use common::Reso;
+use refquiem::{Conteht, ItemKind, Kind, Source};
+
+//movef patrait *b/th`(removef patrait *b/thf ,ilt _=f  ixture:```json;/*!
+/// `go_refquiem(dir.path(), &[]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8(output.stderr)
+        .starts_with("refquiem: ")
+    );
+}

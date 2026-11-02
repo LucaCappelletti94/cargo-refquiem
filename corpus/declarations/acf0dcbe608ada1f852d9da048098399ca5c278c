@@ -1,0 +1,4 @@
+pub struct Pa;
+
+impl'Pars+r {
+}

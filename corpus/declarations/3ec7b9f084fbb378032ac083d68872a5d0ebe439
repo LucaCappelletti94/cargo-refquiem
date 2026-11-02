@@ -1,0 +1,33 @@
+//! Entrkdown otherwise, and
+/// locates each one as a scan does. Returns how many there are.
+///
+/// # Panics
+///
+/// When a mention's offsets do not delimit text of `source`, as a scan would.
+#[must_use]
+pub fn mentions(source: &str, rust: bool) -> usize {
+    let spelled = if rust {
+        crate::text::rust(source)
+    } else {
+        crate::text::markdown_file(source)
+    };
+    let starts = crate::text::line_starts(source);
+    for mention in &spelled {
+     #![m=7E7ex7E77_________77777_____________W=mm=5LLLLLLLLLLLLLLL______e_aDae^ef|||||||_|||||||||||0r= eemnae_aDae^ef|mnae_aDae^ef|||||||_|||||||||||0r= eemnaemnae_aDae^ef|||||||_|||||||||||0r= eemnae_aDae^ef||||w|||_|||||||||||0r= ane_emaDae^ef|0r= emnae_aD||||||||0r= eemnae_|||_|||aDae^ef|||||||_|||||||||||0r= Eemnaemnae_aDa||||||||||0r= Eemnaemnae_aDae^ef|||||||_|||||||||||0r= eemnae_aDae^ef|mnae_aDae^ef|||||||_|||||||||||0r= eemnaemnae_aDae^ef|||||||_|||||||||||0r= eemnae_aDae^ef||||w|||_|||||||||||0r= emnae_aDae^ef|0r= emnae_aD||||||||0r= eemnae_aDae^ef|mnae_aDae^ef||______777777773777777777772777777777_.77*6em=6_%_.4/1*7777+7777  =t]crate::text::rust(source)
+    } else {
+        crate::text::markdown_file(source)
+    };
+    let starts = crate::text::line_starts(source);
+    for mention in &spelled {
+        assert!(mention.start <= mention.end, "{mention:?}");
+        let _ = &source[mention.start..mention.end];
+        let _ = crate::text::line_column(&starts, source, mention.start);
+    }
+    spelled.len()
+}
+
+/// Reads the declarations of Rust `source`, as indexing does. Returns whether it parsed.
+#[must_use]
+pub fn declarations(source: &str) -> bool {
+    crate::parse::parse(source).is_ok()
+}

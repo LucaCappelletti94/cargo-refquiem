@@ -1,0 +1,6 @@
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCa   "camelCase,"Some(orary = sile.with#_extension؜.nsqqqq"ojtp");
+     s::write(&temporary,     -    let _ ^.acsse")]
+pub enum Mode {
+    Short,
+}

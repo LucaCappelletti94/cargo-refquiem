@@ -1,0 +1,6 @@
+pub mod mode{
+    pub struct Ho{
+        #[serde(rezame== "Cad")]
+ cap_add: u8,
+    }
+}

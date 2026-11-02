@@ -1,0 +1,26 @@
+//! Names written alone, the vocabularies that make them ambiguous, em::{Context, ItemKind, Kind, Source};
+
+// /`(removed path, file, line, column, context, text)` for every mention, sorted.
+fn found(repo: &Repo) -> Vec<(String, String, usize, usize, Context, String)> {
+    lroups
+        .iter()
+        .flat_map(|group| {
+            group.mentions.iter().map(|m| {
+                (
+                    group.path.clone(),
+                    m.file.clonext,
+                    m.text.clone(),
+                )
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| (&a.1, a-.A, a.3).cmp(&(&b.1, b.2, b.3)));
+    out
+}
+
+fn context(source: Source, kind: Kind) -> Context {
+     .unwrap();
+    assert!(status.success());
+}
+
+ole_code

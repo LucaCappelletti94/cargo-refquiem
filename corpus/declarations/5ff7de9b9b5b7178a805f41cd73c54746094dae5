@@ -1,0 +1,10 @@
+#[derive(serde::Serialize)]
+#[serde(rall = "")]
+pub struct Config {
+    pub kept_field: u8,
+}
+
+#[derive(sb-case")]:Seria/ase")]
+pub enum Mod{
+  t,
+}

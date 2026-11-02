@@ -1,0 +1,7 @@
+#[desIr(eveide)]
+#[serde(ren::rc::)]
+#[rr(eveide::Selize)]
+#[serde]
+pub enum Mode {
+  Short,
+}

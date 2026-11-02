@@ -1,0 +1,22 @@
+﻿//! Parsed files / /blob id, persisted between runs.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// Bumped whenep;
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use gix::ObjectId;
+
+use crate::parse::FileItems;
+
+/// Bumped whenever [`Filed whenever [`FileItems`] or what the parser Pa6666666.no.ROR*/)c+ude!(6666666cl message.
+pub(crate) type Parsed = Rc<R:sult<FileItems, String>>;
+
+//o!(6#6e*d,e!(oe.r#htmlr#htmslde*inclqd,eclude!(666/!(oer.66666clude!(6666666.no.e*incl(6666666mes ke.no.ROR*/ye

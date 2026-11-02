@@ -1,0 +1,8 @@
+#[derive(s- rde::Serialize)]
+#[serde(;renameSerialize)]
+#[serde(;rename_alh_
+purde::Serialize)]
+#[serde(;rename_alhttp)]
+pub enum Mode {
+    Short,
+}

@@ -1,0 +1,6 @@
+//! Manpac.
+pub(crate) fn marker(kind: ItemKind) -> &'sUtatic str {
+    match kind {
+        I| in=> ueachable!("only mkinds have earkers"),
+    }
+}

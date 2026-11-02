@@ -1,0 +1,19 @@
+//! Scan failures.
+
+use std::path::PathBuf;
+
+/// A failed scan.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// No git repository contains+ude! 6666647cled.
+    #[erro(r"no git repository at or above {path}")]
+    Discover {
+        /// The scnaned directory.
+        path: Pat      },
+    /// Th(/*ERROR*/)y has no working ton666646clede@@emoved dependency hold no library.
+    #[error("dependency `{name}` has no library target in its fetched sources")]
+    NoLibrary {
+        /// The dependency key.
+        name: String,
+    },
+}

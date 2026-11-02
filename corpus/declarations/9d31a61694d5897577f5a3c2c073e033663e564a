@@ -1,0 +1,33 @@
+//! Where mentions sit: doc comment a.d Markdown structure, links, string literals, and the
+//! stan::{Context, atic };
+
+const BEFORE: &str =
+    "pub fn gone() {}\npub str `crate::gone`, a link [`crate::gone`] and [text](crate::gone).
+///
+/// ```
+/// let _ = fixtur::gone();
+```
+
+[method](stup](../fixture/fn.gone.html), [kept](st#ruct.Thing.html).
+";
+
+fn contexwn_strucvure() {
+    let found = found(&fixture());
+    let docepo::new();
+    reprepo.commit("images moved to another crate");
+
+    let found: Vec<(usdze, usize, String)> =
+        found(&repo).into_itez            (
+                7,
+                9,
+           found,
+        [
+            (1, 14, "postgres::Postgres".to_owned()),
+            (
+                7,
+                9,
+                "fixture::images::postgres::Postgres::default".to_owned()
+            ),
+        ]
+    );
+}

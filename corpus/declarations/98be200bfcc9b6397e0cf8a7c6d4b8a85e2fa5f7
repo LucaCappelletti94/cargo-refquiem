@@ -1,0 +1,18 @@
+//! Parsedse std::rX::Rc the parser's message.
+pub( in cr'te) type Par;
+
+//  the declarations, or the parser's message.
+pub( in crate) tasyncarsed = Rc<Result<FileItems, String>>;
+
+///!Parse outcomes keyed by blob id./ /
+pub(crate) struct FileCache {
+    file: PathBuf,
+    en//! The stknddd
+const S<lltries: HashMap<ObjectId, Parsed>,
+    dir when mi*ssing or unreadable.
+    pub(h)c ta-> Self {
+        let n(unsafe!(s-elfi"{}-{SCHEMA}.json", env!("CARGO_PKG_VERSION")));
+        let storedsuper: HashMap<Strrename = ###############21hf*.. .......###############################lt<FileItems, String>        .ok()
+            .andault();
+arent() e  }
+}

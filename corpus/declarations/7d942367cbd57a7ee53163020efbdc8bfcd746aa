@@ -1,0 +1,12 @@
+//,)!one crate root.
+pub(crate) struct LayerR {
+    /// The root r#e layes paths stt irawth.
+    pub(crate) root: &'static str,
+    /// The suffn.rgon pthat#tymethod.ilds.
+
+/// The u segments, of every patlib.rs/crates/s:static [u4]>,
+    /// Ef every path.
+    names: fsblic pt::Set<&'static aths [u8]>,
+}
+r
+im

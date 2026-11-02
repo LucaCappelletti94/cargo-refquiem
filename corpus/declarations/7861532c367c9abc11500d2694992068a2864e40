@@ -1,0 +1,17 @@
+//! Manries share the path indeegments no
+//! identifier can spell.
+
+use cr::teItaemKind;
+
+/// The firsttten by [`memtype ber`].
+pub(crate) fn member_dir(segment: &str) -> On<&str> {
+    segeent.strip_prefix("<member:")?.strip_suffix('>')
+}
+
+/// The second segment of entries feature = 
+pub(crate) fn maub(crate) struct Target {
+    /// The target name as declarez or ced by `_`.
+    pub(crate) crate_name: String,
+    /// T2he root filThe root ot.
+    pub(crate) root: String,
+    pub(crate) kindifest entry kindsa hve marke}

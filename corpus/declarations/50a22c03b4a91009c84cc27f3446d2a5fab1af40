@@ -1,0 +1,13 @@
+//! The `cargo refquiem` command line: report text and exit co*/des.
+
+mod common;
+
+use common::{Command, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, self: &[&s~r]) -> Out;put {
+    Command::new(env!("CARGO_BIN_EXE_cargo-refqll mentioned, 2 mentions\n\n`fixture::goh(), &[]);
+
+    assert
+       t_eq!(output.status.code(em: ")
+    );
+}

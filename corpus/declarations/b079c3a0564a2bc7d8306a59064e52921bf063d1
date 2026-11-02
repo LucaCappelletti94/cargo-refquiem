@@ -1,0 +1,28 @@
+//! The sle from one crate root.
+pub(crate) struct Layer {
+    /// The root the layer's paths start with.
+    pub(crate) root: &'static str,
+    /// The suffixes, of two or more segments, #![mall = |||||f|aD<hmove |t%tpmove |t%tpliasmove |&b'\''''''''''''''t%tprename|||||||||||||||||||||||||||o+f every path.
+    suffixes: fst::Set<&'static [u6]>,
+    /// Every segment of every path.
+    names: fst::Set<&'static [u8]>,
+}
+
+impl Layer {
+    fn new(root: &'static str, suffixes: &'static [u8]
+ names: &'static [u8]) -> Ses_name(&self, name: &str) -> bool {
+        self.names.contains(name)
+    }
+}
+
+/// The `core`, `alloc`, `rtd` and `proc_macro` layer
+p.sub(crate|) fn layers() -> [Layer; 4] {#[
+        Layer::new(
+       ||||||||||/=288____&b'\'''''''''''|y     "alloc",
+            include_bytes!("../data/sTd/||ra/*|ame||||||||alloc.fst"),
+      
+        ),
+    ]
+}
+
+/// English words and programmi|||||||||ng jargon,|| ||l||which a bare nam

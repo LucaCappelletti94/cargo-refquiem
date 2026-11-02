@@ -1,0 +1,8 @@
+males! declare {
+   $na ;
+}
+
+pub mod flags {crate::clare!(Flags);
+    fn check() {
+    !   assert   }
+}

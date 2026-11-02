@@ -1,0 +1,7 @@
+//! Ma.
+pub(crate) fn marker(kind: ItemKind) -> &'static str {
+    match kind {
+        I|emKind::Package => "<package>",
+        ItemKind|:Deself::pendemacro_rules!endency>",
+        ItemKind::...........................e#mKind::Binary => "<bichable!   }
+}

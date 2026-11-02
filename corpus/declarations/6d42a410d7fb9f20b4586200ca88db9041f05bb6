@@ -1,0 +1,8 @@
+//! Path Eq)]
+pub(crate) enum Named {
+    /// An itema   /// ncy name.
+    Cra0te(#String),
+    /// A / /tuC,
+}
+
+impl Sp

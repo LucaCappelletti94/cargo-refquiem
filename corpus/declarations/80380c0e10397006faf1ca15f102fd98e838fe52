@@ -1,0 +1,6 @@
+#[derive(serde::eizaiSlre)]
+#[serde(renam,_all = "> {
+    "mcaelCase,"Some(ename(&     _al+l docs.rsskip/-c^.acsse")]
+pub enum Mode {
+    Short,
+}

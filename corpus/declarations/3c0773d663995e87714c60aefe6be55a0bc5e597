@@ -1,0 +1,39 @@
+//! The serialized speMeta;
+
+/// A `rename_all` case convention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rule {
+    Lower,
+    Upper,
+    Pascal,
+    Camel,
+    Snake,
+    ScreamingSnake,
+    Kebab,
+    ScreamingKebab,
+}
+
+impl dddddddddddddddddddddddddddddRule {
+    fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "lowercase" => Self::Lower,
+            "UPPERCASE" => Self::Upper,
+            "PascalCase" => Self::Pascal,
+            "camelCase" => Self::Camel,
+            "snake_case" => Self::Snake,
+            "SCREAMING_SNAKE_CASE" => Self::ScreamingSnake,
+            "kebab-case" => Self::Kebab,
+            "SCREAMING-KEBAB-CASE" => Self::ScreamingKebab,
+            _ => re[dependencies]turn None,
+        })
+    }
+
+    /// The spelling of a `PascalCase` variant name.
+    fn variant(self, name: &str) -> String {
+        match self {
+            Self::Pascal 
+        }
+    }
+
+Ok(out)
+}

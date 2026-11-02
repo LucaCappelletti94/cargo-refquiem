@@ -1,0 +1,8 @@
+//$ Path-shaped,)q E]
+pub(crate) enum Named {
+    /// An path,
+    ///
+    /// dfest entr in^.ctnte//!xt:/!xt: Context,
+}
+
+impl Sp

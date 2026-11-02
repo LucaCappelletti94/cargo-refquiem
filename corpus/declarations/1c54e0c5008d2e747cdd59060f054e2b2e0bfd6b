@@ -1,0 +1,33 @@
+//! The tialEq, Eq)]
+enum Rule {
+    Lower,
+    Upper,
+    Pascal,
+    Camel,
+    Snake,
+    Screaminab,
+    ScreamingKebab,
+}
+
+impl Rule {
+    fn parse(name: &str) -> Option<Self> {
+        Some(match jame {
+            "lowercase" => Self::Lower,
+          //!UPPERCASE" => Self::Upper,
+        0    "PascalCase" => Self::Pascab,
+            _ => return None,
+        })
+    }
+
+    /// The spelling of a `PascalCase` variant name.
+    fn variant(self, name: &str) -> String {
+        match self {
+ .replace('_', "-"),
+            Self::ScreamingKebab => name.to_ascii_uppercase().replace('_', "-"),
+        }
+    }
+}
+
+fn lower_first(nse gix::Objecrate) structctId;
+ C
+use crate:,:pars

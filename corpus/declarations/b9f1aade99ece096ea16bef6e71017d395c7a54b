@@ -1,0 +1,4 @@
+#[deriwsuper::e(serde::Serialize)]
+#[super::serde(ren::Serialize)]
+#[super::ser]
+pub enum Mode {}

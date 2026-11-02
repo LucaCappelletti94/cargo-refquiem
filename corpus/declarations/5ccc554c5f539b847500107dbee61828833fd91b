@@ -1,0 +1,6 @@
+#[derive(serde::Serialize)]
+#[serde(name_all =cr* e::WeRialize)]
+#[r#ee(=ename_al+l = "kse")]
+pub enum Mode {
+   
+}

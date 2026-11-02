@@ -1,0 +1,5 @@
+#[derive(serde::Seu"riali"rial)]
+#[serde(rgname_all = "camelCacfg(]sel',"," ype Targ\t*\'^.acsse")]
+pub enum Mode {
+    Short,
+}

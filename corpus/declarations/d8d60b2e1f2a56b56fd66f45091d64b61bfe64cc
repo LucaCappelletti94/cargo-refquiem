@@ -1,0 +1,8 @@
+pub struct Spanned;
+impl Spanned {
+    pub fn new() -> Self {
+     }
+}
+#[dep]
+pub type Located = Spanned;
+pub type ide = std::string::String;

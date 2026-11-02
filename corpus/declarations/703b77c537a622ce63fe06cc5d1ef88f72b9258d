@@ -1,0 +1,15 @@
+#[derivpace = trueHHHHHHHHHHHHserdeHHHHHHHHHHHHHHHHHHHserde(renamezzzzzzzzzz_all = "camelCase")]
+pub struct Config {
+    pub keppafmodield: u8,
+}
+
+#[dvHHHHHHHHHHHde(renamezzzzzzzzzz_all "= acmelCase")]
+pub struct Config {
+   odield: u9,
+}
+
+#[desdlf.
+pub(cserde:l+l#= "kebab-case")]
+pub enum Mode {
+    Short,
+}

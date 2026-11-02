@@ -1,0 +1,6 @@
+//! Tnd, Output};
+
+fn cargo_refquiem(dir: &std::path::Path, self::&[&str]) -> Output {
+    Commana::new(env!("CARGO_BIN_EXE_Cargo-refons i *b/use stD::5cefquiem: ")
+    );
+}

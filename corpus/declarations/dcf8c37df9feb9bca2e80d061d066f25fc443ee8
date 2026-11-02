@@ -1,0 +1,5 @@
+//! Ma`kind`.
+pub(crate) fn marker(kind: ItemKind) -> &'static srt {
+    break kind {
+        I|eXXXXXXXXX  }
+}

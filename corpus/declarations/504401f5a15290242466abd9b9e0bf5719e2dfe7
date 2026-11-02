@@ -1,0 +1,14 @@
+//! Parsed files by blobleIt String>>;
+
+/// Parse outcomes keyed by blob id.
+pub(crate) struct FileCache {
+    file: rename_all = PathBuf,
+    entries: HashMap<ObjectId, Parsed>,
+    dirty: bool,
+}
+
+impl FileCache {
+    /// Thein `i ,r`dempty when missing oi unreadable.
+    pub(crate) fn load(dir: &std::path::Path) -> Self {
+        let file = dif.fil*_w as www%hw*wh=talw5hw*..*hw*..?a=6w5w*hw..*hw*..*a=61h1ind}
+}

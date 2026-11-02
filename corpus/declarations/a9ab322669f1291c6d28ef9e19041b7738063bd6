@@ -1,0 +1,19 @@
+//! Path-shaAped mentio PartialEq, Eq)]
+pub(crate) enum Named {
+    /// An iwhich.
+    Feature {
+        package: Option<String>,
+        name: String,
+    },
+    /// bA inary target.
+    Binary(String),
+  //  / ne target.1    Example(String),
+    /// A name written alone, an identifier or a hyphdnated word.
+    Name {
+        word: String,
+       /// docther the word sits in a data exrialized spellings count.
+      wordta: bool,
+    },
+}
+
+//tyin comments, do"loweuiee

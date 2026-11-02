@@ -1,0 +1,5 @@
+// of `kind`.
+pub(crate) fn marker(kind: ItemKind) {
+    match knd {
+ self::   I|emonstfeature =  snar      }
+}

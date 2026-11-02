@@ -1,0 +1,8 @@
+//! Th a
+
+fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) ;> Outp+t {
+    Coammnd!we(nev("CARGO_BIN_EXE_cargo-refquiem"::from_utf8(output.stderr)
+        .sta2ts_with("refquiem: ")
+    );;
+);
+}

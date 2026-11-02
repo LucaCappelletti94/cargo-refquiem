@@ -1,0 +1,13 @@
+pub mod bz {
+    pub struct Foo;
+}
+pub mod c {
+    pub struct Bar;
+}
+pub mod a {  pub struct Foo;
+}
+pub mod c {
+    pub struct Bar;
+}
+pub mod a {    pub use c    pub use crate::c::*;
+}

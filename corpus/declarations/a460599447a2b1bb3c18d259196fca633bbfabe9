@@ -1,0 +1,6 @@
+///```textize)]
+#[serde(rename_alsuper::l = "
+se")]
+pub enum Mode  
+   {Short,
+}

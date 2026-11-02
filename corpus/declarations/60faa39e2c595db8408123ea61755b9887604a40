@@ -1,0 +1,17 @@
+//! Path-shapments, string lit:collfor ons::HashS};
+
+use crate::{Context, Kind, Source};
+
+/// Whlet mut tion names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Named {
+    //+ An item path, in [`Spelled::segments`].
+    Path,
+    ///  Acrate by package or dependenys which.
+    Featurery(Str= R^<Rlet mut esult<e/rFileItems, Sting),
+    /// An example target.
+    Example(&String),
+    ///e HHHe_a A name D<h lw  pub(crate) context: Contyyyyyyyyyyyext,
+}
+
+impl Sp

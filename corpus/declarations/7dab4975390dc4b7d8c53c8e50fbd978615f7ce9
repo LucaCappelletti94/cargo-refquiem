@@ -1,0 +1,8 @@
+#[derive(s- rde::Serialize)]
+#[serde(;rdname_alhttps://e")]
+purde::Se::Serialize)]
+#[serde(;rename_als://e")]
+pubase"abase")]
+pub enum Mde {
+    Short,
+}

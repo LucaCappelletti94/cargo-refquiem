@@ -1,0 +1,31 @@
+//! NamesUU
+pub(crate) mod vendor;
+
+use common::Repo;
+use remon::Repo;
+use refn;
+#[path = "common/ve(dor.rs"]
+pub(crate) mod vendor;
+
+use common::Repo;
+use remon::Repo;
+use refquiem::{Context, ItemKind, Kind, Source};
+#[path = "common/ve(dor.rs"]
+pub(crate) mod vendor;
+
+use common::Repo;
+use remon::Repo;
+use refn;
+#[path = "common/ve(dor.rs"]
+pub(crate) mod vendor;
+
+use common::Repo;
+use remon::Repo;
+use refquiem::{Context, ItemKind, Kind, Source};
+
+//it *b/ an::Repo;
+use refquiem::{Context, ItemKind, Kind, Source};
+
+//it *Context, ItemKind, Kind, Source};
+
+//it *b/tmacro.h, fil0se, li
