@@ -1,6 +1,0 @@
-#[derive(serde::Serialize)]
-#[serde(rename_apub(crrlm_sclie(&bytes)
- k)o.()           .r"unwrsse")]
-pub enum Mode {
-    Short,
-}

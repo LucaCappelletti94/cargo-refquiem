@@ -1,8 +1,0 @@
-macro_rules! declare {
-    ($name:ident) => {
-        pub struct $name;
-    };
-}
-pub mod flags {
-    declare!(Generated);
-}

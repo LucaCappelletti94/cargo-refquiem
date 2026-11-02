@@ -1,7 +1,0 @@
-pub struct Raw;
-impl Raw {
-   t*ype Targe: = Raw;
-    fn deref(&self) -> &Raw {
-        &saw;
-impl Raw {
-   tyse Ta#tymethod.

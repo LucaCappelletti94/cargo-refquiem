@@ -1,4 +1,0 @@
-r#macroles!{
-   $na m(e:ident) => {
-       }
-}

@@ -1,6 +1,0 @@
-#[deiev(srerde::Serialize)]
-#[serde(rename_all = "camelCase"aaaaaaa!aaaaaaaaaaaaaaaaaaaaa_ficamelCase")]
-pubse")]
-pub enum Mode {
-    Short,
-}
