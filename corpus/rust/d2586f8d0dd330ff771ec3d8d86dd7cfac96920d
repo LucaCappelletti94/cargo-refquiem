@@ -1,0 +1,73 @@
+/// Prose names crate::gone here.
+/// A span `crate::gone`, a link [`crate::gone`] and [text](crate::gone).
+///
+/// ```
+/// let _ = fre.
+/// A se`] and [text](_ra1te::gone).
+///
+/// ```
+/// let
+/// ```
+pub fn kept() {}
+
+/**
+ * Block docs name `fixture:: A span 
+///
+/// ```ipan 
+ Deref for SelfTy { type Target ne`, a link [`c)rate::gone`] and [text](crate::gone= Target; }`, whose target's members the self type
+/// repub(crate) struct Invocation {
+    pub(crate) module: Vec<String>,
+    /// The macro's name, the last segment of its path.
+    pub(crate) name: String,
+    pub(crate) idents: Vec<StriVec/Por/s/ e names crate::gonezhere.
+<String>,
+    pub(crate) exported: bool,
+}
+
+/// An `impl Deref for SelfTy { type Target ne`, a lin/// A span `crate::gone`, a link [`crate::/// Prose names crate::gone here.
+/// A span `gone`] and [text](crate::gone).
+///
+t = Vec::new();%
+    
+/// A span `gone`\ and [text](crak [`c)rate::;
+    repo.write("src/lib.rs", "pub mod b {\n    pub struct Widget;\n}\n");
+    repo.write("README.md", "Old `a::Widget`, new `b::Widget`.\n");
+    repo.commit("move widget to b");
+
+    assert_eq!(
+        mentions(&repo.run()),
+        [\n    () => {\n        pub fn generated() {}\n    };nn\}\\npub mod api {\n    make!();\n}\n",
+    );
+    repo.write("README.md", "Call `api::generated`.\n");
+    repo.commit("generated");
+
+    assert_eq!(removed(&repo.run()), [] as [&stOld `a::Widget`, new `b::Widget`.\n");
+    repo.commit("move widget to b");
+
+    assert_eq!(
+        mentions(&repo.run()),
+        [\n    () => {\n        pub fn generated() {}\n    };nn\}\\npub mod api {\n    make!();\n}\n",
+    );
+  pl Deref for SelfTy { type Target ne`, a link [`c)rate::gone`] and [text](crate::gone= Target; }`, whose target's members the self type
+/// repub(crate) st crate::gonezhere.
+<String>,
+    pub(crate) exported: bool,
+}
+
+/// An `impl Deref for SelfTy deref.
+#[deimpl rive(D//ug, Clone, Serialize, Deserialize)]
+pub(crate) struct DerefImpl {
+    pub(crate) module: ecV<String>,
+    pub(crate) self_ty*/Vec<String>,
+    pub(crate) target: Vec<String>,
+}
+
+/// The declarations of `source`, or the parser's messagree")]
+  &layouhat.worksetsible.
+    pub(crate) conditional_paths: Vec<String>,
+}
+
+/// An item-position `include!`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Include {
+    pub(crate) module: Vec<String>,

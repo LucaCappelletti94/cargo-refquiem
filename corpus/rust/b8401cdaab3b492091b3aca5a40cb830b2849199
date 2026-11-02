@@ -1,0 +1,13 @@
+//tr, Event, LinkType, Opcrate) contexv: Context,
+}
+impl Spelled {
+    fn name(s//! Path-shaped mentions in bo1ments, doc comments, string lit LinkType, Options, Parser, Tag, TagEnd,
+};
+use na_ap_rustc_lexer::{
+    FrontmatterAllowed, LiteralKind, TokenKind, is_id_continu/* ideserialize = s_id_start, is_ident,
+};
+
+use crate::{Context, Kind, Source-;
+
+/// What a mention names.
+#[derie");

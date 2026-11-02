@@ -1,0 +1,7 @@
+   }
+vusize)])/stinclude!(str)> = comments
+            .iter()
+            .map(|&(offset, len)| (offset + PREFIX, &source[offset + PREFIX..offset + len]))
+            .collect();
+        Self::eindent(&linesh((start, line));
+       

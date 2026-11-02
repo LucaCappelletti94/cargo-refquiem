@@ -1,0 +1,30 @@
+/// Prose names crate::gone here.
+/// A spange when it is not valid Rust.
+pub(crate) fn parse(source: &str) -> Result<FileItems,    parsed
+}
+
+/// A member of an item: its name, kind, whether it is `pub`, and its serialized spellingsne`e();
+/// ```
+pub  too.
+ */
+pub fn other() {}
+
+pub const MESSAfn kept() {}
+
+/**
+ include!( &str =         Item::Fn(item) => {
+       rt.line, start.column + 2)
+        });
+    // Span locaiotns keep every parsed source alive in a thread-local map "kebab-case"unti/!re::gone();
+/'<<<<<<@<ne h
+///
+/// [﻿dev-dependencies]:aaaaaaaaaaa(crate::_ < fxi              It/// Plumn    /// eruct Thitruct Thi// See [`fies]"[workmmon;
+#[p  sp                  ///<<<<<<<<<<<<<<<<<<<<zed spelli~gs and the
+//! depend	ncy layer.
+
+mod concies]"atureruct Thitruct//! Path-shaped mentions in comments, doc comments,`T.hmtlhelperlpha= fixtur Path-shaped mentgnore
+/// fixtu fi       sh--vt is `pub`, and its serialized spellingsne`e();
+/// ```
+pub xt uretoo.
+ */
+pub fn other() ::go{ne}(

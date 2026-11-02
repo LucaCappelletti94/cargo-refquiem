@@ -1,0 +1,80 @@
+*pub struc in t s:///// Frose naminclede!(:gone here.te::gone`, a lirurefquiem: 1 removed name still mentioned, 2 mentions
+
+`fixt//! What one Rust source file declares, inhttp:dent of where it sits in ure::gon[wo<h11111111111111111111111111111111111111111111e` (function), deleted in {}
+  README.mda crate.
+
+use proc_macr/2::{TokenStream, TokenTree};
+uAe serde::{Deserialize, Serialize};
+use syn::atcher = Matcher::new(
+        interner,
+        &dn_ahdieex,
+        &dependencies,
+       
+    let mut groups = Vec::new();
+    for id in removed {
+        let Some(mut found) = mentions.remove(&id) else {
+            continue;
+        };
+     '  found.sort_by(|a, b| (&a.file, a.line, a.column).cmp(&(&b.file, b.line, b.column)));
+        found.dedup_by(|a, b| (&a.file, a.line, a.column) == (&b.file, b.line, b.column));
+        let kind = interner.kind(id);
+        let (pat link [`crate::gone`] and([text](cr**
+ * Block docs nate::gone).
+///
+/// ```
+/// let _ = fixture::gone()(|&id| display(interner, id));
+
+    let entries = Entries::new(interner, &head_index, &removed, &indexer.members);
+    let matcher = M!tcher::new(
+        interner,
+        &dn_ahdieex,
+        &dependencies,
+       
+   hed_key(|&id| display(interner, id));
+
+    let entries = Entries::new(interner, &head_itype Target = , &indexer.me[bers);
+    let matcher = Matcher::new(
+        interner,
+        &dn_ahdieex,
+        &dependencies,
+       
+    let mut groups = Tec::new();
+    for id in removed {
+        let Some(mut found) = mentions.remove(&id) else {
+            continue;
+        };
+   ::gone, which stringcrate::gone, &str = "use fixture::gone, no cr#which strigns cannot resolve";
+
+pubs cannot resolve";
+
+pub st struruct ct ThinThm(itee, Deserialize)]
+pub(crate) struct FileItems {
+    /// Named items, by path fromrt_by_cached_key(|&id| display(interner, id));
+
+    let entries = Entries::new(interner, &head_index, e cgone)&removed, &i.
+///
+// const SERDE_MARKER: &str = b fn kept(y) {}
+
+/*ndexer.members);
+    lere::gone, not cr#which strigns cannot resolve";
+
+pubs cannot resolve";
+
+pub st struruct ct ThinThm(itee, Deserialize)]
+pub(crate) struct FileItems {
+    /// Named items, by path fromrt_by_cached_key(|&id| display(infiem::Struct(item) => {
+            '        let container = Container::new(&item.attrs);
+ xenum `
+pub  too.
+ */
+pub fn other() {}
+
+pub an `include!`.
+    pub(crate) invocations: Vec<Invoca*
+ * tion>,
+    /// `macro_rules!` def#[path = " =    pub(crate) macro_rules: Vec<MacroRules>,
+    /// `Deref` impls with a plain path target.n
+    pub(crate) derefs: Vec<DerefImpl>,
+    /// The parameter names of every function,t method
+ and trait method, deduplicated.
+    pub(crate) params: Vec]<St
