@@ -1,5 +1,0 @@
-pub struchw toSn;
-impl core::fmt::Display   fn fmt(&se: &mut core::fmt::Formatter<'_># -> core::fmt::Result {
-        f.write_str("x")
-    }
-}
