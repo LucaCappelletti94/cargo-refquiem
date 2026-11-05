@@ -297,6 +297,28 @@ fn postgres_18_claims_underscore_and_non_english_function_names() {
 }
 
 #[test]
+fn postgres_18_claims_catalog_functions_the_function_chapter_omits() {
+    let repo = removed_names(
+        "pub fn interval_in() {}\npub fn float8in() {}\npub fn xmlelement() {}\npub struct Infinity;\n",
+        "interval_in",
+        "`interval_in` and `float8in`\n`xmlelement` and `Infinity`\n",
+    );
+    assert_claims(
+        &repo,
+        "postgres@18",
+        &[
+            ("README.md", 1, "float8in"),
+            ("README.md", 1, "interval_in"),
+            ("README.md", 2, "xmlelement"),
+        ],
+        &[
+            ("README.md", 2, "Infinity"),
+            ("src/lib.rs", 2, "interval_in"),
+        ],
+    );
+}
+
+#[test]
 fn sqlite_3_54_claims_underscore_and_non_english_function_names() {
     let repo = removed_names(
         "pub fn json_extract() {}\npub fn strftime() {}\npub fn glob() {}\n",

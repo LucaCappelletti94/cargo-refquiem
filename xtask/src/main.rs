@@ -339,23 +339,25 @@ fn claimable_function(name: &str, english: &fst::Set<Vec<u8>>) -> bool {
     identifier && (name.trim_matches('_').contains('_') || !english.contains(name))
 }
 
-/// Writes `words.fst`, the claimable names among the functions PostgreSQL's Functions and
-/// Operators chapter documents, and PostgreSQL's `COPYRIGHT`, which its license requires next
-/// to any copy.
+/// Writes `words.fst`, the claimable names among the functions PostgreSQL's catalog defines
+/// and the key-word functions its Functions and Operators chapter documents, and PostgreSQL's
+/// `COPYRIGHT`, which its license requires next to any copy.
 ///
-/// A documented name counts when the catalog defines a function of that name or the grammar
-/// a key word, as for `coalesce`, which leaves out names the prose merely cites.
+/// The catalog holds the type input and output functions such as `interval_in` that the
+/// chapter leaves out. A documented name counts as a key-word function when the grammar has
+/// that key word, as for `xmlelement`, which leaves out names the prose merely cites.
 fn postgres(out: &Path, english: &fst::Set<Vec<u8>>) -> Result<(), Error> {
     let pinned = include_str!("../../data/postgres/POSTGRESQL").trim_ascii();
     let show = pinned_files(POSTGRESQL_REPOSITORY, "postgresql", pinned)?;
     let catalog = show("src/include/catalog/pg_proc.dat")?;
-    let keywords = show("src/include/parser/kwlist.h")?;
-    let defined: HashSet<&str> = delimited(&catalog, "proname => '", "'")
-        .chain(delimited(&keywords, "PG_KEYWORD(\"", "\""))
-        .collect();
+    let grammar = show("src/include/parser/kwlist.h")?;
+    let keywords: HashSet<&str> = delimited(&grammar, "PG_KEYWORD(\"", "\"").collect();
     let chapter = show("doc/src/sgml/func.sgml")?;
-    let words: BTreeSet<&str> = delimited(&chapter, "<function>", "</function>")
-        .filter(|name| defined.contains(name) && claimable_function(name, english))
+    let words: BTreeSet<&str> = delimited(&catalog, "proname => '", "'")
+        .chain(
+            delimited(&chapter, "<function>", "</function>").filter(|name| keywords.contains(name)),
+        )
+        .filter(|name| claimable_function(name, english))
         .collect();
     create_dir(out)?;
     let count = write_set(&out.join("words.fst"), words.iter().copied())?;
