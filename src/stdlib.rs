@@ -157,8 +157,8 @@ impl Vocabulary {
         }
     }
 
-    /// The documented PostgreSQL 18 function names with an inner underscore, or single words
-    /// English lacks, such as `set_config` and `uuidv7`.
+    /// The PostgreSQL 18 catalog and key-word function names with an inner underscore, or
+    /// single words English lacks, such as `set_config`, `interval_in` and `uuidv7`.
     pub(crate) fn postgres_18() -> Self {
         Self {
             words: fst::Set::new(&include_bytes!("../data/postgres/words.fst")[..])
