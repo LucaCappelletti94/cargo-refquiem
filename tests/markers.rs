@@ -3,7 +3,7 @@
 mod common;
 
 use common::Repo;
-use refquiem::{Options, UnusedMarker};
+use refquiem::{Options, Range, UnusedMarker};
 
 /// A repository whose `fixture::Gone` and `fixture::Other` were removed.
 fn removed() -> Repo {
@@ -147,4 +147,80 @@ fn a_nested_html_comment_preserves_mentions_after_the_comment() {
     assert_eq!(reported(&report), [("README.md".to_owned(), 3)]);
     assert_eq!(report.groups[0].path, "fixture::Gone");
     assert_eq!(report.unused_markers, []);
+}
+
+/// The commits that add `fixture::Gone`, drop it beside the notes that mention it under a
+/// marker, and change nothing about either.
+fn dropped_then_untouched() -> (Repo, [String; 3]) {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub struct Gone;\n");
+    let added = repo.commit("add Gone");
+    repo.write("src/lib.rs", "pub struct Kept;\n");
+    repo.write(
+        "src/notes.rs",
+        "// refquiem: allow(Gone)\n// `fixture::Gone`\n\n// refquiem: allow(Gone, Missing)\npub struct Other;\n",
+    );
+    let dropped = repo.commit("drop Gone");
+    repo.write("README.md", "Unrelated.\n");
+    let untouched = repo.commit("add a readme");
+    (repo, [added, dropped, untouched])
+}
+
+/// The scan of `range` in `repo`.
+fn ranged(repo: &Repo, range: Range) -> Options {
+    let mut options = Options::new(repo.path().to_path_buf());
+    options.range = range;
+    options
+}
+
+fn base(base: &str, head: &str) -> Range {
+    Range::Base {
+        base: base.to_owned(),
+        head: Some(head.to_owned()),
+    }
+}
+
+#[test]
+fn every_range_gives_a_marker_the_verdict_of_the_full_history() {
+    let (repo, [added, dropped, untouched]) = dropped_then_untouched();
+    let ranges = [
+        Range::Full,
+        base(&added, &dropped),
+        base(&dropped, &untouched),
+        Range::Since(dropped),
+    ];
+    for range in ranges {
+        let options = ranged(&repo, range);
+        let report = refquiem::run(&options).unwrap();
+        assert_eq!(reported(&report), [], "{:?}", options.range);
+        assert_eq!(
+            report.unused_markers,
+            [
+                unused("src/notes.rs", 4, 20, "Gone"),
+                unused("src/notes.rs", 4, 26, "Missing")
+            ],
+            "{:?}",
+            options.range
+        );
+    }
+}
+
+#[test]
+fn the_full_history_judging_markers_starts_at_the_config_since() {
+    let (repo, [_, dropped, untouched]) = dropped_then_untouched();
+    repo.write(".refquiem.toml", &format!("since = \"{untouched}\"\n"));
+    for range in [Range::Full, base(&dropped, &untouched)] {
+        let options = ranged(&repo, range);
+        let report = refquiem::run(&options).unwrap();
+        assert_eq!(
+            report.unused_markers,
+            [
+                unused("src/notes.rs", 1, 20, "Gone"),
+                unused("src/notes.rs", 4, 20, "Gone"),
+                unused("src/notes.rs", 4, 26, "Missing")
+            ],
+            "{:?}",
+            options.range
+        );
+    }
 }

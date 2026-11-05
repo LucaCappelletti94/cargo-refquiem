@@ -143,10 +143,33 @@ pub(crate) fn repository(options: &Options) -> Result<gix::Repository, Error> {
     })
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the scan driver lists its steps one per line, splitting it would hide their order"
-)]
+/// What every walk of a scan shares, read once at head.
+struct Shared<'s> {
+    repo: &'s gix::Repository,
+    options: &'s Options,
+    config: &'s Config,
+    layout: &'s Layout,
+    head: &'s Head,
+    head_snapshot: &'s dyn Snapshot,
+    head_index: &'s Index,
+    dependencies: &'s deps::Layer,
+    vocabularies: &'s Vocabularies,
+    scratch: &'s Scratch<'s>,
+}
+
+/// The mentions at head of what a walk removed, and what the rest of the scan takes from it.
+struct Walked {
+    walk: IndexedRange,
+    changed: Changed,
+    skipped: Vec<crate::Skipped>,
+    groups: Vec<Group>,
+    /// The removed path of each group.
+    ids: Vec<PathId>,
+    suggestable: Vec<Suggestable>,
+    changed_mentions: HashMap<PathId, Vec<Mention>>,
+    markers: Vec<Marker>,
+}
+
 pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let mut repo = repository(options)?;
     // Trees are looked up by path once per module file and commit, mostly hitting the same objects.
@@ -154,7 +177,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let layout = layout(options, &repo)?;
     let workspace_dir = layout.workdir.join(&layout.workspace);
     let (config_path, config, range) = settings(options, &workspace_dir)?;
-    let custom = load_custom(&config_path, &config)?;
+    let vocabularies = Vocabularies::new(&config, load_custom(&config_path, &config)?);
     let mut indexer = Indexer::new(FileCache::load(&layout.cache_dir));
     let (commits, head, start) = git::range(&repo, &range)?;
     let head_snapshot = head_snapshot(&repo, &layout, &commits, &head, &indexer.trees);
@@ -167,99 +190,33 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let dependencies = deps::head(&mut indexer, &*head_snapshot, &scratch)?;
     let head_index = indexer.index(&*head_snapshot, &layout.workspace, true)?;
     indexer.use_head_macros(&head_index);
+    let shared = Shared {
+        repo: &repo,
+        options,
+        config: &config,
+        layout: &layout,
+        head: &head,
+        head_snapshot: &*head_snapshot,
+        head_index: &head_index,
+        dependencies: &dependencies,
+        vocabularies: &vocabularies,
+        scratch: &scratch,
+    };
 
     // Only a range starting from a chosen base has changes the files it left alone may miss.
     let compared = (matches!(range, Range::Base { .. }) && config.changed.level != Level::Allow)
         .then_some(start)
         .flatten();
-    let walk = index_range(
-        &mut indexer,
-        &repo,
-        &commits,
-        &layout,
-        &head_index,
-        compared,
-    )?;
-    let changed = if compared.is_some() {
-        Changed::new(
-            &indexer.interner,
-            &head_index,
-            &dependencies.paths,
-            &walk.start_definitions,
-            config.changed.compare(),
-        )
-    } else {
-        Changed::default()
-    };
-    let states = &walk.states;
-
-    let mut removed: Vec<PathId> = states
-        .paths()
-        .filter(|&id| !kept_by_macro(&indexer.interner, &head_index, id))
-        .collect();
-    let removals = removals(&indexer.interner, &removed, &commits, states);
-    let alive = [&head_index.paths, &dependencies.paths];
-    let dependency_removals = deps::removed(&mut indexer, &repo, &removals, alive, &scratch)?;
-    let dependency_items = dependency_removals.items;
-    let interner = &indexer.interner;
-    let rooted = rooted(interner, &dependency_items, &dependencies, &indexer.crates);
-    removed.extend(dependency_items.keys().copied());
-    removed.sort_by_cached_key(|&id| display(interner, id));
-    let history = History::new(&commits, states, &walk.boundary, &head);
-    let ranked = ranked(
-        interner,
-        &history,
-        &removed,
-        &dependency_items,
-        &indexer.crates,
-    );
-
-    let entries = Entries::new(interner, &head_index, &removed, &indexer.members);
-    let mut matcher = Matcher::new(
-        interner,
-        &head_index,
-        &dependencies,
-        &ranked,
-        &entries,
-        &indexer.crates,
-        &rooted,
-    );
-    matcher.add_vocabulary(&config.allow);
-    matcher.vocabularies = Vocabularies::new(&config, custom);
-    let filter = filter(
-        options,
-        &config,
-        &entries,
-        &workspace_dir,
-        &layout.workspace,
-    )?;
-    let start_snapshot = compared
-        .and_then(|start| commits.iter().find(|commit| commit.id == start))
-        .map(|start| TreeSnapshot::new(&repo, start.tree, &indexer.trees));
-    let Found {
-        mentions,
+    let Walked {
+        walk,
+        changed,
+        skipped,
+        mut groups,
+        ids,
+        suggestable,
         changed_mentions,
         markers,
-    } = find_mentions(
-        &*head_snapshot,
-        &head_index,
-        &matcher,
-        (
-            &changed,
-            start_snapshot.as_ref().map(|s| s as &dyn Snapshot),
-        ),
-        &layout.target_prefix,
-        &filter,
-    )?;
-    let (mut groups, ids, suggestable) = groups(
-        interner,
-        &entries,
-        &history,
-        removed,
-        mentions,
-        &dependency_items,
-    );
-    drop(entries);
+    } = walked(&mut indexer, &shared, &commits, compared)?;
     let scan = Historical {
         repo: &repo,
         workspace: &layout.workspace,
@@ -275,8 +232,13 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         &mut groups,
     )?;
     let mut changed_items = changed_items(&mut indexer, &scan, &changed, changed_mentions)?;
+    let mut unused_markers = suppress(&mut groups, &mut changed_items, markers, &config.allow);
+    if !unused_markers.is_empty()
+        && let Some(unused) = unused_in_full_history(&mut indexer, &shared, start)?
+    {
+        unused_markers.retain(|marker| unused.contains(marker));
+    }
     indexer.save();
-    let unused_markers = suppress(&mut groups, &mut changed_items, markers, &config.allow);
     suggest::replacements(&mut groups, |file| scan.head_text(file));
     let mut report = Report {
         base: start.map(|id| id.to_string()),
@@ -284,12 +246,153 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         groups,
         changed: changed_items,
         changed_level: config.changed.level,
-        skipped: dependency_removals.skipped,
+        skipped,
         unused_markers,
         edited: HashSet::new(),
     };
     report.fill_edited(&repo, &head, &*head_snapshot, &indexer.trees)?;
     Ok(report)
+}
+
+/// The mentions at head of what `commits` removed, grouped by removed path, with head's
+/// suppression markers and, from the commit `compared` on, the mentions of changed items.
+fn walked(
+    indexer: &mut Indexer,
+    shared: &Shared<'_>,
+    commits: &[git::Commit],
+    compared: Option<ObjectId>,
+) -> Result<Walked, Error> {
+    let Shared {
+        repo,
+        options,
+        config,
+        layout,
+        head,
+        head_snapshot,
+        head_index,
+        dependencies,
+        ..
+    } = *shared;
+    let walk = index_range(indexer, repo, commits, layout, head_index, compared)?;
+    let changed = if compared.is_some() {
+        Changed::new(
+            &indexer.interner,
+            head_index,
+            &dependencies.paths,
+            &walk.start_definitions,
+            config.changed.compare(),
+        )
+    } else {
+        Changed::default()
+    };
+    let states = &walk.states;
+
+    let mut removed: Vec<PathId> = states
+        .paths()
+        .filter(|&id| !kept_by_macro(&indexer.interner, head_index, id))
+        .collect();
+    let removals = removals(&indexer.interner, &removed, commits, states);
+    let alive = [&head_index.paths, &dependencies.paths];
+    let dependency_removals = deps::removed(indexer, repo, &removals, alive, shared.scratch)?;
+    let dependency_items = dependency_removals.items;
+    let interner = &indexer.interner;
+    let rooted = rooted(interner, &dependency_items, dependencies, &indexer.crates);
+    removed.extend(dependency_items.keys().copied());
+    removed.sort_by_cached_key(|&id| display(interner, id));
+    let history = History::new(commits, states, &walk.boundary, head);
+    let ranked = ranked(
+        interner,
+        &history,
+        &removed,
+        &dependency_items,
+        &indexer.crates,
+    );
+
+    let entries = Entries::new(interner, head_index, &removed, &indexer.members);
+    let mut matcher = Matcher::new(
+        interner,
+        shared,
+        &ranked,
+        &entries,
+        &indexer.crates,
+        &rooted,
+    );
+    matcher.add_vocabulary(&config.allow);
+    let filter = filter(
+        options,
+        config,
+        &entries,
+        shared.scratch.workspace_dir,
+        &layout.workspace,
+    )?;
+    let start_snapshot = compared
+        .and_then(|start| commits.iter().find(|commit| commit.id == start))
+        .map(|start| TreeSnapshot::new(repo, start.tree, &indexer.trees));
+    let Found {
+        mentions,
+        changed_mentions,
+        markers,
+    } = find_mentions(
+        head_snapshot,
+        head_index,
+        &matcher,
+        (
+            &changed,
+            start_snapshot.as_ref().map(|s| s as &dyn Snapshot),
+        ),
+        &layout.target_prefix,
+        &filter,
+    )?;
+    let (groups, ids, suggestable) = groups(
+        interner,
+        &entries,
+        &history,
+        removed,
+        mentions,
+        &dependency_items,
+    );
+    Ok(Walked {
+        walk,
+        changed,
+        skipped: dependency_removals.skipped,
+        groups,
+        ids,
+        suggestable,
+        changed_mentions,
+        markers,
+    })
+}
+
+/// The markers that suppress nothing in the scan of the full history up to the scanned head,
+/// which starts at the config's `since` when it has one, `None` when the range starting at
+/// `start` is that history already.
+///
+/// A range starting after the removal a marker was written for no longer sees the removed name,
+/// so each range takes the full history's verdict on its markers.
+fn unused_in_full_history(
+    indexer: &mut Indexer,
+    shared: &Shared<'_>,
+    start: Option<ObjectId>,
+) -> Result<Option<Vec<UnusedMarker>>, Error> {
+    let since = match &shared.config.since {
+        Some(since) => Some(git::resolve(shared.repo, since)?),
+        None => None,
+    };
+    if since == start {
+        return Ok(None);
+    }
+    let commits = git::walk(shared.repo, shared.head.tip(), since)?;
+    let Walked {
+        mut groups,
+        markers,
+        ..
+    } = walked(indexer, shared, &commits, None)?;
+    Ok(Some(suppress(
+        &mut groups,
+        &mut Vec::new(),
+        markers,
+        &shared.config.allow,
+    )))
 }
 
 /// The scanned head commit as its full id, the `HEAD` commit for a working tree scan, absent
@@ -1463,7 +1566,7 @@ struct Matcher<'a> {
     /// The library crate names of head.
     libs: Vec<&'a str>,
     std: [stdlib::Layer; 4],
-    vocabularies: Vocabularies,
+    vocabularies: &'a Vocabularies,
     entries: &'a Entries<'a>,
     /// The crate names of every workspace target in any indexed snapshot.
     crates: &'a HashSet<Sym>,
@@ -1481,17 +1584,19 @@ impl<'a> Matcher<'a> {
                 .filter_map(|name| interner.find_sym(name)),
         );
     }
-    /// Builds the matcher from the `removed` paths in their [`ranked`] order, where the
-    /// `rooted` among them match only as whole paths from their crate root.
+    /// Builds the matcher of head and its dependencies in `shared` from the `removed` paths in
+    /// their [`ranked`] order, where the `rooted` among them match only as whole paths from
+    /// their crate root.
     fn new(
         interner: &'a Interner,
-        head: &'a Index,
-        dependencies: &deps::Layer,
+        shared: &Shared<'a>,
         removed: &[PathId],
         entries: &'a Entries<'a>,
         crates: &'a HashSet<Sym>,
         rooted: &HashSet<PathId>,
     ) -> Self {
+        let head = shared.head_index;
+        let dependencies = shared.dependencies;
         let mut alive = HashSet::new();
         let mut names = head.locals.clone();
         for &id in head.paths.iter().chain(&dependencies.paths) {
@@ -1549,7 +1654,7 @@ impl<'a> Matcher<'a> {
             removed_spellings,
             libs: head.libs.iter().map(|&lib| interner.name(lib)).collect(),
             std: stdlib::layers(),
-            vocabularies: Vocabularies::default(),
+            vocabularies: shared.vocabularies,
             entries,
             crates,
             reexports: &head.reexports,
