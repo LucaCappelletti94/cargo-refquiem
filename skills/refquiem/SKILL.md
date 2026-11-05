@@ -67,7 +67,7 @@ compare = "values" # "shapes", or "bodies" to add function bodies
 
 Write a local marker in a Rust line comment or Markdown HTML comment. Marker text inside Markdown code has no suppression effect.
 
-A marker that hides nothing becomes a finding, `refquiem: allow(name) suppresses nothing`.
+A marker that hides nothing becomes a finding, `refquiem: allow(name) suppresses nothing`. The range never changes that verdict. A `--since` or `--base` scan keeps a marker the full history scan needs, even when the removal it covers lies before the range.
 
 ## Vocabularies
 

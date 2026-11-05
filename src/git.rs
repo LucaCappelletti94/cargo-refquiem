@@ -435,6 +435,16 @@ pub(crate) enum Head {
     Commit(ObjectId),
 }
 
+impl Head {
+    /// The commit the walk starts from, `HEAD` for the working tree.
+    pub(crate) fn tip(&self) -> Option<ObjectId> {
+        match self {
+            Self::WorkTree(commit) => *commit,
+            Self::Commit(commit) => Some(*commit),
+        }
+    }
+}
+
 /// The commits of `range`, children before parents, what they are compared against, and the
 /// range's starting commit when it has one.
 pub(crate) fn range(
@@ -442,26 +452,29 @@ pub(crate) fn range(
     range: &Range,
 ) -> Result<(Vec<Commit>, Head, Option<ObjectId>), Error> {
     let head_commit = || -> Option<ObjectId> { repo.head_id().ok().map(gix::Id::detach) };
-    let (tip, hidden, head) = match range {
-        Range::Full => (head_commit(), None, Head::WorkTree(head_commit())),
-        Range::Since(since) => (
-            head_commit(),
-            Some(resolve(repo, since)?),
-            Head::WorkTree(head_commit()),
-        ),
+    let (hidden, head) = match range {
+        Range::Full => (None, Head::WorkTree(head_commit())),
+        Range::Since(since) => (Some(resolve(repo, since)?), Head::WorkTree(head_commit())),
         Range::Base { base, head } => {
             let base = resolve(repo, base)?;
             match head {
-                Some(spec) => {
-                    let tip = resolve(repo, spec)?;
-                    (Some(tip), Some(base), Head::Commit(tip))
-                }
-                None => (head_commit(), Some(base), Head::WorkTree(head_commit())),
+                Some(spec) => (Some(base), Head::Commit(resolve(repo, spec)?)),
+                None => (Some(base), Head::WorkTree(head_commit())),
             }
         }
     };
+    Ok((walk(repo, head.tip(), hidden)?, head, hidden))
+}
+
+/// The commits reachable from `tip` and not from `hidden`, plus `hidden` itself, children
+/// before parents.
+pub(crate) fn walk(
+    repo: &gix::Repository,
+    tip: Option<ObjectId>,
+    hidden: Option<ObjectId>,
+) -> Result<Vec<Commit>, Error> {
     let Some(tip) = tip else {
-        return Ok((Vec::new(), head, hidden));
+        return Ok(Vec::new());
     };
     let mut ids: Vec<(ObjectId, Vec<ObjectId>)> = Vec::new();
     let walk = repo
@@ -484,7 +497,7 @@ pub(crate) fn range(
         let tree = commit_tree(repo, id)?;
         commits.push(Commit { id, tree, parents });
     }
-    Ok((commits, head, hidden))
+    Ok(commits)
 }
 
 /// The root tree of commit `id`.
@@ -497,7 +510,7 @@ pub(crate) fn commit_tree(repo: &gix::Repository, id: ObjectId) -> Result<Object
         .detach())
 }
 
-fn resolve(repo: &gix::Repository, spec: &str) -> Result<ObjectId, Error> {
+pub(crate) fn resolve(repo: &gix::Repository, spec: &str) -> Result<ObjectId, Error> {
     let failed = |source| Error::Revision {
         spec: spec.to_owned(),
         source,
