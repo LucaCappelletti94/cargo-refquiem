@@ -152,4 +152,17 @@ pub enum Error {
     /// An exclude glob is not valid gitignore syntax.
     #[error("reading the exclude globs")]
     Exclude(#[source] ignore::Error),
+    /// A `[sql-dialects]` glob is not valid gitignore syntax.
+    #[error("reading the [sql-dialects] globs")]
+    SqlDialectGlob(#[source] ignore::Error),
+    /// Two `[sql-dialects]` globs give one file different dialects.
+    #[error("the [sql-dialects] globs `{first}` and `{second}` give {file} two dialects")]
+    SqlDialects {
+        /// The file, from the repository root.
+        file: String,
+        /// The glob that matched first, in sorted order.
+        first: String,
+        /// The glob that gave a different dialect.
+        second: String,
+    },
 }
