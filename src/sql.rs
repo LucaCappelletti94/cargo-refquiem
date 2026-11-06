@@ -4,7 +4,7 @@ use std::ops::ControlFlow;
 
 use sqlparser::ast::{
     AlterTableOperation, CreateFunction, CreateFunctionBody, DoOption, DoStatement, Expr, Ident,
-    ObjectName, RenameTableNameKind, SchemaName, Statement, TableConstraint,
+    ObjectName, ObjectNamePart, RenameTableNameKind, SchemaName, Statement, TableConstraint,
     UserDefinedTypeRepresentation, Value, ValueWithSpan, Visit, visit_statements,
 };
 use sqlparser::dialect::{GenericDialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
@@ -247,20 +247,21 @@ impl Collector {
         }
     }
 
+    /// The constraint's name and, for MySQL's keys, the name of the index backing it.
     fn constraint(&mut self, constraint: &TableConstraint) {
-        let name = match constraint {
-            TableConstraint::Unique(unique) => &unique.name,
-            TableConstraint::PrimaryKey(key) => &key.name,
-            TableConstraint::ForeignKey(key) => &key.name,
-            TableConstraint::Check(check) => &check.name,
-            TableConstraint::Index(index) => &index.name,
-            TableConstraint::FulltextOrSpatial(index) => &index.opt_index_name,
+        let (name, index) = match constraint {
+            TableConstraint::Unique(unique) => (&unique.name, &unique.index_name),
+            TableConstraint::PrimaryKey(key) => (&key.name, &key.index_name),
+            TableConstraint::ForeignKey(key) => (&key.name, &key.index_name),
+            TableConstraint::Check(check) => (&check.name, &None),
+            TableConstraint::Index(index) => (&index.name, &None),
+            TableConstraint::FulltextOrSpatial(index) => (&index.opt_index_name, &None),
             TableConstraint::PrimaryKeyUsingIndex(index)
-            | TableConstraint::UniqueUsingIndex(index) => &index.name,
-            TableConstraint::Exclude(exclude) => &exclude.name,
+            | TableConstraint::UniqueUsingIndex(index) => (&index.name, &None),
+            TableConstraint::Exclude(exclude) => (&exclude.name, &None),
         };
-        if let Some(name) = name {
-            self.ident(name);
+        for ident in [name, index].into_iter().flatten() {
+            self.ident(ident);
         }
     }
 
@@ -271,21 +272,24 @@ impl Collector {
                 self.ident(name);
             }
         }
-        let Some(
-            CreateFunctionBody::AsBeforeOptions {
-                body: Expr::Value(body),
-                ..
-            }
-            | CreateFunctionBody::AsAfterOptions(Expr::Value(body)),
-        ) = &function.function_body
-        else {
+        let body = match &function.function_body {
+            Some(
+                CreateFunctionBody::AsBeforeOptions {
+                    body: Expr::Value(body),
+                    ..
+                }
+                | CreateFunctionBody::AsAfterOptions(Expr::Value(body)),
+            ) => source(body),
+            _ => None,
+        };
+        let Some((text, at)) = body else {
             return;
         };
         let language = function
             .language
             .as_ref()
             .map(|language| language.value.as_str());
-        self.body(language.unwrap_or("sql"), body);
+        self.body(language.unwrap_or("sql"), text, at);
     }
 
     fn do_block(&mut self, block: &DoStatement) {
@@ -294,30 +298,23 @@ impl Collector {
         for option in &block.options {
             match option {
                 DoOption::Language(name) => language = &name.value,
-                DoOption::LanguageLiteral(name) => {
-                    if let Some(name) = text(&name.value) {
-                        language = name;
-                    }
-                }
-                DoOption::Code(body) => code = Some(body),
+                DoOption::LanguageLiteral(name) => language = text(&name.value).unwrap_or(language),
+                DoOption::Code(body) => code = source(body),
             }
         }
-        if let Some(code) = code {
-            self.body(language, code);
+        if let Some((text, at)) = code {
+            self.body(language, text, at);
         }
     }
 
-    /// Reads the body string `body` written in `language`, `plpgsql` through
-    /// `sqlparser-plpgsql` and `sql` as statements of the document's dialect.
-    fn body(&mut self, language: &str, body: &ValueWithSpan) {
-        let Some(source) = text(&body.value) else {
-            return;
-        };
+    /// Reads the body `source` written in `language`, which starts at `start` in the document,
+    /// `plpgsql` through `sqlparser-plpgsql` and `sql` as statements of the document's dialect.
+    fn body(&mut self, language: &str, source: &str, start: Location) {
         let plpgsql = language.eq_ignore_ascii_case("plpgsql");
         if !plpgsql && !language.eq_ignore_ascii_case("sql") {
             return;
         }
-        let at = *self.body_at.get_or_insert(body.span.start);
+        let at = *self.body_at.get_or_insert(start);
         if self.depth == BODY_DEPTH {
             self.refuse(at, format!("bodies nest deeper than {BODY_DEPTH}"));
             return;
@@ -383,9 +380,16 @@ impl Collector {
         }
     }
 
-    /// The last part of `name`, which is the object a qualified name declares.
+    /// The last part of `name`, which is the object a qualified name declares. Only
+    /// Snowflake's `IDENTIFIER(…)` ends a name in something else, which no dialect read here
+    /// parses.
     fn object(&mut self, name: &ObjectName) {
-        if let Some(ident) = name.0.last().and_then(|part| part.as_ident()) {
+        for ident in name
+            .0
+            .last()
+            .into_iter()
+            .filter_map(ObjectNamePart::as_ident)
+        {
             self.ident(ident);
         }
     }
@@ -402,11 +406,18 @@ impl Collector {
     }
 }
 
-/// The text of a string literal value.
+/// The text of a string literal value, in each spelling PostgreSQL gives a body.
 fn text(value: &Value) -> Option<&str> {
     match value {
         Value::DollarQuotedString(string) => Some(&string.value),
-        Value::SingleQuotedString(string) => Some(string),
+        Value::SingleQuotedString(string)
+        | Value::EscapedStringLiteral(string)
+        | Value::UnicodeStringLiteral(string) => Some(string),
         _ => None,
     }
+}
+
+/// The text of the body literal `body` and where it starts in the document.
+fn source(body: &ValueWithSpan) -> Option<(&str, Location)> {
+    text(&body.value).map(|text| (text, body.span.start))
 }

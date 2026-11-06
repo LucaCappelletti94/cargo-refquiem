@@ -978,19 +978,15 @@ fn sql_declarations(
     let mut refused = Vec::new();
     for file in snapshot.files()? {
         if !has_extension(&file, &["sql"])
-            || (!target_prefix.is_empty() && file.starts_with(&format!("{target_prefix}/")))
+            || in_target(&file, target_prefix)
             || filter.excluded(&file)
         {
             continue;
         }
-        let Some(id) = snapshot.blob(&file)? else {
+        let Some((_, source)) = utf8_text(snapshot, &file)? else {
             continue;
         };
-        let bytes = snapshot.read(&file, id)?;
-        let Ok(source) = std::str::from_utf8(&bytes) else {
-            continue;
-        };
-        let declared = sql::declared(source, dialects.of(&file)?);
+        let declared = sql::declared(&source, dialects.of(&file)?);
         names.extend(declared.names);
         refused.extend(declared.refused.into_iter().map(|refusal| RefusedSql {
             file: file.clone(),
@@ -1002,6 +998,24 @@ fn sql_declarations(
     names.sort_unstable();
     names.dedup();
     Ok((names, refused))
+}
+
+/// Whether `file` lies in the scanned workspace's target directory at `target_prefix`.
+fn in_target(file: &str, target_prefix: &str) -> bool {
+    !target_prefix.is_empty()
+        && file
+            .strip_prefix(target_prefix)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// The blob id and text of `file` in `snapshot`, absent when it is no regular file or not
+/// UTF-8.
+fn utf8_text(snapshot: &dyn Snapshot, file: &str) -> Result<Option<(ObjectId, String)>, Error> {
+    let Some(id) = snapshot.blob(file)? else {
+        return Ok(None);
+    };
+    let text = String::from_utf8(snapshot.read(file, id)?).ok();
+    Ok(text.map(|text| (id, text)))
 }
 
 /// The mentions and suppression markers in the comments and Markdown `filter` keeps, with the
@@ -1018,20 +1032,17 @@ fn find_mentions(
     let mut changed_mentions: HashMap<PathId, Vec<Mention>> = HashMap::new();
     let mut markers = Vec::new();
     for file in snapshot.files()? {
-        if !target_prefix.is_empty() && file.starts_with(&format!("{target_prefix}/")) {
+        if in_target(&file, target_prefix) {
             continue;
         }
         let is_rust = has_extension(&file, &["rs"]);
         if !is_rust && !has_extension(&file, &["md", "markdown"]) || filter.skips_path(&file) {
             continue;
         }
-        let Some(id) = snapshot.blob(&file)? else {
+        let Some((id, source)) = utf8_text(snapshot, &file)? else {
             continue;
         };
-        let bytes = snapshot.read(&file, id)?;
-        let Ok(source) = std::str::from_utf8(&bytes) else {
-            continue;
-        };
+        let source = source.as_str();
         if filter.skips_text(source) {
             continue;
         }

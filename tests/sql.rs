@@ -102,6 +102,22 @@ fn every_declaring_statement_keeps_its_names_alive() {
         "placed_at",
         "placed_on",
         "purchases",
+        "owner_role",
+        "float_range",
+        "app_user",
+        "one_fn",
+        "c_fn",
+        "e_fn",
+        "e_table",
+        "e_col",
+        "q_fn",
+        "q_table",
+        "orders_amount_key",
+        "orders_self_fk",
+        "no_overlap",
+        "orders_key",
+        "orders_unique",
+        "orders_uniq",
     ];
     let mut names = declared.to_vec();
     names.push("not_declared");
@@ -118,16 +134,31 @@ CREATE TABLE app_schema.orders (
     order_id INT,
     amount INT,
     CONSTRAINT orders_pkey PRIMARY KEY (order_id),
-    CONSTRAINT orders_amount_check CHECK (amount > 0)
+    CONSTRAINT orders_amount_check CHECK (amount > 0),
+    CONSTRAINT orders_amount_key UNIQUE (amount),
+    CONSTRAINT orders_self_fk FOREIGN KEY (order_id) REFERENCES app_schema.orders (order_id),
+    CONSTRAINT no_overlap EXCLUDE USING gist (amount WITH &&)
 );
 CREATE VIEW order_view (view_total) AS SELECT order_id FROM app_schema.orders;
 CREATE INDEX orders_by_id ON app_schema.orders (order_id);
+CREATE INDEX ON app_schema.orders (amount);
 CREATE FUNCTION order_total(total_param INT) RETURNS INT LANGUAGE sql AS $$ SELECT total_param $$;
+CREATE FUNCTION one_fn(INT) RETURNS INT LANGUAGE sql RETURN 1;
+CREATE FUNCTION c_fn() RETURNS INT AS 'obj', 'sym' LANGUAGE c;
+CREATE FUNCTION e_fn() RETURNS void LANGUAGE sql AS E'CREATE TABLE e_table (e_col INT)';
+CREATE FUNCTION q_fn() RETURNS void LANGUAGE sql AS 'CREATE TABLE q_table (q INT)';
 CREATE TRIGGER orders_audit AFTER INSERT ON app_schema.orders FOR EACH ROW EXECUTE FUNCTION order_total();
 CREATE ROLE order_reader;
+CREATE USER app_user;
+CREATE SCHEMA AUTHORIZATION owner_role;
+CREATE TYPE float_range AS RANGE (subtype = float8);
 CREATE POLICY orders_policy ON app_schema.orders USING (true);
 ALTER TABLE app_schema.orders ADD COLUMN placed_at INT;
 ALTER TABLE app_schema.orders RENAME COLUMN placed_at TO placed_on;
+ALTER TABLE app_schema.orders ADD CONSTRAINT orders_key PRIMARY KEY USING INDEX orders_by_id;
+ALTER TABLE app_schema.orders ADD CONSTRAINT orders_unique UNIQUE USING INDEX orders_by_id;
+ALTER TABLE app_schema.orders RENAME CONSTRAINT orders_unique TO orders_uniq;
+ALTER TABLE app_schema.orders DROP COLUMN amount;
 ALTER TABLE app_schema.orders RENAME TO purchases;
 ",
     );
@@ -137,6 +168,204 @@ ALTER TABLE app_schema.orders RENAME TO purchases;
     assert_eq!(refused(&report), []);
     let reported: Vec<String> = report.groups.into_iter().map(|group| group.path).collect();
     assert_eq!(reported, paths(&["not_declared"]));
+}
+
+#[test]
+fn mysql_sqlite_and_generic_files_declare_names_in_their_own_syntax() {
+    let declared = [
+        "shops",
+        "shop_id",
+        "shops_uk",
+        "shops_ix",
+        "shops_ft",
+        "shops_fk",
+        "store_id",
+        "docs_index",
+        "gen_proc",
+        "proc_param",
+    ];
+    let repo = removed_functions(&declared);
+    repo.write(
+        "db/mysql/schema.sql",
+        "# MySQL alone reads this comment
+CREATE TABLE `shops` (
+    shop_id INT,
+    UNIQUE KEY shops_uk (shop_id),
+    INDEX shops_ix (shop_id),
+    FULLTEXT shops_ft (shop_id),
+    CONSTRAINT shops_fk FOREIGN KEY (shop_id) REFERENCES owners (owner_id)
+);
+ALTER TABLE shops CHANGE COLUMN shop_id store_id INT;
+",
+    );
+    repo.write(
+        "db/sqlite/schema.sql",
+        "CREATE VIRTUAL TABLE docs_index USING fts5(body);\n",
+    );
+    repo.write(
+        "db/procedures.sql",
+        "CREATE PROCEDURE gen_proc (proc_param INT) AS BEGIN SELECT 1; END;\n",
+    );
+    repo.commit("schemas");
+    let report = scan(&repo);
+    assert_eq!(refused(&report), []);
+    assert_eq!(report.groups.len(), 0);
+}
+
+#[test]
+fn plpgsql_blocks_branches_cases_and_loops_declare_names_and_dynamic_sql_does_not() {
+    let declared = [
+        "nested_t",
+        "if_t",
+        "elsif_t",
+        "else_t",
+        "case_t",
+        "case_else_t",
+        "loop_t",
+    ];
+    let mut names = declared.to_vec();
+    names.push("dynamic_t");
+    let repo = removed_functions(&names);
+    repo.write(
+        "postgres/up.sql",
+        "DO $$
+BEGIN
+    BEGIN CREATE TABLE nested_t (a INT); END;
+    IF true THEN CREATE TABLE if_t (a INT);
+    ELSIF false THEN CREATE TABLE elsif_t (a INT);
+    ELSE CREATE TABLE else_t (a INT);
+    END IF;
+    CASE WHEN true THEN CREATE TABLE case_t (a INT); ELSE CREATE TABLE case_else_t (a INT); END CASE;
+    LOOP CREATE TABLE loop_t (a INT); EXIT; END LOOP;
+    EXECUTE 'CREATE TABLE dynamic_t (a INT)';
+END
+$$;
+",
+    );
+    repo.commit("control flow");
+    let report = scan(&repo);
+    assert_eq!(refused(&report), []);
+    assert_eq!(reported(&repo), paths(&["dynamic_t"]));
+}
+
+#[test]
+fn a_do_block_is_read_in_the_language_it_names() {
+    let repo = removed_functions(&["named_t", "literal_t", "escaped_t", "python_t"]);
+    repo.write(
+        "postgres/up.sql",
+        "DO LANGUAGE plpgsql $$ BEGIN CREATE TABLE named_t (a INT); END $$;
+DO LANGUAGE 'plpgsql' $$ BEGIN CREATE TABLE literal_t (a INT); END $$;
+DO LANGUAGE E'plpgsql' $$ BEGIN CREATE TABLE escaped_t (a INT); END $$;
+DO LANGUAGE plpython3u $$ plpy.execute('CREATE TABLE python_t (a INT)') $$;
+DO LANGUAGE plpgsql;
+",
+    );
+    repo.commit("languages");
+    let report = scan(&repo);
+    assert_eq!(refused(&report), []);
+    assert_eq!(reported(&repo), paths(&["python_t"]));
+}
+
+#[test]
+fn tokenizer_errors_deep_nesting_and_refused_sql_bodies_are_warnings_at_their_place() {
+    let repo = removed_functions(&["gone"]);
+    repo.write("a.sql", "CREATE TABLE t (a TEXT DEFAULT 'unterminated\n");
+    repo.write(
+        "b.sql",
+        &format!("SELECT {}1{};\n", "(".repeat(200), ")".repeat(200)),
+    );
+    repo.write(
+        "postgres/c.sql",
+        "CREATE TABLE kept (id INT);\nCREATE FUNCTION f() RETURNS INT LANGUAGE sql AS $$ SELECT ( $$;\n",
+    );
+    let mut nested = String::from("BEGIN NULL; END");
+    for level in 0..9 {
+        nested = format!("BEGIN DO $l{level}$ {nested} $l{level}$; END");
+    }
+    repo.write("postgres/d.sql", &format!("\nDO $top$ {nested} $top$;\n"));
+    repo.commit("refusals");
+    let report = scan(&repo);
+    let refusals: Vec<(&str, usize, usize, &str)> = report
+        .refused_sql
+        .iter()
+        .map(|r| (r.file.as_str(), r.line, r.column, r.error.as_str()))
+        .collect();
+    assert_eq!(refusals[0], ("a.sql", 1, 32, "Unterminated string literal"));
+    assert_eq!(refusals[1], ("b.sql", 1, 1, "recursion limit exceeded"));
+    let (file, line, column, error) = refusals[2];
+    assert_eq!((file, line, column), ("postgres/c.sql", 2, 49));
+    assert!(error.starts_with("Expected: "), "{error}");
+    assert_eq!(
+        refusals[3],
+        ("postgres/d.sql", 2, 4, "bodies nest deeper than 8")
+    );
+    assert_eq!(refusals.len(), 4);
+}
+
+#[test]
+fn overlapping_globs_of_one_dialect_agree_and_other_files_keep_their_directory() {
+    let repo = removed_functions(&["app_reader", "lite_table"]);
+    repo.write(
+        ".refquiem.toml",
+        "[sql-dialects]\n\"db/*.sql\" = \"postgres\"\n\"db/roles.sql\" = \"pg\"\n",
+    );
+    repo.write(
+        "db/roles.sql",
+        "DO $$ BEGIN CREATE ROLE app_reader; END $$;\n",
+    );
+    repo.write("sqlite/lite.sql", "CREATE TABLE lite_table (id INT);\n");
+    repo.commit("configured");
+    let report = scan(&repo);
+    assert_eq!(refused(&report), []);
+    assert_eq!(report.groups.len(), 0);
+}
+
+#[test]
+fn an_invalid_dialect_glob_is_an_error() {
+    let repo = removed_functions(&["gone"]);
+    repo.write(
+        ".refquiem.toml",
+        "[sql-dialects]\n\"db/{a,b.sql\" = \"postgres\"\n",
+    );
+    repo.commit("bad glob");
+    let error = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap_err();
+    assert!(
+        matches!(error, refquiem::Error::SqlDialectGlob(_)),
+        "{error}"
+    );
+}
+
+#[test]
+fn sql_outside_a_nested_workspace_still_declares_names() {
+    let repo = Repo::new();
+    std::fs::remove_file(repo.path().join("Cargo.toml")).unwrap();
+    repo.write("app/Cargo.toml", common::PACKAGE);
+    repo.write("app/src/lib.rs", "pub fn shared_table() {}\n");
+    repo.commit("start");
+    repo.write("app/src/lib.rs", "");
+    repo.write("app/README.md", "Call `shared_table`.\n");
+    repo.write(".refquiem.toml", "[sql-dialects]\n\"*.sql\" = \"mysql\"\n");
+    repo.write(
+        "db/postgres/schema.sql",
+        "CREATE TABLE shared_table (id INT);\n",
+    );
+    repo.commit("schema outside the workspace");
+    let report = refquiem::run(&refquiem::Options::new(repo.path().join("app"))).unwrap();
+    assert_eq!(refused(&report), []);
+    assert_eq!(report.groups.len(), 0);
+}
+
+#[test]
+fn a_sql_file_that_is_not_utf8_is_skipped_without_a_warning() {
+    let repo = removed_functions(&["latin_table"]);
+    std::fs::write(
+        repo.path().join("latin.sql"),
+        b"-- caf\xe9\nCREATE TABLE latin_table (id INT);\n",
+    )
+    .unwrap();
+    let report = scan(&repo);
+    assert_eq!(refused(&report), []);
+    assert_eq!(reported(&repo), paths(&["latin_table"]));
 }
 
 #[test]
