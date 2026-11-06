@@ -331,7 +331,7 @@ fn delimited<'a>(text: &'a str, open: &'a str, close: &'a str) -> impl Iterator<
 /// claim: one with an inner underscore, or a single word English lacks, such as `uuidv7`.
 ///
 /// A single English word such as `date` or `text` names too many Rust items to claim.
-fn claimable_function(name: &str, english: &fst::Set<Vec<u8>>) -> bool {
+fn claimable_identifier(name: &str, english: &fst::Set<Vec<u8>>) -> bool {
     let identifier = name.starts_with(|c: char| c.is_ascii_lowercase() || c == '_')
         && name
             .chars()
@@ -339,9 +339,23 @@ fn claimable_function(name: &str, english: &fst::Set<Vec<u8>>) -> bool {
     identifier && (name.trim_matches('_').contains('_') || !english.contains(name))
 }
 
-/// Writes `words.fst`, the claimable names among the functions PostgreSQL's catalog defines
-/// and the key-word functions its Functions and Operators chapter documents, and PostgreSQL's
-/// `COPYRIGHT`, which its license requires next to any copy.
+/// The names `guc_tables.c` gives PostgreSQL's configuration parameters, lowercased as
+/// PostgreSQL matches them, so `DateStyle` gives `datestyle`.
+///
+/// Each parameter's entry opens with its name and its context, as in `{"work_mem", PGC_USERSET`.
+fn configuration_parameters(tables: &str) -> impl Iterator<Item = String> {
+    tables.split('{').filter_map(|entry| {
+        let (name, rest) = entry.trim_start().strip_prefix('"')?.split_once('"')?;
+        rest.strip_prefix(',')?
+            .trim_start()
+            .starts_with("PGC_")
+            .then(|| name.to_ascii_lowercase())
+    })
+}
+
+/// Writes `words.fst`, the claimable names among the functions PostgreSQL's catalog defines,
+/// the key-word functions its Functions and Operators chapter documents and its configuration
+/// parameters, and PostgreSQL's `COPYRIGHT`, which its license requires next to any copy.
 ///
 /// The catalog holds the type input and output functions such as `interval_in` that the
 /// chapter leaves out. A documented name counts as a key-word function when the grammar has
@@ -353,14 +367,17 @@ fn postgres(out: &Path, english: &fst::Set<Vec<u8>>) -> Result<(), Error> {
     let grammar = show("src/include/parser/kwlist.h")?;
     let keywords: HashSet<&str> = delimited(&grammar, "PG_KEYWORD(\"", "\"").collect();
     let chapter = show("doc/src/sgml/func.sgml")?;
-    let words: BTreeSet<&str> = delimited(&catalog, "proname => '", "'")
+    let parameters = show("src/backend/utils/misc/guc_tables.c")?;
+    let words: BTreeSet<String> = delimited(&catalog, "proname => '", "'")
         .chain(
             delimited(&chapter, "<function>", "</function>").filter(|name| keywords.contains(name)),
         )
-        .filter(|name| claimable_function(name, english))
+        .map(str::to_owned)
+        .chain(configuration_parameters(&parameters))
+        .filter(|name| claimable_identifier(name, english))
         .collect();
     create_dir(out)?;
-    let count = write_set(&out.join("words.fst"), words.iter().copied())?;
+    let count = write_set(&out.join("words.fst"), words.iter().map(String::as_str))?;
     let target = out.join("COPYRIGHT");
     std::fs::write(&target, show("COPYRIGHT")?).map_err(|source| Error::Write {
         path: target,
@@ -407,7 +424,7 @@ fn sqlite(out: &Path, english: &fst::Set<Vec<u8>>) -> Result<(), Error> {
         words.extend(
             sqlite_registrations(&show(source)?)
                 .into_iter()
-                .filter(|name| claimable_function(name, english)),
+                .filter(|name| claimable_identifier(name, english)),
         );
     }
     create_dir(out)?;
