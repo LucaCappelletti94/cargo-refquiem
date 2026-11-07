@@ -884,6 +884,51 @@ fn identifier_strings_retain_removed_serialized_spellings() {
 }
 
 #[test]
+fn a_spelling_counts_only_in_crates_that_can_reach_its_type() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"core\", \"app\", \"old\", \"tool\"]\n",
+    );
+    let manifest = |name: &str, dependencies: &str| {
+        format!(
+            "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n{dependencies}"
+        )
+    };
+    repo.write("core/Cargo.toml", &manifest("core", ""));
+    repo.write(
+        "app/Cargo.toml",
+        &manifest("app", "core = { path = \"../core\" }\n"),
+    );
+    repo.write(
+        "old/Cargo.toml",
+        &manifest("old", "core = { path = \"../core\" }\n"),
+    );
+    repo.write("tool/Cargo.toml", &manifest("tool", ""));
+    repo.write(
+        "core/src/lib.rs",
+        "#[derive(serde::Deserialize)]\npub enum Dialect {\n    #[serde(alias = \"postgresql\")]\n    Postgres,\n}\n",
+    );
+    let uses = "pub const NAME: &str = \"postgresql\";\n";
+    repo.write("app/src/lib.rs", uses);
+    repo.write("old/src/lib.rs", uses);
+    repo.write("tool/src/lib.rs", uses);
+    repo.commit("alias");
+    repo.write(
+        "core/src/lib.rs",
+        &format!("pub enum Dialect {{\n    Postgres,\n}}\n{uses}"),
+    );
+    repo.write("old/Cargo.toml", &manifest("old", ""));
+    repo.commit("drop the alias");
+
+    let files: Vec<String> = found(&repo).into_iter().map(|m| m.1).collect();
+    assert_eq!(
+        files,
+        ["app/src/lib.rs", "core/src/lib.rs", "old/src/lib.rs"]
+    );
+}
+
+#[test]
 fn a_root_derive_attribute_still_names_a_removed_item() {
     assert_eq!(
         example_reports(&["RemovedDerive"], "#[derive(RemovedDerive)]\nstruct Kept;"),
