@@ -150,10 +150,11 @@ struct Shared<'s> {
     config: &'s Config,
     layout: &'s Layout,
     head: &'s Head,
-    head_snapshot: &'s dyn Snapshot,
     head_index: &'s Index,
     dependencies: &'s deps::Layer,
     vocabularies: &'s Vocabularies,
+    /// The Rust and Markdown files of head an exclude glob keeps, read once for every walk.
+    head_files: &'s [HeadFile],
     /// The names the SQL of head declares.
     sql_names: &'s [String],
     scratch: &'s Scratch<'s>,
@@ -194,18 +195,21 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     indexer.use_head_macros(&head_index);
     let excludes = Filter::new(&config, &workspace_dir, &layout.workspace, None)?;
     let dialects = SqlDialects::new(&config, &workspace_dir, &layout.workspace)?;
-    let (sql_names, refused_sql) =
-        sql_declarations(&*head_snapshot, &excludes, &dialects, &layout.target_prefix)?;
+    let HeadText {
+        files: head_files,
+        names: sql_names,
+        refused: refused_sql,
+    } = read_head(&*head_snapshot, &excludes, &dialects, &layout.target_prefix)?;
     let shared = Shared {
         repo: &repo,
         options,
         config: &config,
         layout: &layout,
         head: &head,
-        head_snapshot: &*head_snapshot,
         head_index: &head_index,
         dependencies: &dependencies,
         vocabularies: &vocabularies,
+        head_files: &head_files,
         sql_names: &sql_names,
         scratch: &scratch,
     };
@@ -276,7 +280,6 @@ fn walked(
         config,
         layout,
         head,
-        head_snapshot,
         head_index,
         dependencies,
         ..
@@ -342,14 +345,13 @@ fn walked(
         changed_mentions,
         markers,
     } = find_mentions(
-        head_snapshot,
+        shared.head_files,
         head_index,
         &matcher,
         (
             &changed,
             start_snapshot.as_ref().map(|s| s as &dyn Snapshot),
         ),
-        &layout.target_prefix,
         &filter,
     )?;
     let (groups, ids, suggestable) = groups(
@@ -965,39 +967,108 @@ struct Found {
     markers: Vec<Marker>,
 }
 
-/// The names the `.sql` files of `snapshot` declare and the SQL among them that could not be
-/// read. Every file counts whatever member the scan is limited to, since a name lives
-/// wherever it is declared, except those an exclude glob leaves out.
-fn sql_declarations(
+/// A Rust or Markdown file of head, read once for the SQL it holds and for its mentions.
+struct HeadFile {
+    file: String,
+    id: ObjectId,
+    source: String,
+    is_rust: bool,
+    read: Result<text::Read, text::MarkdownError>,
+}
+
+/// The files of head, the names their SQL declares and the SQL among it that could not be read.
+struct HeadText {
+    files: Vec<HeadFile>,
+    names: Vec<String>,
+    refused: Vec<RefusedSql>,
+}
+
+/// Reads the `.rs`, `.md` and `.sql` files of `snapshot` outside its target directory that no
+/// exclude glob leaves out. Every file counts whatever member the scan is limited to, since a
+/// name lives wherever it is declared.
+fn read_head(
     snapshot: &dyn Snapshot,
     filter: &Filter,
     dialects: &SqlDialects,
     target_prefix: &str,
-) -> Result<(Vec<String>, Vec<RefusedSql>), Error> {
-    let mut names = Vec::new();
-    let mut refused = Vec::new();
+) -> Result<HeadText, Error> {
+    let mut head = HeadText {
+        files: Vec::new(),
+        names: Vec::new(),
+        refused: Vec::new(),
+    };
     for file in snapshot.files()? {
-        if !has_extension(&file, &["sql"])
+        let is_rust = has_extension(&file, &["rs"]);
+        let is_sql = has_extension(&file, &["sql"]);
+        if !(is_rust || is_sql || has_extension(&file, &["md", "markdown"]))
             || in_target(&file, target_prefix)
             || filter.excluded(&file)
         {
             continue;
         }
-        let Some((_, source)) = utf8_text(snapshot, &file)? else {
+        let Some((id, source)) = utf8_text(snapshot, &file)? else {
             continue;
         };
-        let declared = sql::declared(&source, dialects.of(&file)?);
-        names.extend(declared.names);
-        refused.extend(declared.refused.into_iter().map(|refusal| RefusedSql {
-            file: file.clone(),
-            line: refusal.line,
-            column: refusal.column,
-            error: refusal.error,
-        }));
+        if is_sql {
+            let declared = sql::declared(&source, dialects.of(&file)?);
+            head.names.extend(declared.names);
+            head.refused
+                .extend(declared.refused.into_iter().map(|refusal| RefusedSql {
+                    file: file.clone(),
+                    line: refusal.line,
+                    column: refusal.column,
+                    error: refusal.error,
+                }));
+            continue;
+        }
+        let read = if is_rust {
+            text::rust(&source, filter.scan_commented_code)
+        } else {
+            text::markdown_file(&source)
+        };
+        if let Ok(read) = &read {
+            let starts = if read.fences.is_empty() {
+                Vec::new()
+            } else {
+                text::line_starts(&source)
+            };
+            for fence in &read.fences {
+                let dialect = match fence.dialect {
+                    Some(dialect) => dialect,
+                    None => dialects.of(&file)?,
+                };
+                let declared = sql::declared(&fence.text, dialect);
+                head.names.extend(declared.names);
+                for refusal in declared.refused {
+                    let at = sql::offset(&fence.text, refusal.line, refusal.column);
+                    let (line, column) = text::line_column(&starts, &source, fence.file_offset(at));
+                    head.refused.push(RefusedSql {
+                        file: file.clone(),
+                        line,
+                        column,
+                        error: refusal.error,
+                    });
+                }
+            }
+            // A string literal makes no claim to be SQL, so one sqlparser refuses is no SQL.
+            if !read.literals.is_empty() {
+                let dialect = dialects.of(&file)?;
+                for literal in &read.literals {
+                    head.names.extend(sql::declared(literal, dialect).names);
+                }
+            }
+        }
+        head.files.push(HeadFile {
+            file,
+            id,
+            source,
+            is_rust,
+            read,
+        });
     }
-    names.sort_unstable();
-    names.dedup();
-    Ok((names, refused))
+    head.names.sort_unstable();
+    head.names.dedup();
+    Ok(head)
 }
 
 /// Whether `file` lies in the scanned workspace's target directory at `target_prefix`.
@@ -1021,45 +1092,38 @@ fn utf8_text(snapshot: &dyn Snapshot, file: &str) -> Result<Option<(ObjectId, St
 /// The mentions and suppression markers in the comments and Markdown `filter` keeps, with the
 /// mentions of `changed` items in files the same in `start` as at head.
 fn find_mentions(
-    snapshot: &dyn Snapshot,
+    files: &[HeadFile],
     head: &Index,
     matcher: &Matcher<'_>,
     (changed, start): (&Changed, Option<&dyn Snapshot>),
-    target_prefix: &str,
     filter: &Filter,
 ) -> Result<Found, Error> {
     let mut mentions: HashMap<PathId, Vec<Mention>> = HashMap::new();
     let mut changed_mentions: HashMap<PathId, Vec<Mention>> = HashMap::new();
     let mut markers = Vec::new();
-    for file in snapshot.files()? {
-        if in_target(&file, target_prefix) {
+    for HeadFile {
+        file,
+        id,
+        source,
+        is_rust,
+        read,
+    } in files
+    {
+        let (id, source, is_rust) = (*id, source.as_str(), *is_rust);
+        if filter.skips_path(file) || filter.skips_text(source) {
             continue;
         }
-        let is_rust = has_extension(&file, &["rs"]);
-        if !is_rust && !has_extension(&file, &["md", "markdown"]) || filter.skips_path(&file) {
-            continue;
-        }
-        let Some((id, source)) = utf8_text(snapshot, &file)? else {
-            continue;
-        };
-        let source = source.as_str();
-        if filter.skips_text(source) {
-            continue;
-        }
-        let read = if is_rust {
-            text::rust(source, filter.scan_commented_code)
-        } else {
-            text::markdown_file(source)
-        }
-        .map_err(|_| Error::Markdown { path: file.clone() })?;
+        let read = read
+            .as_ref()
+            .map_err(|_| Error::Markdown { path: file.clone() })?;
         let starts = text::line_starts(source);
-        for marker in read.markers {
+        for marker in &read.markers {
             let (line, column) = text::line_column(&starts, source, marker.start);
             markers.push(Marker {
                 file: file.clone(),
                 line,
                 column,
-                name: marker.name,
+                name: marker.name.clone(),
                 used: false,
             });
         }
@@ -1068,11 +1132,11 @@ fn find_mentions(
         }
         // A file the range edits had its author's eyes on it.
         let unedited = match start {
-            Some(start) if !changed.is_empty() => start.blob(&file)? == Some(id),
+            Some(start) if !changed.is_empty() => start.blob(file)? == Some(id),
             _ => false,
         };
-        let module = head.file_modules.get(&file).map(Vec::as_slice);
-        for path in read.mentions {
+        let module = head.file_modules.get(file).map(Vec::as_slice);
+        for path in &read.mentions {
             let mention = |uppercase| {
                 let (line, column) = text::line_column(&starts, source, path.start);
                 Mention {
@@ -1085,15 +1149,15 @@ fn find_mentions(
                     uppercase,
                 }
             };
-            if let Some(removed) = matcher.stale(&path, &file, is_rust, module) {
-                let uppercase = matcher.uppercase(&path, removed);
+            if let Some(removed) = matcher.stale(path, file, is_rust, module) {
+                let uppercase = matcher.uppercase(path, removed);
                 mentions
                     .entry(removed)
                     .or_default()
                     .push(mention(uppercase));
             } else if unedited
                 && path.context.source != Source::StringLiteral
-                && let Some(item) = matcher.changed(changed, &path, is_rust, module)
+                && let Some(item) = matcher.changed(changed, path, is_rust, module)
             {
                 changed_mentions
                     .entry(item)

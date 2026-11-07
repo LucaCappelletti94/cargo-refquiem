@@ -61,7 +61,7 @@ compare = "values" # "shapes", or "bodies" to add function bodies
 
 ## SQL names
 
-The tables, columns, roles, functions and other objects the `.sql` files at head declare, `DO` and PL/pgSQL function bodies included, stay alive, so a removed Rust item sharing a live SQL object's name is not reported. A file is read in the dialect its nearest `postgres`, `mysql`, `mariadb` or `sqlite` directory names, else in sqlparser's generic dialect, and a `[sql-dialects]` table maps globs to dialects ahead of both. `refused_sql` entries locate SQL that could not be read, whose names are therefore not known. These warnings do not change the exit status. An `exclude` glob drops a file that is not SQL, such as a `format!` template.
+The tables, columns, roles, functions and other objects head's SQL declares, `DO` and PL/pgSQL function bodies included, stay alive, so a removed Rust item sharing a live SQL object's name is not reported. That SQL is every `.sql` file, every ```` ```sql ```` fence in Markdown and doc comments, and every Rust string literal opening with `CREATE`, `ALTER`, `DROP` or `DO`. A file is read in the dialect its nearest `postgres`, `mysql`, `mariadb` or `sqlite` directory names, else in sqlparser's generic dialect, and a `[sql-dialects]` table maps globs to dialects ahead of both. A fence written ```` ```postgres ````, ```` ```mysql ```` or ```` ```sqlite ```` takes that dialect. `refused_sql` entries locate SQL that could not be read, whose names are therefore not known. These warnings do not change the exit status. An `exclude` glob drops a file that is not SQL, such as a `format!` template.
 
 ```toml
 [sql-dialects]
