@@ -1,12 +1,11 @@
 //! `.refquiem.toml` parameters and the files a scan leaves out.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
 use crate::error::CustomFailure;
-use crate::sql::Dialect;
 use crate::{ChangedPart, Error, Level};
 
 /// The file name looked up at the workspace root.
@@ -48,10 +47,6 @@ pub(crate) struct Config {
     /// How a `--base` scan treats the items the range changed.
     #[serde(default)]
     pub(crate) changed: Changed,
-    /// The dialect the SQL of files matching each gitignore-syntax glob, relative to the
-    /// workspace root, is read in.
-    #[serde(default)]
-    pub(crate) sql_dialects: BTreeMap<String, Dialect>,
     /// Optional ambiguity vocabularies, English when the table is absent.
     vocabularies: Option<Vocabularies>,
 }
@@ -329,13 +324,13 @@ impl Filter {
         {
             return true;
         }
-        self.excluded(file)
-    }
-
-    /// Whether an exclude glob matches `file`, from the repository root, whatever member the
-    /// scan is limited to.
-    pub(crate) fn excluded(&self, file: &str) -> bool {
-        relative(&self.workspace, file).is_some_and(|relative| {
+        let relative = if self.workspace.is_empty() {
+            Some(file)
+        } else {
+            file.strip_prefix(&self.workspace)
+                .and_then(|rest| rest.strip_prefix('/'))
+        };
+        relative.is_some_and(|relative| {
             self.excludes
                 .matched_path_or_any_parents(relative, false)
                 .is_ignore()
@@ -345,80 +340,6 @@ impl Filter {
     /// Whether a file holding `text` is left out as generated.
     pub(crate) fn skips_text(&self, text: &str) -> bool {
         !self.scan_generated && is_generated(text, &self.generated_markers)
-    }
-}
-
-/// The `[sql-dialects]` globs, each matched alone so that a file two of them give different
-/// dialects is caught.
-pub(crate) struct SqlDialects {
-    /// The workspace directory from the repository root.
-    workspace: String,
-    globs: Vec<(String, Dialect, Gitignore)>,
-}
-
-impl SqlDialects {
-    pub(crate) fn new(
-        config: &Config,
-        workspace_dir: &Path,
-        workspace: &str,
-    ) -> Result<Self, Error> {
-        let globs = config
-            .sql_dialects
-            .iter()
-            .map(|(glob, &dialect)| {
-                let mut builder = GitignoreBuilder::new(workspace_dir);
-                builder
-                    .add_line(None, glob)
-                    .map_err(Error::SqlDialectGlob)?;
-                let matcher = builder.build().map_err(Error::SqlDialectGlob)?;
-                Ok((glob.clone(), dialect, matcher))
-            })
-            .collect::<Result<_, Error>>()?;
-        Ok(Self {
-            workspace: workspace.to_owned(),
-            globs,
-        })
-    }
-
-    /// The dialect the SQL of `file`, from the repository root, is read in, the one its globs
-    /// give, else the one its nearest directory names, else the generic dialect.
-    pub(crate) fn of(&self, file: &str) -> Result<Dialect, Error> {
-        let mut given: Option<(&str, Dialect)> = None;
-        if let Some(relative) = relative(&self.workspace, file) {
-            for (glob, dialect, matcher) in &self.globs {
-                if !matcher
-                    .matched_path_or_any_parents(relative, false)
-                    .is_ignore()
-                {
-                    continue;
-                }
-                match given {
-                    Some((first, earlier)) if earlier != *dialect => {
-                        return Err(Error::SqlDialects {
-                            file: file.to_owned(),
-                            first: first.to_owned(),
-                            second: glob.clone(),
-                        });
-                    }
-                    Some(_) => {}
-                    None => given = Some((glob, *dialect)),
-                }
-            }
-        }
-        Ok(given
-            .map(|(_, dialect)| dialect)
-            .or_else(|| Dialect::of_path(file))
-            .unwrap_or(Dialect::Generic))
-    }
-}
-
-/// `file`, from the repository root, relative to the `workspace` directory, absent outside it.
-fn relative<'f>(workspace: &str, file: &'f str) -> Option<&'f str> {
-    if workspace.is_empty() {
-        Some(file)
-    } else {
-        file.strip_prefix(workspace)
-            .and_then(|rest| rest.strip_prefix('/'))
     }
 }
 

@@ -10,7 +10,7 @@ use gix::ObjectId;
 
 use crate::cache::FileCache;
 use crate::changed::Changed;
-use crate::config::{self, Category, Config, Filter, SqlDialects, load_custom};
+use crate::config::{self, Category, Config, Filter, load_custom};
 use crate::definition::Definition;
 use crate::deps::{self, Removal, Scratch};
 use crate::git::{self, Head, Snapshot, TreeSnapshot, Trees, WorkTreeSnapshot};
@@ -20,8 +20,8 @@ use crate::parse::SERDE_MARKER;
 use crate::text::{self, Named, Spelled};
 use crate::{
     ChangedItem, Context, Error, Group, HashMap, HashSet, ItemKind, Kind, Level, Mention, Options,
-    Position, Range, RefusedSql, RemovedIn, Report, Source, Suggestion, UnusedMarker, Uppercase,
-    entry, manifest, sql, stdlib, suggest, vocabulary,
+    Position, Range, RemovedIn, Report, Source, Suggestion, UnusedMarker, Uppercase, entry,
+    manifest, stdlib, suggest, vocabulary,
 };
 
 /// What the commits of the range declare beyond head, each distinct tree stored once.
@@ -154,8 +154,6 @@ struct Shared<'s> {
     head_index: &'s Index,
     dependencies: &'s deps::Layer,
     vocabularies: &'s Vocabularies,
-    /// The names the SQL of head declares.
-    sql_names: &'s [String],
     scratch: &'s Scratch<'s>,
 }
 
@@ -192,10 +190,6 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
     let dependencies = deps::head(&mut indexer, &*head_snapshot, &scratch)?;
     let head_index = indexer.index(&*head_snapshot, &layout.workspace, true)?;
     indexer.use_head_macros(&head_index);
-    let excludes = Filter::new(&config, &workspace_dir, &layout.workspace, None)?;
-    let dialects = SqlDialects::new(&config, &workspace_dir, &layout.workspace)?;
-    let (sql_names, refused_sql) =
-        sql_declarations(&*head_snapshot, &excludes, &dialects, &layout.target_prefix)?;
     let shared = Shared {
         repo: &repo,
         options,
@@ -206,7 +200,6 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         head_index: &head_index,
         dependencies: &dependencies,
         vocabularies: &vocabularies,
-        sql_names: &sql_names,
         scratch: &scratch,
     };
 
@@ -254,7 +247,6 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         changed: changed_items,
         changed_level: config.changed.level,
         skipped,
-        refused_sql,
         unused_markers,
         edited: HashSet::new(),
     };
@@ -326,7 +318,6 @@ fn walked(
         &rooted,
     );
     matcher.add_vocabulary(&config.allow);
-    matcher.add_vocabulary(shared.sql_names);
     let filter = filter(
         options,
         config,
@@ -965,59 +956,6 @@ struct Found {
     markers: Vec<Marker>,
 }
 
-/// The names the `.sql` files of `snapshot` declare and the SQL among them that could not be
-/// read. Every file counts whatever member the scan is limited to, since a name lives
-/// wherever it is declared, except those an exclude glob leaves out.
-fn sql_declarations(
-    snapshot: &dyn Snapshot,
-    filter: &Filter,
-    dialects: &SqlDialects,
-    target_prefix: &str,
-) -> Result<(Vec<String>, Vec<RefusedSql>), Error> {
-    let mut names = Vec::new();
-    let mut refused = Vec::new();
-    for file in snapshot.files()? {
-        if !has_extension(&file, &["sql"])
-            || in_target(&file, target_prefix)
-            || filter.excluded(&file)
-        {
-            continue;
-        }
-        let Some((_, source)) = utf8_text(snapshot, &file)? else {
-            continue;
-        };
-        let declared = sql::declared(&source, dialects.of(&file)?);
-        names.extend(declared.names);
-        refused.extend(declared.refused.into_iter().map(|refusal| RefusedSql {
-            file: file.clone(),
-            line: refusal.line,
-            column: refusal.column,
-            error: refusal.error,
-        }));
-    }
-    names.sort_unstable();
-    names.dedup();
-    Ok((names, refused))
-}
-
-/// Whether `file` lies in the scanned workspace's target directory at `target_prefix`.
-fn in_target(file: &str, target_prefix: &str) -> bool {
-    !target_prefix.is_empty()
-        && file
-            .strip_prefix(target_prefix)
-            .is_some_and(|rest| rest.starts_with('/'))
-}
-
-/// The blob id and text of `file` in `snapshot`, absent when it is no regular file or not
-/// UTF-8.
-fn utf8_text(snapshot: &dyn Snapshot, file: &str) -> Result<Option<(ObjectId, String)>, Error> {
-    let Some(id) = snapshot.blob(file)? else {
-        return Ok(None);
-    };
-    let text = String::from_utf8(snapshot.read(file, id)?).ok();
-    Ok(text.map(|text| (id, text)))
-}
-
 /// The mentions and suppression markers in the comments and Markdown `filter` keeps, with the
 /// mentions of `changed` items in files the same in `start` as at head.
 fn find_mentions(
@@ -1032,17 +970,20 @@ fn find_mentions(
     let mut changed_mentions: HashMap<PathId, Vec<Mention>> = HashMap::new();
     let mut markers = Vec::new();
     for file in snapshot.files()? {
-        if in_target(&file, target_prefix) {
+        if !target_prefix.is_empty() && file.starts_with(&format!("{target_prefix}/")) {
             continue;
         }
         let is_rust = has_extension(&file, &["rs"]);
         if !is_rust && !has_extension(&file, &["md", "markdown"]) || filter.skips_path(&file) {
             continue;
         }
-        let Some((id, source)) = utf8_text(snapshot, &file)? else {
+        let Some(id) = snapshot.blob(&file)? else {
             continue;
         };
-        let source = source.as_str();
+        let bytes = snapshot.read(&file, id)?;
+        let Ok(source) = std::str::from_utf8(&bytes) else {
+            continue;
+        };
         if filter.skips_text(source) {
             continue;
         }
