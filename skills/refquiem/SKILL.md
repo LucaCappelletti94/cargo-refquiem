@@ -63,6 +63,8 @@ compare = "values" # "shapes", or "bodies" to add function bodies
 
 The tables, columns, roles, functions and other objects head's SQL declares, `DO` and PL/pgSQL function bodies included, stay alive, so a removed Rust item sharing a live SQL object's name is not reported. That SQL is every `.sql` file, every ```` ```sql ```` fence in Markdown and doc comments, and every Rust string literal opening with `CREATE`, `ALTER`, `DROP` or `DO`. A file is read in the dialect its nearest `postgres`, `mysql`, `mariadb` or `sqlite` directory names, else in sqlparser's generic dialect, and a `[sql-dialects]` table maps globs to dialects ahead of both. A fence written ```` ```postgres ````, ```` ```mysql ```` or ```` ```sqlite ```` takes that dialect. `refused_sql` entries locate SQL that could not be read, whose names are therefore not known. These warnings do not change the exit status. An `exclude` glob drops a file that is not SQL, such as a `format!` template.
 
+Comments of `.sql` files, those inside dollar-quoted bodies included, and the text a `COMMENT ON … IS` attaches are scanned for mentions like Rust comments, reported as `sql_comment`. A comment run that is itself SQL is skipped unless `scan-commented-code` is set. Inside a `.sql` file its dialect's vocabularies claim their words whatever `builtins` selects, `sql@2023` everywhere, `postgres@18` and `sqlite@3.54` in their dialects. A file sqlparser refuses yields no mentions.
+
 ```toml
 [sql-dialects]
 "db/**/*.sql" = "postgres" # or "mysql", "sqlite", "generic"

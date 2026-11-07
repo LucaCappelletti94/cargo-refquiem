@@ -174,6 +174,7 @@ impl ItemKind {
 /// The text a mention sits in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Source {
     /// A `//` or `/* */` comment, read as plain text.
     Comment,
@@ -183,11 +184,14 @@ pub enum Source {
     Markdown,
     /// A string literal in Rust code.
     StringLiteral,
+    /// A comment of a `.sql` file, or the text a `COMMENT ON … IS` statement attaches.
+    SqlComment,
 }
 
 /// The Markdown structure a mention sits in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Kind {
     /// Running text.
     Text,
@@ -220,6 +224,7 @@ impl Context {
             Source::DocComment => "doc comment",
             Source::Markdown => "Markdown",
             Source::StringLiteral => "string literal",
+            Source::SqlComment => "SQL comment",
         };
         let kind = match self.kind {
             Kind::Text => "",
