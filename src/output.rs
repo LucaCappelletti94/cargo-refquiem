@@ -74,16 +74,6 @@ impl Report {
                 escape(&skipped.message())
             );
         }
-        for refused in &self.refused_sql {
-            let _ = writeln!(
-                out,
-                "::warning file={},line={},col={},title=refquiem::{}",
-                escape_property(&refused.file),
-                refused.line,
-                refused.column,
-                escape(&refused.message())
-            );
-        }
         out
     }
 
@@ -252,8 +242,8 @@ impl Report {
         Some(web::blob(root?, head, file, line))
     }
 
-    /// The sections after the table, the changed items, the unused suppression markers, the
-    /// skipped dependencies and the SQL that could not be read.
+    /// The sections after the table, the changed items, the unused suppression markers and the
+    /// skipped dependencies.
     fn closing(&self, root: Option<&str>) -> String {
         let mut out = String::new();
         if !self.changed.is_empty() {
@@ -285,16 +275,6 @@ impl Report {
                 span(&mut out, &skipped.dependency);
                 out.push_str(" could not be resolved: ");
                 span(&mut out, skipped.cause());
-                out.push('\n');
-            }
-        }
-        if !self.refused_sql.is_empty() {
-            out.push_str("\n### Unread SQL\n\n");
-            for refused in &self.refused_sql {
-                out.push_str("- ");
-                out.push_str(&self.position(&refused.file, refused.line, refused.column, root));
-                out.push(' ');
-                span(&mut out, &refused.error);
                 out.push('\n');
             }
         }

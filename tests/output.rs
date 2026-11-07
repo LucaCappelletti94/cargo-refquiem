@@ -216,7 +216,6 @@ fn json_prints_the_report_with_snake_case_keys() {
             "changed_level",
             "groups",
             "head",
-            "refused_sql",
             "skipped",
             "unused_markers"
         ]
@@ -282,7 +281,6 @@ fn json_prints_the_report_with_snake_case_keys() {
         serde_json::json!([{"file": "src/lib.rs", "line": 1, "column": 20, "name": "Nothing"}])
     );
     assert_eq!(report["skipped"], serde_json::json!([]));
-    assert_eq!(report["refused_sql"], serde_json::json!([]));
 }
 
 #[test]
