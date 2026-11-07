@@ -47,8 +47,8 @@ pub fn declarations(source: &str) -> bool {
     crate::parse::parse(source).is_ok()
 }
 
-/// How many names and mentions `source` holds in every dialect, as reading head's `.sql` files
-/// does.
+/// How many names and mentions `source` holds in every dialect, its changes replayed as a
+/// migration's are, as reading head's `.sql` files does.
 ///
 /// # Panics
 ///
@@ -80,7 +80,11 @@ pub fn sql_declarations(source: &str) -> usize {
                 "{mention:?}"
             );
         }
-        declared.names.len() + read.mentions.len()
+        let mut schema = crate::sql::Schema::default();
+        for change in declared.changes {
+            schema.apply(change);
+        }
+        schema.into_names().count() + read.mentions.len()
     })
     .sum()
 }
