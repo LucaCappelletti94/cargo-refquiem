@@ -1,0 +1,7 @@
+CREATE FUNCTION make_log() RETURNS void LANGUAGE plpgsql AS $outer$
+BEGIN
+    CREATE TABLE audit_log (entry TEXT);
+EXCEPTION WHEN duplicate_table THEN
+    DO $inner$ BEGIN CREATE TABLE audit_fallback (entry TEXT); END $inner$;
+END
+$outer$;

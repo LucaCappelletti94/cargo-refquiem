@@ -37,3 +37,28 @@ pub fn mentions(source: &str, rust: bool) -> Result<usize, crate::Error> {
 pub fn declarations(source: &str) -> bool {
     crate::parse::parse(source).is_ok()
 }
+
+/// How many names `source` declares in every dialect, as reading head's `.sql` files does.
+///
+/// # Panics
+///
+/// Panics when a refusal is placed before the first line or column.
+#[must_use]
+pub fn sql_declarations(source: &str) -> usize {
+    use crate::sql::Dialect;
+    [
+        Dialect::Generic,
+        Dialect::Postgres,
+        Dialect::Mysql,
+        Dialect::Sqlite,
+    ]
+    .into_iter()
+    .map(|dialect| {
+        let declared = crate::sql::declared(source, dialect);
+        for refusal in &declared.refused {
+            assert!(refusal.line >= 1 && refusal.column >= 1, "{refusal:?}");
+        }
+        declared.names.len()
+    })
+    .sum()
+}

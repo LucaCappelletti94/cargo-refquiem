@@ -35,3 +35,9 @@ name = "declarations"
 path = "fuzz_targets/declarations.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "sql"
+path = "fuzz_targets/sql.rs"
+test = false
+doc = false
