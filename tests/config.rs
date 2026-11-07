@@ -319,6 +319,29 @@ fn postgres_18_claims_catalog_functions_the_function_chapter_omits() {
 }
 
 #[test]
+fn postgres_18_claims_lowercase_configuration_parameter_names() {
+    let repo = removed_names(
+        "pub fn search_path() {}\npub fn work_mem() {}\npub fn datestyle() {}\npub fn timezone() {}\npub struct DateStyle;\n",
+        "search_path",
+        "Set search_path first.\n`work_mem` and `datestyle`\n`timezone` and `DateStyle`\n",
+    );
+    assert_claims(
+        &repo,
+        "postgres@18",
+        &[
+            ("README.md", 1, "search_path"),
+            ("README.md", 2, "datestyle"),
+            ("README.md", 2, "work_mem"),
+        ],
+        &[
+            ("README.md", 3, "DateStyle"),
+            ("README.md", 3, "timezone"),
+            ("src/lib.rs", 2, "search_path"),
+        ],
+    );
+}
+
+#[test]
 fn sqlite_3_54_claims_underscore_and_non_english_function_names() {
     let repo = removed_names(
         "pub fn json_extract() {}\npub fn strftime() {}\npub fn glob() {}\n",
