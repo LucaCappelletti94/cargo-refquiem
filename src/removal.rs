@@ -331,7 +331,9 @@ fn records_removal<'t>(pieces: &[Piece<'t>], start: usize, clause: &mut Vec<Piec
     };
     let at = clause_of(pieces, at, clause);
     let (first, last) = list(clause, at);
-    removed_by_verb(&clause[..first]) || said_gone(&clause[last + 1..])
+    removed_by_verb(&clause[..first])
+        || said_gone(&clause[last + 1..])
+        || joined_and_gone(&clause[last + 1..])
 }
 
 /// Fills `out` with the clause holding piece `at` of `pieces`, without the parenthesized asides
@@ -463,4 +465,20 @@ fn said_gone(after: &[Piece<'_>]) -> bool {
     piece.word_in(&["gone"])
         || piece.word_in(&GOING) && leaves()
         || piece.word_in(&PARTICIPLES) && (at > 0 || bare())
+}
+
+/// Whether `after`, the pieces following a list, join noun phrases to it whose plural
+/// predicate then says the whole list is gone, as in `X, Y and the signature argument of Z are
+/// deleted`. A singular predicate, as in `X, and the helper is deleted`, has the phrase alone
+/// for its subject.
+fn joined_and_gone(after: &[Piece<'_>]) -> bool {
+    if !after.first().is_some_and(Piece::is_connector) {
+        return false;
+    }
+    after
+        .iter()
+        .position(|piece| piece.word_in(&AUXILIARIES) || piece.word_in(&REMOVING))
+        .is_some_and(|verb| {
+            after[verb].word_in(&["are", "were", "have", "do"]) && said_gone(&after[verb..])
+        })
 }

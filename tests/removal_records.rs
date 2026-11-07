@@ -87,6 +87,49 @@ fn markdown_that_describes_the_name_as_current_is_reported() {
 }
 
 #[test]
+fn a_removal_whose_list_ends_in_a_noun_phrase_is_not_reported() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn range_message() {}\npub fn verify_range() {}\npub fn courier_deliver(_signature: u8) {}\n",
+    );
+    repo.commit("start");
+    repo.write("src/lib.rs", "pub fn courier_deliver() {}\n");
+    repo.write(
+        "PLAN.md",
+        "# Plan\n\n\
+         1. `range_message` and `verify_range` are deleted.\n\
+         2. `range_message`, `verify_range` and the signature argument of `courier_deliver` are deleted.\n\
+         3. `range_message`, `verify_range`, and the old helpers have been removed.\n\
+         4. `verify_range` and the tests that exercised it were removed.\n",
+    );
+    repo.commit("plan");
+
+    assert_eq!(reported(&repo), []);
+}
+
+#[test]
+fn a_list_ending_in_a_noun_phrase_stays_reported_unless_a_plural_predicate_removes_it() {
+    let repo = removed();
+    repo.write(
+        "PLAN.md",
+        "Keep `fixture::Gone`, and the helper is deleted.\n\n\
+         Call `fixture::Other` and the cache was removed.\n\n\
+         `fixture::Gone` and the parser are kept.\n",
+    );
+    repo.commit("phrase alone gone or list kept");
+
+    assert_eq!(
+        reported(&repo),
+        [
+            at("PLAN.md", 1, 7),
+            at("PLAN.md", 3, 7),
+            at("PLAN.md", 5, 2)
+        ]
+    );
+}
+
+#[test]
 fn comments_and_doc_comments_that_state_the_removal_are_not_reported() {
     let repo = removed();
     repo.write(
