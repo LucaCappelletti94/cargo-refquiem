@@ -1751,7 +1751,7 @@ impl<'a> Matcher<'a> {
             }
             Named::Binary(name) => self.entries.stale(&[ItemKind::Binary], name, scope),
             Named::Example(name) => self.entries.stale(&[ItemKind::Example], name, scope),
-            Named::Name { word, data } => self.stale_name(word, *data, path.context, own),
+            Named::Name { word, data } => self.stale_name(word, *data, path.context, (own, scope)),
         }
     }
 
@@ -1866,12 +1866,14 @@ impl<'a> Matcher<'a> {
     }
 
     /// Resolves a bare item or serialized name, subject to live names and vocabulary ambiguity.
+    /// A serialized spelling counts only in a member whose code can name its type's crate, the
+    /// crate `own` mentions belong to coming first.
     fn stale_name(
         &self,
         word: &str,
         data: bool,
         context: Context,
-        own: Option<Sym>,
+        (own, scope): (Option<Sym>, Option<&str>),
     ) -> Option<PathId> {
         let sym = self.interner.find_sym(word)?;
         let claimed = self.names.contains(&sym)
@@ -1886,8 +1888,22 @@ impl<'a> Matcher<'a> {
         } else {
             self.removed_names.get(&sym)
         };
-        let name = name.filter(|_| !self.vocabularies.claims(word, context.kind));
-        Some(self.pick(name.or_else(|| self.removed_spellings.get(&sym))?, own))
+        if let Some(name) = name.filter(|_| !self.vocabularies.claims(word, context.kind)) {
+            return Some(self.pick(name, own));
+        }
+        let reachable: Vec<PathId> = self
+            .removed_spellings
+            .get(&sym)?
+            .iter()
+            .copied()
+            .filter(|&id| {
+                scope.is_none_or(|dir| {
+                    let krate = self.interner.name(self.interner.segments(id)[0]);
+                    self.entries.reaches(dir, krate)
+                })
+            })
+            .collect();
+        (!reachable.is_empty()).then(|| self.pick(&reachable, own))
     }
 
     /// The removed item every reading of `path` names, preferring an item of crate `own`, else
@@ -2222,6 +2238,21 @@ impl<'a> Entries<'a> {
                 None => removed.first().map(|&(_, id)| id),
             }
         })
+    }
+
+    /// Whether code of member `dir` can name items of crate `name`, as its own package or a
+    /// dependency it declares at head or declared during the range.
+    fn reaches(&self, dir: &str, name: &str) -> bool {
+        let dependency = comparable(ItemKind::Dependency, name);
+        self.package(dir)
+            .is_some_and(|own| comparable(ItemKind::Package, own) == dependency)
+            || self
+                .head
+                .contains(&(ItemKind::Dependency, dependency.clone(), dir))
+            || self
+                .removed
+                .get(&(ItemKind::Dependency, dependency))
+                .is_some_and(|removed| removed.iter().any(|&(d, _)| d == dir))
     }
 }
 
