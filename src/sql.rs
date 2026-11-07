@@ -7,7 +7,7 @@ use sqlparser::ast::{
     AlterTableOperation, ArgMode, CreateFunction, CreateFunctionBody, DataType, DoOption,
     DoStatement, Expr, FunctionDesc, Ident, ObjectName, ObjectNamePart, ObjectType,
     RenameTableNameKind, SchemaName, Statement, TableConstraint, UserDefinedTypeRepresentation,
-    Value, ValueWithSpan, Visit, visit_statements,
+    Value, ValueWithSpan, Visit, Visitor,
 };
 use sqlparser::dialect::{GenericDialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
 use sqlparser::keywords::Keyword;
@@ -320,6 +320,7 @@ fn collect(tokens: Result<Vec<TokenWithSpan>, Refusal>, dialect: Dialect) -> (De
     let mut collector = Collector {
         dialect,
         depth: 0,
+        enclosing: 0,
         body_at: None,
         out: Declared::default(),
     };
@@ -553,22 +554,37 @@ pub(crate) fn offset(text: &str, line: usize, column: usize) -> usize {
 /// Gathers the changes statements make, reading the bodies they hold.
 struct Collector {
     dialect: Dialect,
-    /// How many bodies enclose the statements being read, whose drops and renames only
-    /// declare, since a body runs them behind conditions read at run time.
+    /// How many bodies enclose the statements being read, which bounds their nesting.
     depth: usize,
+    /// How many statements enclose the one being read. A statement inside a body or another
+    /// statement, such as a procedure's, only declares, since it runs when its holder is called
+    /// or behind conditions read at run time.
+    enclosing: usize,
     /// Where the outermost body being read starts in the document, which every refusal inside
     /// it is reported at.
     body_at: Option<Location>,
     out: Declared,
 }
 
+impl Visitor for Collector {
+    type Break = ();
+
+    fn pre_visit_statement(&mut self, statement: &Statement) -> ControlFlow<()> {
+        self.statement(statement);
+        self.enclosing += 1;
+        ControlFlow::Continue(())
+    }
+
+    fn post_visit_statement(&mut self, _: &Statement) -> ControlFlow<()> {
+        self.enclosing -= 1;
+        ControlFlow::Continue(())
+    }
+}
+
 impl Collector {
     /// Gathers the changes of every statement in `tree`, nested ones included.
     fn statements<V: Visit>(&mut self, tree: &V) {
-        let _ = visit_statements(tree, |statement| {
-            self.statement(statement);
-            ControlFlow::<()>::Continue(())
-        });
+        let _ = tree.visit(self);
     }
 
     fn statement(&mut self, statement: &Statement) {
@@ -599,7 +615,8 @@ impl Collector {
             Statement::CreateIndex(index) => {
                 if let Some(name) = &index.name {
                     let table = Key::of(Space::Relation, &index.table_name);
-                    self.object(Space::Relation, name, Some(table));
+                    let key = self.index(&table, name);
+                    self.create(key, Some(table), last(name).map(spellings));
                 }
             }
             Statement::CreateRole(role) => {
@@ -691,12 +708,13 @@ impl Collector {
                     _ => return,
                 };
                 for name in names {
-                    self.remove(Change::Drop(Key::of(space, name)));
-                    // MySQL's `DROP INDEX … ON` also drops a key the table declares.
-                    if let (Some(table), Some(index)) = (table, last(name)) {
-                        let table = Key::of(Space::Relation, table);
-                        self.remove(Change::Drop(Key::under(Space::Constraint, &table, index)));
-                    }
+                    let key = match (object_type, table) {
+                        (ObjectType::Index, Some(table)) => {
+                            self.index(&Key::of(Space::Relation, table), name)
+                        }
+                        _ => Key::of(space, name),
+                    };
+                    self.remove(Change::Drop(key));
                 }
             }
             Statement::DropFunction(drop) => self.drop_routines(&drop.func_desc),
@@ -750,7 +768,7 @@ impl Collector {
             }
             // MySQL drops an index, or the key that declared it, by its name.
             AlterTableOperation::DropIndex { name } => {
-                self.remove(Change::Drop(Key::bare(Space::Relation, name)));
+                self.remove(Change::Drop(self.index_named(table, name)));
                 self.remove(Change::Drop(Key::under(Space::Constraint, table, name)));
                 return;
             }
@@ -796,6 +814,25 @@ impl Collector {
         }
     }
 
+    /// The index `name` on `table`. MySQL names an index within its table, like the key that
+    /// declares it, while PostgreSQL and SQLite name it within the schema.
+    fn index(&self, table: &Key, name: &ObjectName) -> Key {
+        if self.dialect == Dialect::Mysql {
+            Key::under_last(Space::Constraint, table, name)
+        } else {
+            Key::of(Space::Relation, name)
+        }
+    }
+
+    /// The index `ident` on `table`, named as [`Collector::index`] names it.
+    fn index_named(&self, table: &Key, ident: &Ident) -> Key {
+        if self.dialect == Dialect::Mysql {
+            Key::under(Space::Constraint, table, ident)
+        } else {
+            Key::bare(Space::Relation, ident)
+        }
+    }
+
     /// The constraint's name and the name of an index it declares, such as MySQL's keys.
     fn constraint(&mut self, owner: &Key, constraint: &TableConstraint) {
         let (name, index) = match constraint {
@@ -813,7 +850,8 @@ impl Collector {
             self.member(Space::Constraint, owner, name);
         }
         if let Some(index) = index {
-            self.bare(Space::Relation, index, Some(owner.clone()));
+            let key = self.index_named(owner, index);
+            self.create(key, Some(owner.clone()), Some(spellings(index)));
         }
     }
 
@@ -976,16 +1014,22 @@ impl Collector {
         });
     }
 
-    /// Records a drop, which a body never makes.
+    /// Whether the statement being read runs when its document does, which no statement held
+    /// by a body or by another statement does.
+    fn runs(&self) -> bool {
+        self.depth == 0 && self.enclosing == 0
+    }
+
+    /// Records a drop, which a statement that does not run never makes.
     fn remove(&mut self, change: Change) {
-        if self.depth == 0 {
+        if self.runs() {
             self.out.changes.push(change);
         }
     }
 
-    /// Records a rename, which inside a body only declares the new name.
+    /// Records a rename, which in a statement that does not run only declares the new name.
     fn rename(&mut self, from: Key, to: Key, owner: Option<Key>, names: Vec<String>) {
-        let change = if self.depth == 0 {
+        let change = if self.runs() {
             Change::Rename {
                 from,
                 to,

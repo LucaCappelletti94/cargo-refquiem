@@ -240,14 +240,15 @@ fn mysql_and_sqlite_drop_keys_by_index_and_triggers_by_schema_name() {
         "moved_col",
         "moved_too",
     ];
+    // sqlparser reads every statement after a MySQL trigger without `BEGIN` into its body, so
+    // the trigger ends its migration and a later one drops it.
     let mysql = "CREATE TABLE kept_table (id INT, UNIQUE KEY my_index (id));
 ALTER TABLE kept_table DROP INDEX my_index;
 CREATE TABLE k2 (id INT, UNIQUE KEY k2_key (id));
 DROP INDEX k2_key ON k2;
-CREATE TRIGGER my_trigger BEFORE INSERT ON kept_table FOR EACH ROW SET NEW.id = 1;
-DROP TRIGGER my_trigger;
 CREATE TABLE moved (moved_col INT);
 ALTER TABLE moved RENAME TO archive.moved_too;
+CREATE TRIGGER my_trigger BEFORE INSERT ON kept_table FOR EACH ROW SET NEW.id = 1;
 ";
     let sqlite = "CREATE TABLE s (id INT);
 CREATE TRIGGER lite_trigger AFTER INSERT ON s BEGIN SELECT 1; END;
@@ -258,6 +259,10 @@ DROP TRIGGER lite_trigger;
             &names,
             &[
                 ("migrations/mysql/20240101000000_start/up.sql", mysql),
+                (
+                    "migrations/mysql/20240201000000_drop_trigger/up.sql",
+                    "DROP TRIGGER my_trigger;\n",
+                ),
                 ("migrations/sqlite/20240101000000_start/up.sql", sqlite),
             ],
         ),
@@ -318,6 +323,59 @@ END $$;
             ],
         ),
         ["body_type"]
+    );
+}
+
+#[test]
+fn statements_nested_in_a_procedure_declare_and_remove_nothing() {
+    let names = ["kept_col", "renamed_col", "nested_col"];
+    let up = "CREATE TABLE t (kept_col INT);
+CREATE PROCEDURE p AS BEGIN
+  ALTER TABLE t DROP COLUMN kept_col;
+  ALTER TABLE t RENAME COLUMN kept_col TO renamed_col;
+  CREATE TABLE nested (nested_col INT);
+END;
+";
+    assert_eq!(
+        dead(&names, &[("migrations/20240101000000_start/up.sql", up)]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn mysql_names_an_index_within_its_table_and_other_dialects_within_the_schema() {
+    let names = [
+        "dup_key",
+        "users",
+        "email",
+        "by_name",
+        "named_key",
+        "schema_key",
+    ];
+    let up = "CREATE TABLE a (id INT, KEY dup_key (id));
+CREATE TABLE b (id INT, KEY dup_key (id));
+ALTER TABLE a DROP INDEX dup_key;
+CREATE TABLE users (email INT, UNIQUE KEY users (email));
+ALTER TABLE users DROP INDEX users;
+CREATE INDEX by_name ON a (id);
+CREATE INDEX by_name ON b (id);
+DROP INDEX by_name ON a;
+CREATE TABLE c (id INT, KEY named_key (id));
+ALTER TABLE c RENAME TO d;
+DROP INDEX named_key ON d;
+";
+    let generic = "CREATE TABLE g (id INT, UNIQUE KEY schema_key (id));
+ALTER TABLE g DROP INDEX schema_key;
+";
+    assert_eq!(
+        dead(
+            &names,
+            &[
+                ("migrations/mysql/20240101000000_start/up.sql", up),
+                ("migrations/20240101000000_start/up.sql", generic),
+            ]
+        ),
+        ["named_key", "schema_key"]
     );
 }
 
