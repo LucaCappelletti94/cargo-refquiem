@@ -16,6 +16,7 @@ use crate::deps::{self, Removal, Scratch};
 use crate::git::{self, Head, Snapshot, TreeSnapshot, Trees, WorkTreeSnapshot};
 use crate::index::{Index, Indexer, Reexports};
 use crate::intern::{Interner, PathId, Sym};
+use crate::migrations::{self, Layouts, Role};
 use crate::parse::SERDE_MARKER;
 use crate::sql::Dialect;
 use crate::text::{self, Named, Spelled};
@@ -988,7 +989,8 @@ struct HeadText {
 
 /// Reads the `.rs`, `.md` and `.sql` files of `snapshot` outside its target directory that no
 /// exclude glob leaves out. Every file counts whatever member the scan is limited to, since a
-/// name lives wherever it is declared.
+/// name lives wherever it is declared. Each migration tree replays in order, so what it drops
+/// is no longer declared.
 fn read_head(
     snapshot: &dyn Snapshot,
     filter: &Filter,
@@ -1000,7 +1002,10 @@ fn read_head(
         names: Vec::new(),
         refused: Vec::new(),
     };
-    for file in snapshot.files()? {
+    let files = snapshot.files()?;
+    let layouts = layouts(snapshot, &files, target_prefix)?;
+    let mut migrations = Vec::new();
+    for file in files {
         let is_rust = has_extension(&file, &["rs"]);
         let is_sql = has_extension(&file, &["sql"]);
         if !(is_rust || is_sql || has_extension(&file, &["md", "markdown"]))
@@ -1015,7 +1020,11 @@ fn read_head(
         if is_sql {
             let dialect = dialects.of(&file)?;
             let (declared, comments) = sql::read(&source, dialect);
-            head.names.extend(declared.names);
+            match layouts.role(&file) {
+                Role::Plain => head.names.extend(sql::names(declared.changes)),
+                Role::Up { tree, order } => migrations.push((tree, order, declared.changes)),
+                Role::Down => {}
+            }
             head.refused
                 .extend(declared.refused.into_iter().map(|refusal| RefusedSql {
                     file: file.clone(),
@@ -1051,7 +1060,7 @@ fn read_head(
                     None => dialects.of(&file)?,
                 };
                 let declared = sql::declared(&fence.text, dialect);
-                head.names.extend(declared.names);
+                head.names.extend(sql::names(declared.changes));
                 for refusal in declared.refused {
                     let at = sql::offset(&fence.text, refusal.line, refusal.column);
                     let (line, column) = text::line_column(&starts, &source, fence.file_offset(at));
@@ -1067,7 +1076,8 @@ fn read_head(
             if !read.literals.is_empty() {
                 let dialect = dialects.of(&file)?;
                 for literal in &read.literals {
-                    head.names.extend(sql::declared(literal, dialect).names);
+                    head.names
+                        .extend(sql::names(sql::declared(literal, dialect).changes));
                 }
             }
         }
@@ -1080,9 +1090,28 @@ fn read_head(
             read,
         });
     }
+    head.names.extend(migrations::replay(migrations));
     head.names.sort_unstable();
     head.names.dedup();
     Ok(head)
+}
+
+/// The migration layouts of `files`, with the directories their `diesel.toml` files name.
+fn layouts(
+    snapshot: &dyn Snapshot,
+    files: &[String],
+    target_prefix: &str,
+) -> Result<Layouts, Error> {
+    let mut layouts = Layouts::default();
+    for file in files {
+        if (file == "diesel.toml" || file.ends_with("/diesel.toml"))
+            && !in_target(file, target_prefix)
+            && let Some((_, source)) = utf8_text(snapshot, file)?
+        {
+            layouts.diesel_toml(file, &source);
+        }
+    }
+    Ok(layouts)
 }
 
 /// Whether `file` lies in the scanned workspace's target directory at `target_prefix`.

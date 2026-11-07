@@ -18,6 +18,7 @@ mod git;
 mod index;
 mod intern;
 mod manifest;
+mod migrations;
 mod output;
 mod parse;
 mod removal;

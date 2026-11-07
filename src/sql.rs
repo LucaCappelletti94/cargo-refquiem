@@ -1,17 +1,21 @@
-//! The names SQL declares, read with `sqlparser`, and the SQL it could not read.
+//! The names SQL declares and the changes it makes to a schema, read with `sqlparser`, and the
+//! SQL it could not read.
 
 use std::ops::ControlFlow;
 
 use sqlparser::ast::{
-    AlterTableOperation, CreateFunction, CreateFunctionBody, DoOption, DoStatement, Expr, Ident,
-    ObjectName, ObjectNamePart, RenameTableNameKind, SchemaName, Statement, TableConstraint,
-    UserDefinedTypeRepresentation, Value, ValueWithSpan, Visit, visit_statements,
+    AlterTableOperation, ArgMode, CreateFunction, CreateFunctionBody, DataType, DoOption,
+    DoStatement, Expr, FunctionDesc, Ident, ObjectName, ObjectNamePart, ObjectType,
+    RenameTableNameKind, SchemaName, Statement, TableConstraint, UserDefinedTypeRepresentation,
+    Value, ValueWithSpan, Visit, visit_statements,
 };
 use sqlparser::dialect::{GenericDialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
 use sqlparser::keywords::Keyword;
 use sqlparser::parser::{Parser, ParserError};
 use sqlparser::tokenizer::{Location, Token, TokenWithSpan, Tokenizer, Whitespace};
 use sqlparser_plpgsql::embedded::{Block, Branch, Node};
+
+use crate::HashMap;
 
 /// How many `DO` and function bodies may nest inside one another before the innermost is
 /// refused, which bounds the recursion a body of bodies drives.
@@ -68,15 +72,226 @@ pub(crate) struct Refusal {
     pub(crate) error: String,
 }
 
-/// The names a SQL document declares and the parts of it that could not be read.
+/// The changes a SQL document makes to the schema, in the order it makes them, and the parts of
+/// it that could not be read.
 #[derive(Debug, Default)]
 pub(crate) struct Declared {
-    pub(crate) names: Vec<String>,
+    pub(crate) changes: Vec<Change>,
     pub(crate) refused: Vec<Refusal>,
 }
 
-/// Everything `source`, read in `dialect`, declares, `DO` and function bodies included. A
-/// document sqlparser refuses declares nothing, and a refused body loses only its own names.
+/// What one statement does to the schema.
+#[derive(Debug)]
+pub(crate) enum Change {
+    /// Creates `object`, which dies with `owner` when it has one, keeping `names` alive.
+    Create {
+        object: Key,
+        owner: Option<Key>,
+        names: Vec<String>,
+    },
+    /// Removes the object and everything it owns.
+    Drop(Key),
+    /// Removes every overload of the routine of this name and everything they own.
+    DropRoutines(Vec<String>),
+    /// Turns `from` into `to`, owned by `owner` and keeping `names` alive, and moves what `from`
+    /// owns to `to`.
+    Rename {
+        from: Key,
+        to: Key,
+        owner: Option<Key>,
+        names: Vec<String>,
+    },
+}
+
+/// The names `changes` declare, whatever they later drop, as a document outside a migration
+/// tree keeps them.
+pub(crate) fn names(changes: Vec<Change>) -> impl Iterator<Item = String> {
+    changes.into_iter().flat_map(|change| match change {
+        Change::Create { names, .. } | Change::Rename { names, .. } => names,
+        Change::Drop(_) | Change::DropRoutines(_) => Vec::new(),
+    })
+}
+
+/// An object of the schema, as its name is written, each unquoted part folded to lowercase.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct Key {
+    space: Space,
+    /// The parts of its name, after those of the object it belongs to for a column,
+    /// constraint, trigger, policy, type member or parameter, and ending in the argument types
+    /// for a routine.
+    path: Vec<String>,
+}
+
+/// The kinds of object whose names never meet, as a table and a role may share a name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Space {
+    /// Tables, views, indexes and sequences, which PostgreSQL names alike.
+    Relation,
+    Column,
+    Constraint,
+    Trigger,
+    Policy,
+    /// Types and domains.
+    Type,
+    /// Enum labels and composite attributes.
+    Member,
+    /// Functions and procedures.
+    Routine,
+    Parameter,
+    /// Roles and users.
+    Role,
+    Schema,
+    Extension,
+}
+
+impl Key {
+    fn of(space: Space, name: &ObjectName) -> Self {
+        let path = name.0.iter().map(part).collect();
+        Self { space, path }
+    }
+
+    fn bare(space: Space, ident: &Ident) -> Self {
+        Self {
+            space,
+            path: vec![fold(ident)],
+        }
+    }
+
+    /// The object `ident` of `owner`, such as a column of a table.
+    fn under(space: Space, owner: &Self, ident: &Ident) -> Self {
+        let mut path = owner.path.clone();
+        path.push(fold(ident));
+        Self { space, path }
+    }
+
+    /// The object of `owner` the last part of `name` names.
+    fn under_last(space: Space, owner: &Self, name: &ObjectName) -> Self {
+        let mut path = owner.path.clone();
+        path.extend(name.0.last().map(part));
+        Self { space, path }
+    }
+
+    /// The routine `name` taking arguments of `types`, which PostgreSQL tells overloads apart
+    /// by.
+    fn routine<'a>(name: &ObjectName, types: impl Iterator<Item = &'a DataType>) -> Self {
+        let mut key = Self::of(Space::Routine, name);
+        let types: Vec<String> = types.map(|kind| kind.to_string().to_lowercase()).collect();
+        key.path.push(format!("({})", types.join(",")));
+        key
+    }
+}
+
+/// A part of an object's name, folded when it is an identifier.
+fn part(part: &ObjectNamePart) -> String {
+    part.as_ident().map_or_else(|| part.to_string(), fold)
+}
+
+/// `ident` as an object's name, lowercased as PostgreSQL folds it when unquoted.
+fn fold(ident: &Ident) -> String {
+    if ident.quote_style.is_none() {
+        ident.value.to_lowercase()
+    } else {
+        ident.value.clone()
+    }
+}
+
+/// The names `ident` keeps alive, as written and lowercased as PostgreSQL folds it when
+/// unquoted.
+fn spellings(ident: &Ident) -> Vec<String> {
+    let folded = fold(ident);
+    if folded == ident.value {
+        vec![folded]
+    } else {
+        vec![folded, ident.value.clone()]
+    }
+}
+
+/// The last part of `name`, which is the object a qualified name declares. Only Snowflake's
+/// `IDENTIFIER(…)` ends a name in something else, which no dialect read here parses.
+fn last(name: &ObjectName) -> Option<&Ident> {
+    name.0.last().and_then(ObjectNamePart::as_ident)
+}
+
+/// The objects a migration tree leaves alive, replayed change by change.
+#[derive(Debug, Default)]
+pub(crate) struct Schema {
+    objects: HashMap<Key, Object>,
+}
+
+/// A live object, the object it dies with and the names it keeps alive. An object with an
+/// owner owns nothing itself.
+#[derive(Debug)]
+struct Object {
+    owner: Option<Key>,
+    names: Vec<String>,
+}
+
+impl Schema {
+    pub(crate) fn apply(&mut self, change: Change) {
+        match change {
+            Change::Create {
+                object,
+                owner,
+                names,
+            } => self
+                .objects
+                .entry(object)
+                .or_insert(Object {
+                    owner,
+                    names: Vec::new(),
+                })
+                .names
+                .extend(names),
+            Change::Drop(key) => self.remove(|candidate| *candidate == key),
+            Change::DropRoutines(name) => self.remove(|candidate| {
+                candidate.space == Space::Routine
+                    && candidate
+                        .path
+                        .split_last()
+                        .is_some_and(|(_, path)| *path == name)
+            }),
+            Change::Rename {
+                from,
+                to,
+                owner,
+                names,
+            } => {
+                self.objects.remove(&from);
+                let carried: Vec<(Key, Object)> = self
+                    .objects
+                    .extract_if(|_, object| object.owner.as_ref() == Some(&from))
+                    .collect();
+                for (key, mut object) in carried {
+                    object.owner = Some(to.clone());
+                    let key = match key.path.strip_prefix(from.path.as_slice()) {
+                        Some(rest) => Key {
+                            space: key.space,
+                            path: to.path.iter().chain(rest).cloned().collect(),
+                        },
+                        None => key,
+                    };
+                    self.objects.insert(key, object);
+                }
+                self.objects.insert(to, Object { owner, names });
+            }
+        }
+    }
+
+    /// Removes every object `dropped` picks and every object whose owner it picks.
+    fn remove(&mut self, dropped: impl Fn(&Key) -> bool) {
+        self.objects
+            .retain(|key, object| !(dropped(key) || object.owner.as_ref().is_some_and(&dropped)));
+    }
+
+    /// The names the live objects keep alive.
+    pub(crate) fn into_names(self) -> impl Iterator<Item = String> {
+        self.objects.into_values().flat_map(|object| object.names)
+    }
+}
+
+/// Everything `source`, read in `dialect`, declares and changes, `DO` and function bodies
+/// included. A document sqlparser refuses declares nothing, and a refused body loses only its
+/// own names.
 pub(crate) fn declared(source: &str, dialect: Dialect) -> Declared {
     collect(tokenize(source, dialect), dialect).0
 }
@@ -335,10 +550,11 @@ pub(crate) fn offset(text: &str, line: usize, column: usize) -> usize {
         .map_or(text.len(), |(at, _)| line_start + at)
 }
 
-/// Gathers the names of statements, reading the bodies they hold.
+/// Gathers the changes statements make, reading the bodies they hold.
 struct Collector {
     dialect: Dialect,
-    /// How many bodies enclose the statements being read.
+    /// How many bodies enclose the statements being read, whose drops and renames only
+    /// declare, since a body runs them behind conditions read at run time.
     depth: usize,
     /// Where the outermost body being read starts in the document, which every refusal inside
     /// it is reported at.
@@ -347,7 +563,7 @@ struct Collector {
 }
 
 impl Collector {
-    /// Gathers the names of every statement in `tree`, nested ones included.
+    /// Gathers the changes of every statement in `tree`, nested ones included.
     fn statements<V: Visit>(&mut self, tree: &V) {
         let _ = visit_statements(tree, |statement| {
             self.statement(statement);
@@ -358,126 +574,256 @@ impl Collector {
     fn statement(&mut self, statement: &Statement) {
         match statement {
             Statement::CreateTable(table) => {
-                self.object(&table.name);
+                let key = self.object(Space::Relation, &table.name, None);
                 for column in &table.columns {
-                    self.ident(&column.name);
+                    self.member(Space::Column, &key, &column.name);
                 }
                 for constraint in &table.constraints {
-                    self.constraint(constraint);
+                    self.constraint(&key, constraint);
                 }
             }
-            Statement::CreateVirtualTable { name, .. }
-            | Statement::CreateSequence { name, .. }
-            | Statement::CreateTrigger(sqlparser::ast::CreateTrigger { name, .. }) => {
-                self.object(name);
+            Statement::CreateVirtualTable { name, .. } | Statement::CreateSequence { name, .. } => {
+                self.object(Space::Relation, name, None);
+            }
+            Statement::CreateTrigger(trigger) => {
+                let key = self.trigger(&trigger.name, Some(&trigger.table_name));
+                let table = Key::of(Space::Relation, &trigger.table_name);
+                self.create(key, Some(table), last(&trigger.name).map(spellings));
             }
             Statement::CreateView(view) => {
-                self.object(&view.name);
+                let key = self.object(Space::Relation, &view.name, None);
                 for column in &view.columns {
-                    self.ident(&column.name);
+                    self.member(Space::Column, &key, &column.name);
                 }
             }
             Statement::CreateIndex(index) => {
                 if let Some(name) = &index.name {
-                    self.object(name);
+                    let table = Key::of(Space::Relation, &index.table_name);
+                    self.object(Space::Relation, name, Some(table));
                 }
             }
             Statement::CreateRole(role) => {
                 for name in &role.names {
-                    self.object(name);
+                    self.object(Space::Role, name, None);
                 }
             }
-            Statement::CreateUser(user) => self.ident(&user.name),
-            Statement::CreatePolicy(policy) => self.ident(&policy.name),
-            Statement::CreateExtension(extension) => self.ident(&extension.name),
+            Statement::CreateUser(user) => self.bare(Space::Role, &user.name, None),
+            Statement::CreatePolicy(policy) => {
+                let table = Key::of(Space::Relation, &policy.table_name);
+                self.member(Space::Policy, &table, &policy.name);
+            }
+            Statement::CreateExtension(extension) => {
+                self.bare(Space::Extension, &extension.name, None);
+            }
             Statement::CreateSchema { schema_name, .. } => match schema_name {
                 SchemaName::Simple(name) | SchemaName::NamedAuthorization(name, _) => {
-                    self.object(name);
+                    self.object(Space::Schema, name, None);
                 }
-                SchemaName::UnnamedAuthorization(ident) => self.ident(ident),
+                SchemaName::UnnamedAuthorization(ident) => self.bare(Space::Schema, ident, None),
             },
             Statement::CreateFunction(function) => self.function(function),
             Statement::CreateProcedure { name, params, .. } => {
-                self.object(name);
-                for param in params.iter().flatten() {
-                    self.ident(&param.name);
+                let params = params.iter().flatten();
+                let inputs = params
+                    .clone()
+                    .filter(|param| param.mode != Some(ArgMode::Out));
+                let key = Key::routine(name, inputs.map(|param| &param.data_type));
+                self.create(key.clone(), None, last(name).map(spellings));
+                for param in params {
+                    self.member(Space::Parameter, &key, &param.name);
                 }
             }
             Statement::CreateDomain(domain) => {
-                self.object(&domain.name);
+                let key = self.object(Space::Type, &domain.name, None);
                 for constraint in &domain.constraints {
-                    self.constraint(constraint);
+                    self.constraint(&key, constraint);
                 }
             }
             Statement::CreateType {
                 name,
                 representation,
             } => {
-                self.object(name);
+                let key = self.object(Space::Type, name, None);
                 match representation {
                     Some(UserDefinedTypeRepresentation::Composite { attributes }) => {
                         for attribute in attributes {
-                            self.ident(&attribute.name);
+                            self.member(Space::Member, &key, &attribute.name);
                         }
                     }
                     Some(UserDefinedTypeRepresentation::Enum { labels }) => {
                         for label in labels {
-                            self.ident(label);
+                            self.member(Space::Member, &key, label);
                         }
                     }
                     _ => {}
                 }
             }
             Statement::AlterTable(alter) => {
+                let table = Key::of(Space::Relation, &alter.name);
                 for operation in &alter.operations {
-                    self.alteration(operation);
+                    self.alteration(&table, operation);
                 }
             }
             Statement::Do(block) => self.do_block(block),
+            statement => self.drop(statement),
+        }
+    }
+
+    /// Records what a `DROP` statement removes.
+    fn drop(&mut self, statement: &Statement) {
+        match statement {
+            Statement::Drop {
+                object_type,
+                names,
+                table,
+                ..
+            } => {
+                let space = match object_type {
+                    ObjectType::Table
+                    | ObjectType::ForeignTable
+                    | ObjectType::View
+                    | ObjectType::MaterializedView
+                    | ObjectType::Index
+                    | ObjectType::Sequence => Space::Relation,
+                    ObjectType::Schema => Space::Schema,
+                    ObjectType::Role | ObjectType::User | ObjectType::Group => Space::Role,
+                    ObjectType::Type => Space::Type,
+                    _ => return,
+                };
+                for name in names {
+                    self.remove(Change::Drop(Key::of(space, name)));
+                    // MySQL's `DROP INDEX … ON` also drops a key the table declares.
+                    if let (Some(table), Some(index)) = (table, last(name)) {
+                        let table = Key::of(Space::Relation, table);
+                        self.remove(Change::Drop(Key::under(Space::Constraint, &table, index)));
+                    }
+                }
+            }
+            Statement::DropFunction(drop) => self.drop_routines(&drop.func_desc),
+            Statement::DropProcedure { proc_desc, .. } => self.drop_routines(proc_desc),
+            Statement::DropDomain(drop) => {
+                self.remove(Change::Drop(Key::of(Space::Type, &drop.name)));
+            }
+            Statement::DropPolicy(drop) => {
+                let table = Key::of(Space::Relation, &drop.table_name);
+                self.remove(Change::Drop(Key::under(Space::Policy, &table, &drop.name)));
+            }
+            Statement::DropExtension(drop) => {
+                for name in &drop.names {
+                    self.remove(Change::Drop(Key::bare(Space::Extension, name)));
+                }
+            }
+            Statement::DropTrigger(drop) => {
+                let key = self.trigger(&drop.trigger_name, drop.table_name.as_ref());
+                self.remove(Change::Drop(key));
+            }
             _ => {}
         }
     }
 
-    fn alteration(&mut self, operation: &AlterTableOperation) {
-        match operation {
-            AlterTableOperation::AddColumn { column_def, .. } => self.ident(&column_def.name),
-            AlterTableOperation::AddConstraint { constraint, .. } => self.constraint(constraint),
+    fn alteration(&mut self, table: &Key, operation: &AlterTableOperation) {
+        let renamed = |space, old, new| {
+            (
+                Key::under(space, table, old),
+                Key::under(space, table, new),
+                spellings(new),
+            )
+        };
+        let (from, to, names) = match operation {
+            AlterTableOperation::AddColumn { column_def, .. } => {
+                self.member(Space::Column, table, &column_def.name);
+                return;
+            }
+            AlterTableOperation::AddConstraint { constraint, .. } => {
+                self.constraint(table, constraint);
+                return;
+            }
+            AlterTableOperation::DropColumn { column_names, .. } => {
+                for name in column_names {
+                    self.remove(Change::Drop(Key::under(Space::Column, table, name)));
+                }
+                return;
+            }
+            AlterTableOperation::DropConstraint { name, .. } => {
+                self.remove(Change::Drop(Key::under(Space::Constraint, table, name)));
+                return;
+            }
+            // MySQL drops an index, or the key that declared it, by its name.
+            AlterTableOperation::DropIndex { name } => {
+                self.remove(Change::Drop(Key::bare(Space::Relation, name)));
+                self.remove(Change::Drop(Key::under(Space::Constraint, table, name)));
+                return;
+            }
             AlterTableOperation::RenameColumn {
-                new_column_name, ..
-            } => self.ident(new_column_name),
-            AlterTableOperation::ChangeColumn { new_name, .. }
-            | AlterTableOperation::RenameConstraint { new_name, .. } => self.ident(new_name),
+                old_column_name,
+                new_column_name,
+            } => renamed(Space::Column, old_column_name, new_column_name),
+            AlterTableOperation::ChangeColumn {
+                old_name, new_name, ..
+            } => renamed(Space::Column, old_name, new_name),
+            AlterTableOperation::RenameConstraint { old_name, new_name } => {
+                renamed(Space::Constraint, old_name, new_name)
+            }
             AlterTableOperation::RenameTable {
                 table_name: RenameTableNameKind::As(name) | RenameTableNameKind::To(name),
-            } => self.object(name),
-            _ => {}
+            } => {
+                // A bare new name keeps the table in its schema.
+                let to = if let [new] = name.0.as_slice() {
+                    let mut to = table.clone();
+                    to.path.pop();
+                    to.path.push(part(new));
+                    to
+                } else {
+                    Key::of(Space::Relation, name)
+                };
+                let names = last(name).map(spellings).unwrap_or_default();
+                self.rename(table.clone(), to, None, names);
+                return;
+            }
+            _ => return,
+        };
+        self.rename(from, to, Some(table.clone()), names);
+    }
+
+    /// The trigger `name` on `table`. PostgreSQL names a trigger within its table, while MySQL
+    /// and SQLite name it within the schema and drop it without naming the table.
+    fn trigger(&self, name: &ObjectName, table: Option<&ObjectName>) -> Key {
+        match (self.dialect, table) {
+            (Dialect::Postgres | Dialect::Generic, Some(table)) => {
+                Key::under_last(Space::Trigger, &Key::of(Space::Relation, table), name)
+            }
+            _ => Key::of(Space::Trigger, name),
         }
     }
 
-    /// The constraint's name and, for MySQL's keys, the name of the index backing it.
-    fn constraint(&mut self, constraint: &TableConstraint) {
+    /// The constraint's name and the name of an index it declares, such as MySQL's keys.
+    fn constraint(&mut self, owner: &Key, constraint: &TableConstraint) {
         let (name, index) = match constraint {
             TableConstraint::Unique(unique) => (&unique.name, &unique.index_name),
             TableConstraint::PrimaryKey(key) => (&key.name, &key.index_name),
             TableConstraint::ForeignKey(key) => (&key.name, &key.index_name),
             TableConstraint::Check(check) => (&check.name, &None),
-            TableConstraint::Index(index) => (&index.name, &None),
-            TableConstraint::FulltextOrSpatial(index) => (&index.opt_index_name, &None),
+            TableConstraint::Index(index) => (&None, &index.name),
+            TableConstraint::FulltextOrSpatial(index) => (&None, &index.opt_index_name),
             TableConstraint::PrimaryKeyUsingIndex(index)
             | TableConstraint::UniqueUsingIndex(index) => (&index.name, &None),
             TableConstraint::Exclude(exclude) => (&exclude.name, &None),
         };
-        for ident in [name, index].into_iter().flatten() {
-            self.ident(ident);
+        if let Some(name) = name {
+            self.member(Space::Constraint, owner, name);
+        }
+        if let Some(index) = index {
+            self.bare(Space::Relation, index, Some(owner.clone()));
         }
     }
 
     fn function(&mut self, function: &CreateFunction) {
-        self.object(&function.name);
-        for arg in function.args.iter().flatten() {
-            if let Some(name) = &arg.name {
-                self.ident(name);
-            }
+        let args = function.args.iter().flatten();
+        let inputs = args.clone().filter(|arg| arg.mode != Some(ArgMode::Out));
+        let key = Key::routine(&function.name, inputs.map(|arg| &arg.data_type));
+        self.create(key.clone(), None, last(&function.name).map(spellings));
+        for name in args.filter_map(|arg| arg.name.as_ref()) {
+            self.member(Space::Parameter, &key, name);
         }
         let body = match &function.function_body {
             Some(
@@ -497,6 +843,23 @@ impl Collector {
             .as_ref()
             .map(|language| language.value.as_str());
         self.body(language.unwrap_or("sql"), text, at);
+    }
+
+    /// Drops the routine each of `routines` names, every overload when it lists no arguments.
+    fn drop_routines(&mut self, routines: &[FunctionDesc]) {
+        for routine in routines {
+            let change = match &routine.args {
+                Some(args) => {
+                    let inputs = args.iter().filter(|arg| arg.mode != Some(ArgMode::Out));
+                    Change::Drop(Key::routine(
+                        &routine.name,
+                        inputs.map(|arg| &arg.data_type),
+                    ))
+                }
+                None => Change::DropRoutines(Key::of(Space::Routine, &routine.name).path),
+            };
+            self.remove(change);
+        }
     }
 
     fn do_block(&mut self, block: &DoStatement) {
@@ -587,29 +950,56 @@ impl Collector {
         }
     }
 
-    /// The last part of `name`, which is the object a qualified name declares. Only
-    /// Snowflake's `IDENTIFIER(…)` ends a name in something else, which no dialect read here
-    /// parses.
-    fn object(&mut self, name: &ObjectName) {
-        for ident in name
-            .0
-            .last()
-            .into_iter()
-            .filter_map(ObjectNamePart::as_ident)
-        {
-            self.ident(ident);
+    /// Creates the object `name` declares, owned by `owner`, and returns its key.
+    fn object(&mut self, space: Space, name: &ObjectName, owner: Option<Key>) -> Key {
+        let key = Key::of(space, name);
+        self.create(key.clone(), owner, last(name).map(spellings));
+        key
+    }
+
+    /// Creates the object `ident` names on its own, owned by `owner`.
+    fn bare(&mut self, space: Space, ident: &Ident, owner: Option<Key>) {
+        self.create(Key::bare(space, ident), owner, Some(spellings(ident)));
+    }
+
+    /// Creates the object `ident` of `owner`, which dies with it.
+    fn member(&mut self, space: Space, owner: &Key, ident: &Ident) {
+        let key = Key::under(space, owner, ident);
+        self.create(key, Some(owner.clone()), Some(spellings(ident)));
+    }
+
+    fn create(&mut self, object: Key, owner: Option<Key>, names: Option<Vec<String>>) {
+        self.out.changes.push(Change::Create {
+            object,
+            owner,
+            names: names.unwrap_or_default(),
+        });
+    }
+
+    /// Records a drop, which a body never makes.
+    fn remove(&mut self, change: Change) {
+        if self.depth == 0 {
+            self.out.changes.push(change);
         }
     }
 
-    /// `ident` as written, and lowercased as PostgreSQL folds it when unquoted.
-    fn ident(&mut self, ident: &Ident) {
-        if ident.quote_style.is_none() {
-            let folded = ident.value.to_lowercase();
-            if folded != ident.value {
-                self.out.names.push(folded);
+    /// Records a rename, which inside a body only declares the new name.
+    fn rename(&mut self, from: Key, to: Key, owner: Option<Key>, names: Vec<String>) {
+        let change = if self.depth == 0 {
+            Change::Rename {
+                from,
+                to,
+                owner,
+                names,
             }
-        }
-        self.out.names.push(ident.value.clone());
+        } else {
+            Change::Create {
+                object: to,
+                owner,
+                names,
+            }
+        };
+        self.out.changes.push(change);
     }
 }
 
