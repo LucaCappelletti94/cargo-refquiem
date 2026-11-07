@@ -9,7 +9,7 @@ use ra_ap_rustc_lexer::{
 
 use crate::manifest::is_dependency_table;
 use crate::removal::{self, Segment};
-use crate::sql::Dialect;
+use crate::sql::{Comments, Dialect};
 use crate::{Context, HashSet, Kind, Source};
 
 #[derive(Debug)]
@@ -562,6 +562,41 @@ impl Attribute {
 
     fn inside(&self) -> bool {
         self.depth > 0
+    }
+}
+
+/// Every mention in the `comments` of a `.sql` file, a run that is nothing but SQL skipped
+/// unless `scan_commented_code` holds, and in the text its `COMMENT ON … IS` attaches.
+pub(crate) fn sql_file(source: &str, comments: &Comments, scan_commented_code: bool) -> Read {
+    let context = Context {
+        source: Source::SqlComment,
+        kind: Kind::Text,
+    };
+    let mut out = Vec::new();
+    let mut markers = Vec::new();
+    for run in &comments.runs {
+        for &(start, end) in &run.lines {
+            marker_names(&source[start..end], start, &mut markers);
+        }
+        if run.code && !scan_commented_code {
+            continue;
+        }
+        let from = out.len();
+        for &(start, end) in &run.lines {
+            scan(&source[start..end], start, context, &mut out);
+        }
+        let (first, last) = (run.lines[0].0, run.lines[run.lines.len() - 1].1);
+        let text = &source[first..last];
+        removal::drop_records(text, first, &[Segment::Text(0..text.len())], &mut out, from);
+    }
+    for &(start, end) in &comments.documentation {
+        scan_prose(&source[start..end], start, context, &mut out);
+    }
+    Read {
+        mentions: out,
+        markers,
+        fences: Vec::new(),
+        literals: Vec::new(),
     }
 }
 

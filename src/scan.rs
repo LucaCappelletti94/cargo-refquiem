@@ -17,6 +17,7 @@ use crate::git::{self, Head, Snapshot, TreeSnapshot, Trees, WorkTreeSnapshot};
 use crate::index::{Index, Indexer, Reexports};
 use crate::intern::{Interner, PathId, Sym};
 use crate::parse::SERDE_MARKER;
+use crate::sql::Dialect;
 use crate::text::{self, Named, Spelled};
 use crate::{
     ChangedItem, Context, Error, Group, HashMap, HashSet, ItemKind, Kind, Level, Mention, Options,
@@ -973,6 +974,8 @@ struct HeadFile {
     id: ObjectId,
     source: String,
     is_rust: bool,
+    /// The dialect of a `.sql` file, whose vocabularies apply inside it.
+    dialect: Option<Dialect>,
     read: Result<text::Read, text::MarkdownError>,
 }
 
@@ -1010,7 +1013,8 @@ fn read_head(
             continue;
         };
         if is_sql {
-            let declared = sql::declared(&source, dialects.of(&file)?);
+            let dialect = dialects.of(&file)?;
+            let (declared, comments) = sql::read(&source, dialect);
             head.names.extend(declared.names);
             head.refused
                 .extend(declared.refused.into_iter().map(|refusal| RefusedSql {
@@ -1019,6 +1023,15 @@ fn read_head(
                     column: refusal.column,
                     error: refusal.error,
                 }));
+            let read = text::sql_file(&source, &comments, filter.scan_commented_code);
+            head.files.push(HeadFile {
+                file,
+                id,
+                source,
+                is_rust: false,
+                dialect: Some(dialect),
+                read: Ok(read),
+            });
             continue;
         }
         let read = if is_rust {
@@ -1063,6 +1076,7 @@ fn read_head(
             id,
             source,
             is_rust,
+            dialect: None,
             read,
         });
     }
@@ -1106,10 +1120,11 @@ fn find_mentions(
         id,
         source,
         is_rust,
+        dialect,
         read,
     } in files
     {
-        let (id, source, is_rust) = (*id, source.as_str(), *is_rust);
+        let (id, source, is_rust, dialect) = (*id, source.as_str(), *is_rust, *dialect);
         if filter.skips_path(file) || filter.skips_text(source) {
             continue;
         }
@@ -1149,7 +1164,7 @@ fn find_mentions(
                     uppercase,
                 }
             };
-            if let Some(removed) = matcher.stale(path, file, is_rust, module) {
+            if let Some(removed) = matcher.stale(path, file, (is_rust, dialect), module) {
                 let uppercase = matcher.uppercase(path, removed);
                 mentions
                     .entry(removed)
@@ -1157,7 +1172,7 @@ fn find_mentions(
                     .push(mention(uppercase));
             } else if unedited
                 && path.context.source != Source::StringLiteral
-                && let Some(item) = matcher.changed(changed, path, is_rust, module)
+                && let Some(item) = matcher.changed(changed, path, (is_rust, dialect), module)
             {
                 changed_mentions
                     .entry(item)
@@ -1562,6 +1577,9 @@ struct Vocabularies {
     unicode: VocabularyWords,
     /// The canonical paths of the selected custom files, by the index the words keep.
     files: Vec<String>,
+    /// The words a SQL document's own dialect claims inside it whatever the selection, the
+    /// key words of SQL:2023 in every dialect.
+    sql: Vec<(Option<Dialect>, stdlib::Vocabulary)>,
 }
 
 impl Vocabularies {
@@ -1575,6 +1593,11 @@ impl Vocabularies {
                 .filter(|(builtin, _)| config.selects(*builtin))
                 .map(|&(builtin, words)| (builtin, words()))
                 .collect(),
+            sql: vec![
+                (None, stdlib::Vocabulary::sql_2023()),
+                (Some(Dialect::Postgres), stdlib::Vocabulary::postgres_18()),
+                (Some(Dialect::Sqlite), stdlib::Vocabulary::sqlite_3_54()),
+            ],
             ..Self::default()
         };
         for file in files {
@@ -1623,6 +1646,18 @@ impl Vocabularies {
             spelling,
             vocabulary,
         })
+    }
+
+    /// Whether a vocabulary claims `word` where `kind` lets it apply, in a SQL document of
+    /// `dialect` when there is one.
+    fn claims_in(&self, word: &str, kind: Kind, dialect: Option<Dialect>) -> bool {
+        let sql = dialect.is_some_and(|dialect| {
+            kind == Kind::Text
+                && self.sql.iter().any(|(only, words)| {
+                    only.is_none_or(|only| only == dialect) && words.contains(word)
+                })
+        });
+        sql || self.claims(word, kind)
     }
 
     fn claims(&self, word: &str, kind: Kind) -> bool {
@@ -1784,12 +1819,13 @@ impl<'a> Matcher<'a> {
         }
     }
 
-    /// The removed item or manifest entry `path`, found in `file`, names.
+    /// The removed item or manifest entry `path`, found in `file`, names, `dialect` being the
+    /// dialect of a `.sql` file.
     fn stale(
         &self,
         path: &Spelled,
         file: &str,
-        in_rust: bool,
+        (in_rust, dialect): (bool, Option<Dialect>),
         module: Option<&[Sym]>,
     ) -> Option<PathId> {
         let scope = self.entries.scope(file);
@@ -1815,7 +1851,9 @@ impl<'a> Matcher<'a> {
             }
             Named::Binary(name) => self.entries.stale(&[ItemKind::Binary], name, scope),
             Named::Example(name) => self.entries.stale(&[ItemKind::Example], name, scope),
-            Named::Name { word, data } => self.stale_name(word, *data, path.context, own),
+            Named::Name { word, data } => {
+                self.stale_name(word, *data, (path.context, dialect), own)
+            }
         }
     }
 
@@ -1836,14 +1874,17 @@ impl<'a> Matcher<'a> {
         &self,
         changed: &Changed,
         path: &Spelled,
-        in_rust: bool,
+        (in_rust, dialect): (bool, Option<Dialect>),
         module: Option<&[Sym]>,
     ) -> Option<PathId> {
         match &path.named {
             Named::Path => self.changed_path(changed, path, in_rust, module),
-            Named::Name { word, data: false } if !word.contains('-') => {
-                self.changed_name(changed, word, path.context, module.filter(|_| in_rust))
-            }
+            Named::Name { word, data: false } if !word.contains('-') => self.changed_name(
+                changed,
+                word,
+                (path.context, dialect),
+                module.filter(|_| in_rust),
+            ),
             _ => None,
         }
     }
@@ -1854,14 +1895,14 @@ impl<'a> Matcher<'a> {
         &self,
         changed: &Changed,
         word: &str,
-        context: Context,
+        (context, dialect): (Context, Option<Dialect>),
         module: Option<&[Sym]>,
     ) -> Option<PathId> {
         let sym = self.interner.find_sym(word)?;
         let claimed = self.locals.contains(&sym)
             || self.macro_idents.contains(&sym)
             || self.std.iter().any(|layer| layer.has_name(word))
-            || self.vocabularies.claims(word, context.kind);
+            || self.vocabularies.claims_in(word, context.kind, dialect);
         if claimed {
             return None;
         }
@@ -1934,7 +1975,7 @@ impl<'a> Matcher<'a> {
         &self,
         word: &str,
         data: bool,
-        context: Context,
+        (context, dialect): (Context, Option<Dialect>),
         own: Option<Sym>,
     ) -> Option<PathId> {
         let sym = self.interner.find_sym(word)?;
@@ -1950,7 +1991,7 @@ impl<'a> Matcher<'a> {
         } else {
             self.removed_names.get(&sym)
         };
-        let name = name.filter(|_| !self.vocabularies.claims(word, context.kind));
+        let name = name.filter(|_| !self.vocabularies.claims_in(word, context.kind, dialect));
         Some(self.pick(name.or_else(|| self.removed_spellings.get(&sym))?, own))
     }
 

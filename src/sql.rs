@@ -8,8 +8,9 @@ use sqlparser::ast::{
     UserDefinedTypeRepresentation, Value, ValueWithSpan, Visit, visit_statements,
 };
 use sqlparser::dialect::{GenericDialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
+use sqlparser::keywords::Keyword;
 use sqlparser::parser::{Parser, ParserError};
-use sqlparser::tokenizer::{Location, Tokenizer};
+use sqlparser::tokenizer::{Location, Token, TokenWithSpan, Tokenizer, Whitespace};
 use sqlparser_plpgsql::embedded::{Block, Branch, Node};
 
 /// How many `DO` and function bodies may nest inside one another before the innermost is
@@ -77,33 +78,222 @@ pub(crate) struct Declared {
 /// Everything `source`, read in `dialect`, declares, `DO` and function bodies included. A
 /// document sqlparser refuses declares nothing, and a refused body loses only its own names.
 pub(crate) fn declared(source: &str, dialect: Dialect) -> Declared {
+    collect(tokenize(source, dialect), dialect).0
+}
+
+/// What the `.sql` file `source`, read in `dialect`, declares, and its comments when sqlparser
+/// reads it, a refused file having none.
+pub(crate) fn read(source: &str, dialect: Dialect) -> (Declared, Comments) {
+    let tokens = tokenize(source, dialect);
+    let mut comments = Comments::default();
+    if let Ok(tokens) = &tokens {
+        comments.gather(source, 0, tokens, dialect, 0);
+    }
+    let (declared, parsed) = collect(tokens, dialect);
+    (
+        declared,
+        if parsed {
+            comments
+        } else {
+            Comments::default()
+        },
+    )
+}
+
+/// The names `tokens` declare, and whether sqlparser parsed them.
+fn collect(tokens: Result<Vec<TokenWithSpan>, Refusal>, dialect: Dialect) -> (Declared, bool) {
     let mut collector = Collector {
         dialect,
         depth: 0,
         body_at: None,
         out: Declared::default(),
     };
-    match parse(source, dialect) {
-        Ok(statements) => collector.statements(&statements),
-        Err(refusal) => collector.out.refused.push(refusal),
-    }
-    collector.out
+    let parsed = match tokens.and_then(|tokens| statements(tokens, dialect)) {
+        Ok(statements) => {
+            collector.statements(&statements);
+            true
+        }
+        Err(refusal) => {
+            collector.out.refused.push(refusal);
+            false
+        }
+    };
+    (collector.out, parsed)
 }
 
 /// The statements of `source`, tokenized first so a tokenizer error keeps its location.
 fn parse(source: &str, dialect: Dialect) -> Result<Vec<Statement>, Refusal> {
-    let dialect = dialect.parser();
-    let tokens = Tokenizer::new(dialect, source)
+    statements(tokenize(source, dialect)?, dialect)
+}
+
+fn tokenize(source: &str, dialect: Dialect) -> Result<Vec<TokenWithSpan>, Refusal> {
+    Tokenizer::new(dialect.parser(), source)
         .tokenize_with_location()
         .map_err(|error| Refusal {
             line: number(error.location.line),
             column: number(error.location.column),
             error: error.message,
-        })?;
-    Parser::new(dialect)
+        })
+}
+
+fn statements(tokens: Vec<TokenWithSpan>, dialect: Dialect) -> Result<Vec<Statement>, Refusal> {
+    Parser::new(dialect.parser())
         .with_tokens_with_locations(tokens)
         .parse_statements()
         .map_err(|error| refusal(&error))
+}
+
+/// Whether comment text `body` is SQL statements rather than prose.
+fn is_sql(body: &str, dialect: Dialect) -> bool {
+    parse(body, dialect).is_ok_and(|statements| !statements.is_empty())
+}
+
+/// A comment of a SQL document as byte ranges of the document, the `--` comments of
+/// consecutive lines joined into one run.
+#[derive(Debug)]
+pub(crate) struct Run {
+    pub(crate) lines: Vec<(usize, usize)>,
+    /// Whether the run holds nothing but SQL statements.
+    pub(crate) code: bool,
+}
+
+/// The comments of a SQL document and the text its `COMMENT ON … IS` statements attach, as
+/// byte ranges of the document, those inside dollar-quoted bodies included.
+#[derive(Debug, Default)]
+pub(crate) struct Comments {
+    pub(crate) runs: Vec<Run>,
+    pub(crate) documentation: Vec<(usize, usize)>,
+}
+
+/// Where a `COMMENT ON … IS` statement stands as its tokens are read.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Documenting {
+    No,
+    Comment,
+    On,
+    Is,
+}
+
+impl Comments {
+    /// Adds the comments of `tokens`, the tokens of `text`, which starts at byte `base` of the
+    /// document, and those of the dollar-quoted bodies they hold, `depth` bodies deep.
+    fn gather(
+        &mut self,
+        text: &str,
+        base: usize,
+        tokens: &[TokenWithSpan],
+        dialect: Dialect,
+        depth: usize,
+    ) {
+        let starts = crate::text::line_starts(text);
+        let at = |location: Location| base + byte_offset(text, &starts, location);
+        let mut lines: Vec<(usize, usize)> = Vec::new();
+        // The line breaks since the last `--` comment, one of which ends its line and a second a run.
+        let mut breaks = 0;
+        let mut documenting = Documenting::No;
+        for (i, token) in tokens.iter().enumerate() {
+            let start = at(token.span.start);
+            let end = tokens
+                .get(i + 1)
+                .map_or(base + text.len(), |next| at(next.span.start));
+            match &token.token {
+                Token::Whitespace(Whitespace::SingleLineComment { .. }) => {
+                    let line = text[start - base..end - base].trim_end_matches(['\n', '\r']);
+                    lines.push((start, start + line.len()));
+                    breaks = 0;
+                    continue;
+                }
+                Token::Whitespace(Whitespace::Space | Whitespace::Tab) => continue,
+                Token::Whitespace(Whitespace::MultiLineComment(body)) => {
+                    self.close(text, base, &mut lines, dialect);
+                    self.runs.push(Run {
+                        lines: vec![(start, end)],
+                        code: is_sql(body, dialect),
+                    });
+                    continue;
+                }
+                Token::Whitespace(Whitespace::Newline) => {
+                    breaks += 1;
+                    if breaks < 2 {
+                        continue;
+                    }
+                }
+                Token::DollarQuotedString(string) => {
+                    let open = string.tag.as_ref().map_or(0, String::len) + 2;
+                    if depth < BODY_DEPTH
+                        && let Ok(body) = tokenize(&string.value, dialect)
+                    {
+                        self.gather(&string.value, start + open, &body, dialect, depth + 1);
+                    }
+                    documenting = self.document(documenting, start, end);
+                }
+                Token::SingleQuotedString(_) | Token::EscapedStringLiteral(_) => {
+                    documenting = self.document(documenting, start, end);
+                }
+                Token::Word(word) => {
+                    documenting = match (documenting, word.keyword) {
+                        (_, Keyword::COMMENT) => Documenting::Comment,
+                        (Documenting::On, Keyword::IS) => Documenting::Is,
+                        (Documenting::On, _) | (Documenting::Comment, Keyword::ON) => {
+                            Documenting::On
+                        }
+                        _ => Documenting::No,
+                    };
+                }
+                Token::SemiColon => documenting = Documenting::No,
+                _ if documenting == Documenting::On => {}
+                _ => documenting = Documenting::No,
+            }
+            self.close(text, base, &mut lines, dialect);
+        }
+        self.close(text, base, &mut lines, dialect);
+    }
+
+    /// Records the string literal at `start..end` when it is the text a `COMMENT ON … IS`
+    /// attaches. PostgreSQL names the object commented on without strings, so any string ends
+    /// the statement's reading.
+    fn document(&mut self, documenting: Documenting, start: usize, end: usize) -> Documenting {
+        if documenting == Documenting::Is {
+            self.documentation.push((start, end));
+        }
+        Documenting::No
+    }
+
+    /// Ends the run of `--` comments `lines` of `text`, which starts at byte `base`.
+    fn close(
+        &mut self,
+        text: &str,
+        base: usize,
+        lines: &mut Vec<(usize, usize)>,
+        dialect: Dialect,
+    ) {
+        if lines.is_empty() {
+            return;
+        }
+        let body: Vec<&str> = lines
+            .iter()
+            .map(|&(start, end)| {
+                let line = &text[start - base..end - base];
+                line.strip_prefix("--")
+                    .or_else(|| line.strip_prefix('#'))
+                    .unwrap_or(line)
+            })
+            .collect();
+        self.runs.push(Run {
+            lines: std::mem::take(lines),
+            code: is_sql(&body.join("\n"), dialect),
+        });
+    }
+}
+
+/// The byte offset in `text`, whose lines start at `starts`, of a sqlparser location.
+fn byte_offset(text: &str, starts: &[usize], location: Location) -> usize {
+    let line = number(location.line).saturating_sub(1);
+    let line_start = starts.get(line).copied().unwrap_or(text.len());
+    text[line_start..]
+        .char_indices()
+        .nth(number(location.column).saturating_sub(1))
+        .map_or(text.len(), |(at, _)| line_start + at)
 }
 
 /// `error` as a refusal at the location its message ends with, sqlparser's ` at Line: L,

@@ -47,11 +47,13 @@ pub fn declarations(source: &str) -> bool {
     crate::parse::parse(source).is_ok()
 }
 
-/// How many names `source` declares in every dialect, as reading head's `.sql` files does.
+/// How many names and mentions `source` holds in every dialect, as reading head's `.sql` files
+/// does.
 ///
 /// # Panics
 ///
-/// Panics when a refusal is placed before the first line or column.
+/// Panics when a refusal is placed before the first line or column, or a comment or mention
+/// has invalid source offsets.
 #[must_use]
 pub fn sql_declarations(source: &str) -> usize {
     use crate::sql::Dialect;
@@ -63,11 +65,22 @@ pub fn sql_declarations(source: &str) -> usize {
     ]
     .into_iter()
     .map(|dialect| {
-        let declared = crate::sql::declared(source, dialect);
+        let (declared, comments) = crate::sql::read(source, dialect);
         for refusal in &declared.refused {
             assert!(refusal.line >= 1 && refusal.column >= 1, "{refusal:?}");
         }
-        declared.names.len()
+        let ranges = comments.runs.iter().flat_map(|run| &run.lines);
+        for &(start, end) in ranges.chain(&comments.documentation) {
+            assert!(source.get(start..end).is_some(), "{start}..{end}");
+        }
+        let read = crate::text::sql_file(source, &comments, true);
+        for mention in &read.mentions {
+            assert!(
+                source.get(mention.start..mention.end).is_some(),
+                "{mention:?}"
+            );
+        }
+        declared.names.len() + read.mentions.len()
     })
     .sum()
 }
