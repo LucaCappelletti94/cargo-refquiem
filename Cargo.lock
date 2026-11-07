@@ -1404,8 +1404,6 @@ dependencies = [
  "ra-ap-rustc_lexer",
  "serde",
  "serde_json",
- "sqlparser",
- "sqlparser-plpgsql",
  "syn 3.0.9",
  "tempfile",
  "thiserror",
@@ -1552,34 +1550,6 @@ name = "smallvec"
 version = "1.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b3dc8af474f516a851ff4bd12db780f948b9250ad37211e4eec0bccea54e01b"
-
-[[package]]
-name = "sqlparser"
-version = "0.64.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#a60ca827789533e9bf2da80e4d3aad61559aef64"
-dependencies = [
- "log",
- "sqlparser_derive",
-]
-
-[[package]]
-name = "sqlparser-plpgsql"
-version = "0.1.0"
-source = "git+https://github.com/connetto-rs/sqlparser-plpgsql?branch=main#38ab83fef09c28244c49a1693d3f6f42120c73c6"
-dependencies = [
- "sqlparser",
- "thiserror",
-]
-
-[[package]]
-name = "sqlparser_derive"
-version = "0.7.0"
-source = "git+https://github.com/apache/datafusion-sqlparser-rs?branch=main#a60ca827789533e9bf2da80e4d3aad61559aef64"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.9",
-]
 
 [[package]]
 name = "stable_deref_trait"

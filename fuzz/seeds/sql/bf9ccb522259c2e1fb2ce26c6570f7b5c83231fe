@@ -1,2 +1,0 @@
-CREATE TABLE app.orders (order_id INT, CONSTRAINT orders_pkey PRIMARY KEY (order_id));
-ALTER TABLE app.orders RENAME COLUMN order_id TO id;

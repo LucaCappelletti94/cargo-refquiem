@@ -1,3 +1,0 @@
-CREATE TYPE mood AS ENUM ('happy');
-CREATE FUNCTION total(n INT) RETURNS INT LANGUAGE sql AS 'SELECT n';
-CREATE TABLE "Quoted" (Caption TEXT);

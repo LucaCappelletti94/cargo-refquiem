@@ -1,1 +1,0 @@
-DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'reader') THEN CREATE ROLE reader; END IF; END $$;
