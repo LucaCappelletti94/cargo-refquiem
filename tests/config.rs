@@ -342,6 +342,33 @@ fn postgres_18_claims_lowercase_configuration_parameter_names() {
 }
 
 #[test]
+fn postgres_18_claims_catalog_table_and_view_names() {
+    let repo = removed_names(
+        "pub struct Principal { pub pg_roles: Vec<String> }\npub fn pg_class() {}\npub fn pg_auth_members() {}\npub fn pg_stat_activity() {}\n",
+        "pg_class",
+        "`pg_class` and `pg_auth_members`\nRead pg_stat_activity first.\n`Principal::pg_roles`\n",
+    );
+    repo.write(
+        "tests/roles.rs",
+        "const ROLES: &str = \"SELECT rolname FROM pg_roles\";\n",
+    );
+    assert_claims(
+        &repo,
+        "postgres@18",
+        &[
+            ("README.md", 1, "pg_auth_members"),
+            ("README.md", 1, "pg_class"),
+            ("README.md", 2, "pg_stat_activity"),
+            ("tests/roles.rs", 1, "pg_roles"),
+        ],
+        &[
+            ("README.md", 3, "Principal::pg_roles"),
+            ("src/lib.rs", 2, "pg_class"),
+        ],
+    );
+}
+
+#[test]
 fn sqlite_3_54_claims_underscore_and_non_english_function_names() {
     let repo = removed_names(
         "pub fn json_extract() {}\npub fn strftime() {}\npub fn glob() {}\n",

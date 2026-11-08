@@ -353,9 +353,30 @@ fn configuration_parameters(tables: &str) -> impl Iterator<Item = String> {
     })
 }
 
+/// The relations PostgreSQL's system catalog holds, every table a header among the
+/// `catalog_headers` of `src/include/catalog/meson.build` declares, as in
+/// `CATALOG(pg_authid,1260,AuthIdRelationId)`, and every view `system_views.sql` creates, as
+/// in `CREATE VIEW pg_roles AS`.
+fn catalog_relations(
+    show: impl Fn(&str) -> Result<String, Error>,
+) -> Result<BTreeSet<String>, Error> {
+    let build = show("src/include/catalog/meson.build")?;
+    let mut relations = BTreeSet::new();
+    for headers in delimited(&build, "catalog_headers = [", "]") {
+        for header in headers.split('\'').skip(1).step_by(2) {
+            let declaration = show(&format!("src/include/catalog/{header}"))?;
+            relations.extend(delimited(&declaration, "\nCATALOG(", ",").map(str::to_owned));
+        }
+    }
+    let views = show("src/backend/catalog/system_views.sql")?;
+    relations.extend(delimited(&views, "\nCREATE VIEW ", " ").map(str::to_owned));
+    Ok(relations)
+}
+
 /// Writes `words.fst`, the claimable names among the functions PostgreSQL's catalog defines,
-/// the key-word functions its Functions and Operators chapter documents and its configuration
-/// parameters, and PostgreSQL's `COPYRIGHT`, which its license requires next to any copy.
+/// the key-word functions its Functions and Operators chapter documents, its configuration
+/// parameters and its catalog tables and views, and PostgreSQL's `COPYRIGHT`, which its
+/// license requires next to any copy.
 ///
 /// The catalog holds the type input and output functions such as `interval_in` that the
 /// chapter leaves out. A documented name counts as a key-word function when the grammar has
@@ -374,6 +395,7 @@ fn postgres(out: &Path, english: &fst::Set<Vec<u8>>) -> Result<(), Error> {
         )
         .map(str::to_owned)
         .chain(configuration_parameters(&parameters))
+        .chain(catalog_relations(&show)?)
         .filter(|name| claimable_identifier(name, english))
         .collect();
     create_dir(out)?;
