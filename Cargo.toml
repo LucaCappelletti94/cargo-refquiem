@@ -9,7 +9,7 @@ license = "MIT"
 repository = "https://github.com/LucaCappelletti94/cargo-refquiem"
 keywords = ["cargo-subcommand", "documentation", "stale", "cli", "rustdoc"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = ["/fuzz", "/.clusterfuzzlite", "/sonar-project.properties"]
+exclude = ["/fuzz", "/sonar-project.properties"]
 
 [[bin]]
 name = "cargo-refquiem"
