@@ -17,7 +17,7 @@ use crate::git::{self, Head, Snapshot, TreeSnapshot, Trees, WorkTreeSnapshot};
 use crate::index::{Index, Indexer, Reexports};
 use crate::intern::{Interner, PathId, Sym};
 use crate::parse::SERDE_MARKER;
-use crate::text::{self, Named, Spelled};
+use crate::text::{self, Named, PageUrl, Spelled};
 use crate::{
     ChangedItem, Context, Error, Group, HashMap, HashSet, ItemKind, Kind, Level, Mention, Options,
     Position, Range, RemovedIn, Report, Source, Suggestion, UnusedMarker, Uppercase, entry,
@@ -1884,8 +1884,8 @@ impl<'a> Matcher<'a> {
         if example {
             return None;
         }
-        let first = match path.url_item {
-            Some(0) => return None,
+        let first = match path.url {
+            Some(PageUrl { item: 0, .. }) => return None,
             _ => path.segments.first()?.as_str(),
         };
         let known = matches!(first, "crate" | "self" | "super" | "Self")
@@ -1915,7 +1915,10 @@ impl<'a> Matcher<'a> {
         if segments.contains(&"Self") {
             return Vec::new();
         }
-        if let Some(item) = path.url_item {
+        if let Some(PageUrl { item, pinned }) = path.url {
+            if pinned {
+                return Vec::new();
+            }
             let root = segments[..item].iter().position(|dir| {
                 self.libs.contains(dir) || self.std.iter().any(|layer| layer.root == *dir)
             });

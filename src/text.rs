@@ -50,10 +50,19 @@ pub(crate) struct Spelled {
     pub(crate) segments: Vec<String>,
     /// Whether the path starts with `::`.
     pub(crate) leading_colon: bool,
-    /// For a rustdoc page link, the index of the first segment naming the item rather than a
-    /// directory of the URL.
-    pub(crate) url_item: Option<usize>,
+    /// For a rustdoc page link, where its item starts and which release it documents.
+    pub(crate) url: Option<PageUrl>,
     pub(crate) context: Context,
+}
+
+/// The parts of a rustdoc page URL that are not path segments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PageUrl {
+    /// The index of the first segment naming the item rather than a directory of the URL.
+    pub(crate) item: usize,
+    /// Whether the URL documents one published release, so its item belongs to that release
+    /// rather than to the current tree.
+    pub(crate) pinned: bool,
 }
 
 impl Spelled {
@@ -64,7 +73,7 @@ impl Spelled {
             named,
             segments: Vec::new(),
             leading_colon: false,
-            url_item: None,
+            url: None,
             context,
         }
     }
@@ -1798,14 +1807,14 @@ fn without_comments(info: &str) -> String {
 fn link_path(dest: &str, at: usize, context: Context) -> Option<Spelled> {
     let end = at + dest.len();
     if dest.contains("://") || dest.contains(".html") || dest.starts_with(['#', '/', '.']) {
-        let (segments, item) = page_path(dest)?;
+        let (segments, url) = page_path(dest)?;
         return Some(Spelled {
             start: at,
             end,
             named: Named::Path,
             segments,
             leading_colon: false,
-            url_item: Some(item),
+            url: Some(url),
             context,
         });
     }
@@ -1833,19 +1842,22 @@ fn link_path(dest: &str, at: usize, context: Context) -> Option<Spelled> {
     })
 }
 
-/// The segments a rustdoc page URL names and the index where the item part starts.
-fn page_path(dest: &str) -> Option<(Vec<String>, usize)> {
+/// The segments a rustdoc page URL names, with where its item starts and whether it is pinned.
+fn page_path(dest: &str) -> Option<(Vec<String>, PageUrl)> {
     let dest = dest.split('?').next().unwrap_or(dest);
     let (mut path, anchor) = match dest.split_once('#') {
         Some((path, anchor)) => (path, Some(anchor)),
         None => (dest, None),
     };
     let mut skip = 0;
+    let mut pinned = false;
     if let Some((_, rest)) = path.split_once("://") {
         let (host, rest) = rest.split_once('/').unwrap_or((rest, ""));
         path = rest;
         if host == "docs.rs" {
             skip = 2;
+            let version = path.split('/').filter(|c| !c.is_empty()).nth(1);
+            pinned = version.is_some_and(|version| !matches!(version, "latest" | "*"));
         }
     }
     let mut components: Vec<&str> = path
@@ -1873,9 +1885,12 @@ fn page_path(dest: &str) -> Option<(Vec<String>, usize)> {
         .filter(|c| is_ident(c))
         .map(str::to_owned)
         .collect();
-    let start = segments.len();
+    let url = PageUrl {
+        item: segments.len(),
+        pinned,
+    };
     segments.extend(item);
-    (!segments.is_empty()).then_some((segments, start))
+    (!segments.is_empty()).then_some((segments, url))
 }
 
 /// Every path of two or more segments in `text`, offsets shifted by `base`.
@@ -1929,7 +1944,7 @@ pub(crate) fn paths(text: &str, base: usize, context: Context) -> Vec<Spelled> {
                     named: Named::Path,
                     segments,
                     leading_colon,
-                    url_item: None,
+                    url: None,
                     context,
                 });
             }
