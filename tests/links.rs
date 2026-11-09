@@ -290,3 +290,31 @@ fn a_rustdoc_url_in_a_plain_comment_stops_before_following_words() {
         )]
     );
 }
+
+#[test]
+fn a_docs_rs_page_pinned_to_a_release_names_an_item_of_that_release() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub mod gone {}\n");
+    repo.commit("module");
+    let pinned = "https://docs.rs/fixture/1.0.0/fixture/gone/index.html#migration-guide";
+    let required = "https://docs.rs/fixture/~1.0/fixture/gone/index.html";
+    let newest = "https://docs.rs/fixture/*/fixture/gone/index.html";
+    repo.write("src/lib.rs", &format!("//! [guide]({pinned})\n"));
+    repo.write(
+        "README.md",
+        &format!("[guide]({pinned})\n[old]({required})\n[new]({newest})\n"),
+    );
+    repo.commit("drop the module");
+
+    assert_eq!(
+        found(&repo),
+        [mention(
+            "fixture::gone",
+            ItemKind::Module,
+            "README.md",
+            3,
+            7,
+            newest
+        )]
+    );
+}
