@@ -1,0 +1,7 @@
+```sql
+CREATE TABLE fenced (c INT);
+```
+
+> ```postgres
+> DO $$ BEGIN CREATE ROLE r; END $$;
+> ```

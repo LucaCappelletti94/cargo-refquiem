@@ -533,3 +533,160 @@ fn an_excluded_sql_file_is_neither_read_nor_reported() {
     assert_eq!(refused(&report), []);
     assert_eq!(report.groups.len(), 1);
 }
+
+/// A repository whose functions `names` were removed from `src/old.rs` while `README.md` names
+/// each of them, leaving `src/lib.rs` free for the test's own code.
+fn removed_from_old(names: &[&str]) -> Repo {
+    let repo = Repo::new();
+    let mut old = String::new();
+    let mut readme = String::new();
+    for name in names {
+        let _ = writeln!(old, "pub fn {name}() {{}}");
+        let _ = writeln!(readme, "Call `{name}`.");
+    }
+    repo.write("src/lib.rs", "pub mod old;\n");
+    repo.write("src/old.rs", &old);
+    repo.commit("start");
+    repo.write("src/old.rs", "");
+    repo.write("README.md", &readme);
+    repo.commit("drop them");
+    repo
+}
+
+#[test]
+fn rust_string_literals_holding_ddl_declare_names_escapes_and_raw_strings_included() {
+    let repo = removed_from_old(&[
+        "connetto_epoch",
+        "singleton",
+        "system_identifier",
+        "raw_table",
+        "raw_col",
+        "select_only",
+    ]);
+    repo.write(
+        "src/lib.rs",
+        "pub mod old;
+pub const EPOCH_DDL: &str = \"CREATE TABLE IF NOT EXISTS connetto_epoch (\\
+    singleton BOOLEAN PRIMARY KEY, \\
+    system_identifier TEXT NOT NULL)\";
+pub const RAW: &str = r#\"create table \"raw_table\" (raw_col INT)\"#;
+pub const QUERY: &str = \"SELECT select_only FROM t\";
+",
+    );
+    repo.commit("ddl in strings");
+    let report = scan(&repo);
+    assert_eq!(refused(&report), []);
+    assert_eq!(reported(&repo), paths(&["old::select_only"]));
+}
+
+#[test]
+fn a_string_literal_takes_the_dialect_of_its_file_path() {
+    let repo = removed_from_old(&["string_role"]);
+    repo.write("src/lib.rs", "pub mod old;\npub mod pg;\n");
+    repo.write(
+        "src/pg/mod.rs",
+        "pub const ROLES: &str = \"DO $$ BEGIN CREATE ROLE string_role; END $$\";\n",
+    );
+    repo.commit("roles");
+    let report = scan(&repo);
+    assert_eq!(refused(&report), []);
+    assert_eq!(report.groups.len(), 0);
+}
+
+#[test]
+fn a_string_literal_sqlparser_refuses_declares_nothing_and_warns_about_nothing() {
+    let repo = removed_from_old(&["lost_col", "byte_col", "escape_col"]);
+    repo.write(
+        "src/lib.rs",
+        "pub mod old;
+pub const TEMPLATE: &str = \"CREATE TABLE {table} (lost_col INT)\";
+pub const PROSE: &str = \"create a key before reading it\";
+pub const BYTES: &[u8] = b\"CREATE TABLE byte_table (byte_col INT)\";
+",
+    );
+    repo.write(
+        "notes/snippet.rs",
+        "const ESCAPE: &str = \"CREATE TABLE escape_table (escape_col INT) \\q\";\n",
+    );
+    repo.commit("not sql");
+    let report = scan(&repo);
+    assert_eq!(refused(&report), []);
+    assert_eq!(
+        reported(&repo),
+        paths(&["old::byte_col", "old::escape_col", "old::lost_col"])
+    );
+}
+
+#[test]
+fn a_refused_fence_in_a_blockquote_warns_at_its_line_and_column_in_the_file() {
+    let repo = removed_from_old(&["gone"]);
+    repo.write(
+        "docs/schema.md",
+        "Intro.\n\n> ```sql\n> CREATE TABLE t (\n>   a INT,\n>   ( ;\n> ```\n",
+    );
+    repo.commit("bad fence");
+    assert_eq!(refused(&scan(&repo)), [("docs/schema.md".to_owned(), 6, 5)]);
+}
+
+#[test]
+fn sql_fences_in_markdown_and_doc_comments_declare_names() {
+    let repo = removed_from_old(&[
+        "fenced_table",
+        "fenced_col",
+        "fence_role",
+        "quoted_fence",
+        "doc_table",
+        "doc_col",
+    ]);
+    repo.write(
+        "docs/schema.md",
+        "```sql
+CREATE TABLE fenced_table (fenced_col INT);
+```
+
+```postgres
+DO $$ BEGIN CREATE ROLE fence_role; END $$;
+```
+
+> ```sql
+> CREATE TABLE quoted_fence (q INT);
+> ```
+",
+    );
+    repo.write(
+        "src/lib.rs",
+        "pub mod old;
+/// ```sql
+/// CREATE TABLE doc_table (doc_col INT);
+/// ```
+pub fn kept() {}
+",
+    );
+    repo.commit("fences");
+    let report = scan(&repo);
+    assert_eq!(refused(&report), []);
+    assert_eq!(report.groups.len(), 0);
+}
+
+#[test]
+fn a_refused_fence_in_a_doc_comment_warns_at_its_place_in_the_file() {
+    let repo = removed_from_old(&["gone"]);
+    repo.write(
+        "src/lib.rs",
+        "pub mod old;\n/// ```sql\n/// CREATE TABLE ( ;\n/// ```\npub fn kept() {}\n",
+    );
+    repo.commit("bad fence");
+    assert_eq!(refused(&scan(&repo)), [("src/lib.rs".to_owned(), 3, 18)]);
+}
+
+#[test]
+fn strings_and_fences_of_an_excluded_file_declare_nothing() {
+    let repo = removed_from_old(&["hidden_table"]);
+    repo.write(
+        "src/lib.rs",
+        "pub mod old;\npub const DDL: &str = \"CREATE TABLE hidden_table (id INT)\";\n",
+    );
+    repo.write(".refquiem.toml", "exclude = [\"src/lib.rs\"]\n");
+    repo.commit("excluded");
+    assert_eq!(reported(&repo), paths(&["old::hidden_table"]));
+}

@@ -8,7 +8,7 @@
 ///
 /// # Panics
 ///
-/// Panics when a mention or marker has invalid source offsets.
+/// Panics when a mention, marker or embedded piece of SQL has invalid source offsets.
 pub fn mentions(source: &str, rust: bool) -> Result<usize, crate::Error> {
     let read = if rust {
         crate::text::rust(source, false)
@@ -28,6 +28,15 @@ pub fn mentions(source: &str, rust: bool) -> Result<usize, crate::Error> {
         assert!(mention.start <= mention.end, "{mention:?}");
         let _ = &source[mention.start..mention.end];
         let _ = crate::text::line_column(&starts, source, mention.start);
+    }
+    for sql in &read.fences {
+        for (at, _) in sql.text.char_indices() {
+            let file = sql.file_offset(at);
+            assert!(
+                file < source.len() && source.is_char_boundary(file),
+                "{sql:?}"
+            );
+        }
     }
     Ok(read.mentions.len())
 }

@@ -1,0 +1,7 @@
+pub const DDL: &str = "CREATE TABLE IF NOT EXISTS t (\
+    a INT, \"q\" TEXT)";
+pub const RAW: &str = r#"DO $$ BEGIN CREATE ROLE r; END $$"#;
+/// ```sql
+/// CREATE TABLE doc_t (c INT);
+/// ```
+pub fn f() {}

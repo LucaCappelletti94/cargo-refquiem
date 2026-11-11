@@ -9,6 +9,7 @@ use ra_ap_rustc_lexer::{
 
 use crate::manifest::is_dependency_table;
 use crate::removal::{self, Segment};
+use crate::sql::Dialect;
 use crate::{Context, HashSet, Kind, Source};
 
 #[derive(Debug)]
@@ -121,10 +122,104 @@ pub(crate) const KEYWORDS: [&str; 52] = [
 pub(crate) struct Read {
     pub(crate) mentions: Vec<Spelled>,
     pub(crate) markers: Vec<MarkerName>,
+    /// The SQL of its `sql` fences.
+    pub(crate) fences: Vec<SqlText>,
+    /// The SQL of its string literals that open with a statement that can declare a name,
+    /// which is SQL only when it parses.
+    pub(crate) literals: Vec<String>,
 }
 
-/// Every mention in a Rust source file's comments, documentation and strings.
-pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Result<Read, MarkdownError> {
+/// SQL found inside another file, with the file offset of each of its characters.
+#[derive(Debug)]
+pub(crate) struct SqlText {
+    pub(crate) text: String,
+    /// The dialect a fence's language names, absent when the file's path decides.
+    pub(crate) dialect: Option<Dialect>,
+    /// `(offset in text, offset in file)` wherever the text stops following the file, its
+    /// first character included.
+    map: Vec<(usize, usize)>,
+}
+
+impl SqlText {
+    fn new(dialect: Option<Dialect>) -> Self {
+        Self {
+            text: String::new(),
+            dialect,
+            map: Vec::new(),
+        }
+    }
+
+    /// Appends `piece`, which sits at `at` in the file.
+    fn push(&mut self, piece: &str, at: usize) {
+        let follows = self
+            .map
+            .last()
+            .is_some_and(|&(text, file)| file + (self.text.len() - text) == at);
+        if !follows {
+            self.map.push((self.text.len(), at));
+        }
+        self.text.push_str(piece);
+    }
+
+    /// The file offset of byte `at` of the text.
+    pub(crate) fn file_offset(&self, at: usize) -> usize {
+        let piece = self.map.partition_point(|&(start, _)| start <= at).max(1) - 1;
+        self.map
+            .get(piece)
+            .map_or(at, |&(text, file)| file + (at - text))
+    }
+
+    /// The text with each offset `map` turns from the one it had into the file's.
+    fn remapped(self, map: impl Fn(usize) -> usize) -> Self {
+        let mut out = Self::new(self.dialect);
+        let mut buffer = [0; 4];
+        for (at, character) in self.text.char_indices() {
+            out.push(
+                character.encode_utf8(&mut buffer),
+                map(self.file_offset(at)),
+            );
+        }
+        out
+    }
+}
+
+/// The text of string literal `text` when it opens with a statement that can declare a name,
+/// its escapes resolved.
+fn sql_literal(text: &str, kind: LiteralKind) -> Option<String> {
+    let (open, close) = match kind {
+        LiteralKind::Str { terminated: true } => (1, 1),
+        LiteralKind::RawStr {
+            n_hashes: Some(hashes),
+        } => (2 + usize::from(hashes), 1 + usize::from(hashes)),
+        _ => return None,
+    };
+    let body = text.get(open..text.len().checked_sub(close)?)?;
+    let first = body
+        .trim_start()
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .next()
+        .unwrap_or_default();
+    if !["CREATE", "ALTER", "DROP", "DO"]
+        .iter()
+        .any(|keyword| first.eq_ignore_ascii_case(keyword))
+    {
+        return None;
+    }
+    if matches!(kind, LiteralKind::RawStr { .. }) {
+        return Some(body.to_owned());
+    }
+    let mut sql = String::with_capacity(body.len());
+    let mut valid = true;
+    rustc_literal_escaper::unescape_str(body, |_, unescaped| match unescaped {
+        Ok(character) => sql.push(character),
+        Err(error) => valid &= !error.is_fatal(),
+    });
+    valid.then_some(sql)
+}
+
+/// The tokens of Rust `source` as `(start, length, kind)` after any shebang, and the names of
+/// the suppression markers in its comments.
+fn lex(source: &str) -> (Vec<(usize, usize, TokenKind)>, Vec<MarkerName>) {
     let skip = ra_ap_rustc_lexer::strip_shebang(source).unwrap_or(0);
     let mut tokens = Vec::new();
     let mut markers = Vec::new();
@@ -144,8 +239,16 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Result<Read, Mark
         tokens.push((offset, len, token.kind));
         offset += len;
     }
+    (tokens, markers)
+}
+
+/// Every mention in a Rust source file's comments, documentation and strings.
+pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Result<Read, MarkdownError> {
+    let (tokens, markers) = lex(source);
 
     let mut out = Vec::new();
+    let mut sql = Vec::new();
+    let mut literals = Vec::new();
     let mut attribute = Attribute::default();
     let mut i = 0;
     while i < tokens.len() {
@@ -155,7 +258,14 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Result<Read, Mark
             && let Some((style, _, docs)) = doc_attribute(source, &tokens, i)
             && !docs.is_empty()
         {
-            i = doc_run(source, &tokens, i, style, scan_commented_code, &mut out)?;
+            i = doc_run(
+                source,
+                &tokens,
+                (i, style),
+                scan_commented_code,
+                &mut out,
+                &mut sql,
+            )?;
         } else {
             attribute.step(kind);
             let text = &source[offset..offset + len];
@@ -163,7 +273,14 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Result<Read, Mark
                 TokenKind::LineComment {
                     doc_style: Some(style),
                 } => {
-                    i = doc_run(source, &tokens, i, style, scan_commented_code, &mut out)?;
+                    i = doc_run(
+                        source,
+                        &tokens,
+                        (i, style),
+                        scan_commented_code,
+                        &mut out,
+                        &mut sql,
+                    )?;
                 }
                 TokenKind::BlockComment {
                     doc_style: Some(_),
@@ -175,6 +292,7 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Result<Read, Mark
                         |at| doc.file_offset(at),
                         Source::DocComment,
                         &mut out,
+                        &mut sql,
                     )?;
                 }
                 TokenKind::LineComment { doc_style: None } => {
@@ -189,24 +307,19 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Result<Read, Mark
                 }
                 TokenKind::Literal {
                     kind:
-                        LiteralKind::Str { .. }
+                        literal @ (LiteralKind::Str { .. }
                         | LiteralKind::ByteStr { .. }
                         | LiteralKind::CStr { .. }
                         | LiteralKind::RawStr { .. }
                         | LiteralKind::RawByteStr { .. }
-                        | LiteralKind::RawCStr { .. },
+                        | LiteralKind::RawCStr { .. }),
                     ..
                 } => {
-                    let context = Context {
-                        source: Source::StringLiteral,
-                        kind: Kind::Text,
-                    };
                     if attribute.inside() {
-                        spelled(text, offset, context, &mut out);
-                    } else if let Some(span) = identifier_body(text) {
-                        out.push(name(text, offset, span, true, context));
+                        spelled(text, offset, string_literal(), &mut out);
                     } else {
-                        scan_prose(text, offset, context, &mut out);
+                        literals.extend(sql_literal(text, literal));
+                        literal_mentions(text, offset, &mut out);
                     }
                 }
                 _ => {}
@@ -217,7 +330,26 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Result<Read, Mark
     Ok(Read {
         mentions: out,
         markers,
+        fences: sql,
+        literals,
     })
+}
+
+fn string_literal() -> Context {
+    Context {
+        source: Source::StringLiteral,
+        kind: Kind::Text,
+    }
+}
+
+/// The mentions of string literal `text` at `offset` outside an attribute, its one identifier
+/// when it holds nothing else.
+fn literal_mentions(text: &str, offset: usize, out: &mut Vec<Spelled>) {
+    if let Some(span) = identifier_body(text) {
+        out.push(name(text, offset, span, true, string_literal()));
+    } else {
+        scan_prose(text, offset, string_literal(), out);
+    }
 }
 
 fn comment_run(
@@ -286,10 +418,10 @@ fn identifier_body(text: &str) -> Option<(usize, usize)> {
 fn doc_run(
     source: &str,
     tokens: &[(usize, usize, TokenKind)],
-    start: usize,
-    style: DocStyle,
+    (start, style): (usize, DocStyle),
     scan_commented_code: bool,
     out: &mut Vec<Spelled>,
+    sql: &mut Vec<SqlText>,
 ) -> Result<usize, MarkdownError> {
     const PREFIX: usize = 3;
     let mut lines: Vec<(usize, &str)> = Vec::new();
@@ -335,7 +467,13 @@ fn doc_run(
         j += 1;
     }
     let doc = Doc::unindent(&lines);
-    markdown(&doc.text, |at| doc.file_offset(at), Source::DocComment, out)?;
+    markdown(
+        &doc.text,
+        |at| doc.file_offset(at),
+        Source::DocComment,
+        out,
+        sql,
+    )?;
     // Plain comments on consecutive lines form one run, as they do outside a doc comment.
     let consecutive = |&(o, l): &(usize, usize), &(next, _): &(usize, usize)| {
         let gap = &source[o + l..next];
@@ -439,10 +577,13 @@ impl Attribute {
 /// Every mention in a Markdown file.
 pub(crate) fn markdown_file(source: &str) -> Result<Read, MarkdownError> {
     let mut out = Vec::new();
-    let markers = markdown(source, |at| at, Source::Markdown, &mut out)?;
+    let mut sql = Vec::new();
+    let markers = markdown(source, |at| at, Source::Markdown, &mut out, &mut sql)?;
     Ok(Read {
         mentions: out,
         markers,
+        fences: sql,
+        literals: Vec::new(),
     })
 }
 
@@ -535,6 +676,7 @@ fn markdown(
     map: impl Fn(usize) -> usize,
     source: Source,
     out: &mut Vec<Spelled>,
+    sql: &mut Vec<SqlText>,
 ) -> Result<Vec<MarkerName>, MarkdownError> {
     let mut found = std::panic::catch_unwind(|| {
         #[cfg(test)]
@@ -553,6 +695,7 @@ fn markdown(
     for marker in &mut found.markers {
         marker.start = map(marker.start);
     }
+    sql.extend(found.fences.into_iter().map(|fence| fence.remapped(&map)));
     Ok(found.markers)
 }
 
@@ -567,13 +710,15 @@ fn markdown_mentions(text: &str, source: Source) -> Read {
     let mut found = Vec::new();
     let mut markers = Vec::new();
     let mut declared = HashSet::new();
+    let mut fences = Vec::new();
     let mut segments = Vec::new();
     for (event, range) in events.by_ref() {
         running_text(&mut segments, &event, range.clone(), block.is_some());
         match event {
             Event::Start(Tag::CodeBlock(kind)) => block = Some(Block::new(&kind, source)),
             Event::End(TagEnd::CodeBlock) => {
-                if let Some(block) = block.take() {
+                if let Some(mut block) = block.take() {
+                    fences.extend(block.sql.take());
                     declared.extend(block.finish(text, source, &mut found));
                 }
             }
@@ -617,7 +762,7 @@ fn markdown_mentions(text: &str, source: Source) -> Read {
             Event::Text(_) => {
                 let kind = match &mut block {
                     Some(block) => {
-                        block.read(range.clone());
+                        block.read(text, range.clone());
                         Kind::CodeBlock {
                             compiled: block.compiled,
                         }
@@ -654,6 +799,8 @@ fn markdown_mentions(text: &str, source: Source) -> Read {
     Read {
         mentions: found,
         markers,
+        fences,
+        literals: Vec::new(),
     }
 }
 
@@ -709,6 +856,8 @@ struct Block {
     data: bool,
     /// The offsets of the block's text in the Markdown.
     span: Option<(usize, usize)>,
+    /// The block's text when the fence names SQL or a dialect of it.
+    sql: Option<SqlText>,
 }
 
 impl Block {
@@ -717,17 +866,23 @@ impl Block {
             CodeBlockKind::Fenced(info) => info.split([',', ' ']).next().unwrap_or_default(),
             CodeBlockKind::Indented => "",
         };
+        let dialect = Dialect::named(language);
         Self {
             compiled: compiled(kind, source),
             toml: language == "toml",
             data: DATA_FORMATS.contains(&language),
             span: None,
+            sql: (dialect.is_some() || language.eq_ignore_ascii_case("sql"))
+                .then(|| SqlText::new(dialect)),
         }
     }
 
-    fn read(&mut self, range: std::ops::Range<usize>) {
+    fn read(&mut self, text: &str, range: std::ops::Range<usize>) {
         let start = self.span.map_or(range.start, |(start, _)| start);
         self.span = Some((start, range.end));
+        if let Some(sql) = &mut self.sql {
+            sql.push(&text[range.clone()], range.start);
+        }
     }
 
     /// Records the dependency tables, serialized spellings and code identifiers of a finished

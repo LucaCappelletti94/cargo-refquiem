@@ -32,19 +32,21 @@ impl Dialect {
     /// The dialect the nearest directory of `file` names, such as `postgres` in diesel's
     /// `migrations/postgres/…/up.sql`.
     pub(crate) fn of_path(file: &str) -> Option<Self> {
-        file.rsplit('/').skip(1).find_map(|segment| {
-            let named =
-                |names: &[&str]| names.iter().any(|name| segment.eq_ignore_ascii_case(name));
-            if named(&["postgres", "postgresql", "pg"]) {
-                Some(Self::Postgres)
-            } else if named(&["mysql", "mariadb"]) {
-                Some(Self::Mysql)
-            } else if named(&["sqlite"]) {
-                Some(Self::Sqlite)
-            } else {
-                None
-            }
-        })
+        file.rsplit('/').skip(1).find_map(Self::named)
+    }
+
+    /// The dialect a directory or fence language spells, in any case.
+    pub(crate) fn named(name: &str) -> Option<Self> {
+        let is = |names: &[&str]| names.iter().any(|known| name.eq_ignore_ascii_case(known));
+        if is(&["postgres", "postgresql", "pg"]) {
+            Some(Self::Postgres)
+        } else if is(&["mysql", "mariadb"]) {
+            Some(Self::Mysql)
+        } else if is(&["sqlite"]) {
+            Some(Self::Sqlite)
+        } else {
+            None
+        }
     }
 
     fn parser(self) -> &'static dyn sqlparser::dialect::Dialect {
@@ -126,6 +128,21 @@ fn refusal(error: &ParserError) -> Refusal {
 /// A one-based sqlparser line or column as a `usize`, saturating where it cannot fit.
 fn number(value: u64) -> usize {
     usize::try_from(value).unwrap_or(usize::MAX)
+}
+
+/// The byte offset of one-based `line` and character `column` in `text`, its end when past it.
+pub(crate) fn offset(text: &str, line: usize, column: usize) -> usize {
+    let line_start = if line > 1 {
+        text.match_indices('\n')
+            .nth(line - 2)
+            .map_or(text.len(), |(at, _)| at + 1)
+    } else {
+        0
+    };
+    text[line_start..]
+        .char_indices()
+        .nth(column.saturating_sub(1))
+        .map_or(text.len(), |(at, _)| line_start + at)
 }
 
 /// Gathers the names of statements, reading the bodies they hold.

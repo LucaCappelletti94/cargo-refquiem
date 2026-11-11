@@ -1402,6 +1402,7 @@ dependencies = [
  "proc-macro2",
  "pulldown-cmark",
  "ra-ap-rustc_lexer",
+ "rustc-literal-escaper",
  "serde",
  "serde_json",
  "sqlparser",
@@ -1428,6 +1429,12 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+
+[[package]]
+name = "rustc-literal-escaper"
+version = "0.0.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfe6f213fb658c8fb95baabd5420393438cf5a98d707f5dd701d9197c705f71e"
 
 [[package]]
 name = "rustdoc-types"
