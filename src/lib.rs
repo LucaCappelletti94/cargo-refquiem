@@ -23,6 +23,7 @@ mod parse;
 mod removal;
 mod scan;
 mod serde_names;
+mod sql;
 mod stdlib;
 mod suggest;
 mod text;
@@ -469,6 +470,9 @@ pub struct Report {
     /// Removed dependencies whose sources cargo could not resolve, so their items went
     /// unchecked.
     pub skipped: Vec<Skipped>,
+    /// SQL whose declarations could not be read, a document sqlparser refused or a `DO` or
+    /// function body inside one, so its names were not kept alive.
+    pub refused_sql: Vec<RefusedSql>,
     /// Names in `refquiem: allow(...)` markers that suppressed no mention.
     pub unused_markers: Vec<UnusedMarker>,
     /// The mentioned files of a working tree scan whose content differs from the `HEAD`
@@ -526,6 +530,29 @@ impl Skipped {
     }
 }
 
+/// SQL that could not be read, so the names it declares are not known.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct RefusedSql {
+    /// The file holding it, from the repository root.
+    pub file: String,
+    /// One-based line where reading stopped, or where the refused body starts.
+    pub line: usize,
+    /// One-based character column of that place.
+    pub column: usize,
+    /// Why it could not be read, as sqlparser or sqlparser-plpgsql put it.
+    pub error: String,
+}
+
+impl RefusedSql {
+    /// The warning that the names this SQL declares are not known.
+    fn message(&self) -> String {
+        format!(
+            "this SQL could not be read, so the names it declares are not known: {}",
+            self.error
+        )
+    }
+}
+
 impl Report {
     /// Whether nothing stale was found, no changed item fails the run and every suppression
     /// marker suppressed something.
@@ -552,6 +579,16 @@ impl Report {
         }
         for skipped in &self.skipped {
             let _ = writeln!(out, "warning: {}", skipped.message());
+        }
+        for refused in &self.refused_sql {
+            let _ = writeln!(
+                out,
+                "warning: {}:{}:{}  {}",
+                refused.file,
+                refused.line,
+                refused.column,
+                refused.message()
+            );
         }
         out
     }
