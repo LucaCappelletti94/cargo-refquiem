@@ -412,8 +412,8 @@ render_dry_run() {
   finish dry-run
 }
 
-# The pull request the payload names, accepted only when run $RUN_ID built it at the payload's
-# head. Everything but the run id comes from the API.
+# Accepts pull request $pr only when run $RUN_ID built it at the payload's head, setting `tip`.
+# Everything but the run id comes from the API.
 bind_to_run() {
   local run run_event run_head run_repo run_owner run_branch open built
   [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]] || reject "the triggering run has no id"
@@ -441,6 +441,22 @@ bind_to_run() {
   [ -n "$built" ] || stale "no open pull request has the head run $RUN_ID built"
   grep -qx -- "$pr" <<< "$built" || reject "run $RUN_ID did not build pull request $pr"
   [ "$head_sha" = "$run_head" ] || reject "the prepared head is not the head run $RUN_ID built"
+  tip="$(jq -r --arg pr "$pr" 'select(.number == ($pr | tonumber)) | .base.sha' <<< "$open" 2>/dev/null)"
+}
+
+# A retarget moves the merge base of target tip and head, new target commits keep it.
+bind_to_base() {
+  local merge_base
+  [ -n "$base_sha" ] || return 0
+  [[ "$tip" =~ ^[0-9a-f]{40}$ ]] \
+    || { echo "refquiem: pull request $pr names no target commit, the review is not posted"; finish failed 1; }
+  if ! merge_base="$(gh api "repos/$repo/compare/$tip...$head_sha?per_page=1" --jq '.merge_base_commit.sha' 2>&1)"; then
+    echo "refquiem: cannot compare pull request $pr with its target, the review is not posted"
+    printf '%s\n' "$merge_base"
+    finish failed 1
+  fi
+  [ "$merge_base" = "$base_sha" ] \
+    || stale "pull request $pr now compares against $merge_base, the prepared review against $base_sha"
 }
 
 case "$MODE" in
@@ -455,8 +471,9 @@ case "$MODE" in
         finish failed 1
       fi
       cp "$REPORT" "$PAYLOAD/report.json"
-      jq -n --arg pr "$pr" --arg head "$head_sha" --arg version "$version" \
-        '{pr: $pr, head_sha: $head, version: $version}' > "$PAYLOAD/meta.json"
+      jq -n --arg pr "$pr" --arg head "$head_sha" --arg base "${SCANNED_BASE:-}" --arg version "$version" \
+        '{pr: $pr, head_sha: $head, base_sha: (if $base == "" then null else $base end), version: $version}' \
+        > "$PAYLOAD/meta.json"
       echo "refquiem: the report is prepared in $PAYLOAD for a later job"
       finish prepared
     fi
@@ -473,25 +490,29 @@ case "$MODE" in
       || reject "the prepared review is too large"
     jq -e -s '.[0] | type == "object" and (.pr | type == "string" and test("^[1-9][0-9]{0,9}$"))
       and (.head_sha | type == "string" and test("^[0-9a-f]{40}$"))
+      and has("base_sha") and (.base_sha == null or (.base_sha | type == "string" and test("^[0-9a-f]{40}$")))
       and ((.version // "") | type == "string" and test("^([0-9A-Za-z][0-9A-Za-z.+-]{0,39})?$"))' \
       "$PAYLOAD/meta.json" > /dev/null 2>&1 || reject "the prepared metadata is malformed"
     claimed="$(jq -r '.pr' "$PAYLOAD/meta.json")"
     [ -z "$pr" ] || [ "$pr" = "$claimed" ] || reject "the job names pull request $pr, the payload $claimed"
     pr="$claimed"
     head_sha="$(jq -r '.head_sha' "$PAYLOAD/meta.json")"
+    base_sha="$(jq -r '.base_sha // ""' "$PAYLOAD/meta.json")"
     version="$(jq -r '.version // ""' "$PAYLOAD/meta.json")"
     if [ "${EVENT_NAME:-}" = workflow_run ]; then
       bind_to_run
     else
       # No run vouches for the payload here, so the job names the pull request itself.
       [ -n "${PR_NUMBER:-}" ] || reject "outside workflow_run the job names the pull request"
-      if ! current="$(gh api "repos/$repo/pulls/$pr" --jq .head.sha 2>&1)"; then
+      if ! current="$(gh api "repos/$repo/pulls/$pr" --jq '"\(.head.sha) \(.base.sha)"' 2>&1)"; then
         echo "refquiem: cannot read pull request $pr, the review is not posted"
         printf '%s\n' "$current"
         finish failed 1
       fi
+      read -r current tip <<< "$current"
       [ "$current" = "$head_sha" ] || stale "pull request $pr moved on from the prepared head"
     fi
+    bind_to_base
     canonical "$PAYLOAD/report.json" || reject "the prepared report is malformed"
     ;;
   *)
