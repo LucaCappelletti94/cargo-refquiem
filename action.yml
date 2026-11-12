@@ -164,6 +164,7 @@ runs:
         PR_NUMBER: ${{ inputs.pr-number }}
         PAYLOAD: ${{ inputs.payload }}
         VERSION: ${{ steps.scan.outputs.version }}
+        SCANNED_BASE: ${{ steps.range.outputs.base }}
         SCANNED_HEAD: ${{ steps.range.outputs.head }}
         EVENT_NAME: ${{ github.event_name }}
         RUN_ID: ${{ github.event.workflow_run.id }}

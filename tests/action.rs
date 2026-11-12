@@ -330,6 +330,12 @@ const EARLIER_THREADS: &str = r#"{"id":"T1","isResolved":false,"comments":{"node
 /// The head commit the fake pull request 7 and the fake run 99 point at.
 const HEAD: &str = "f00df00df00df00df00df00df00df00df00df00d";
 
+/// The tip of the branch the fake pull request 7 targets until [`FakeGh::retarget`].
+const TIP: &str = "7177177177177177177177177177177177177177";
+
+/// The merge base of [`TIP`] and [`HEAD`], the commit a prepared scan compares against.
+const MERGE_BASE: &str = "ba5eba5eba5eba5eba5eba5eba5eba5eba5eba5e";
+
 /// The blob URL prefix of the fake repository, followed by a commit and a path.
 const BLOB: &str = "https://github.com/owner/repo/blob";
 
@@ -340,7 +346,8 @@ impl FakeGh {
     /// dismissal for `dismissals`, reading the run for `runs`, or reading the review threads
     /// for `threads`. `resolve` refuses resolving a thread the way a token without
     /// `contents: write` is refused, and `close` refuses hiding its comments as well. Run 99
-    /// built pull request 7 from the `feature` branch of `fork/repo` at [`HEAD`].
+    /// built pull request 7 from the `feature` branch of `fork/repo` at [`HEAD`], targeting
+    /// [`TIP`] whose merge base with it is [`MERGE_BASE`].
     fn new(changed: &[&str], fail: Option<(&str, u16)>) -> Self {
         let whole = format!(
             "@@ -1,200 +1,200 @@\n{}{}",
@@ -368,15 +375,22 @@ impl FakeGh {
         let gh = Self { dir };
         gh.run(&serde_json::json!({"event": "pull_request"}), HEAD);
         gh.open(&[7]);
+        gh.retarget(TIP, MERGE_BASE);
         let dir = gh.dir;
         let script = format!(
             r#"#!/usr/bin/env bash
 log="{log}"
 body=''
+filter=''
+previous=''
 for arg in "$@"; do
   if [ "$arg" = 'body=@-' ] || [ "$arg" = '-' ]; then body="$(cat)"; fi
+  if [ "$previous" = --jq ]; then filter="$arg"; fi
+  previous="$arg"
 done
 printf 'CALL %s\n%s\nEND\n' "$*" "$body" >> "$log"
+# Prints the object `$1` through the call's `--jq` filter.
+answer() {{ jq -r "${{filter:-.}}" <<< "$1"; }}
 case "$*" in
   *graphql*resolveReviewThread*)
     if [ '{fail_key}' = resolve ] || [ '{fail_key}' = close ]; then
@@ -438,8 +452,9 @@ REVIEWS
       exit 1
     fi
     cat "{run}" ;;
-  *'pulls?state=open'*) cat "{open}" ;;
-  *pulls/7*) echo '{HEAD}' ;;
+  *'pulls?state=open'*) jq -c --arg tip "$(cat "{tip}")" '.base.sha = $tip' "{open}" ;;
+  */compare/*) answer "$(jq -n --arg sha "$(cat "{merge_base}")" '{{merge_base_commit: {{sha: $sha}}}}')" ;;
+  *pulls/7*) answer "$(jq -n --arg tip "$(cat "{tip}")" '{{head: {{sha: "{HEAD}"}}, base: {{sha: $tip}}}}')" ;;
   *) echo "unexpected gh $*" >&2; exit 1 ;;
 esac
 "#,
@@ -447,6 +462,8 @@ esac
             files = dir.path().join("files.ndjson").display(),
             run = dir.path().join("run.json").display(),
             open = dir.path().join("open.ndjson").display(),
+            tip = dir.path().join("tip").display(),
+            merge_base = dir.path().join("merge_base").display(),
             reviews = EARLIER_REVIEWS,
             threads = EARLIER_THREADS,
         );
@@ -485,6 +502,13 @@ esac
             })
             .collect();
         std::fs::write(self.dir.path().join("open.ndjson"), open).unwrap();
+    }
+
+    /// Makes pull request 7 target a branch at `tip`, whose merge base with [`HEAD`] is
+    /// `merge_base`.
+    fn retarget(&self, tip: &str, merge_base: &str) {
+        std::fs::write(self.dir.path().join("tip"), tip).unwrap();
+        std::fs::write(self.dir.path().join("merge_base"), merge_base).unwrap();
     }
 }
 
@@ -611,10 +635,12 @@ fn posted_log(gh: &FakeGh, report: &str) -> String {
 /// The environment of the `workflow_run` job posting the payload of run 99.
 const IN_WORKFLOW_RUN: &[(&str, &str)] = &[("EVENT_NAME", "workflow_run"), ("RUN_ID", "99")];
 
-/// Runs the prepare mode on `report` and returns the payload it leaves for a later post.
+/// Runs the prepare mode on `report`, scanned from [`MERGE_BASE`] to [`HEAD`], and returns the
+/// payload it leaves for a later post.
 fn prepare(gh: &FakeGh, report: &str) -> tempfile::TempDir {
     let payload = tempfile::tempdir().unwrap();
-    let (status, _) = review(gh, "prepare", false, payload.path(), report, &[]);
+    let scanned = [("SCANNED_BASE", MERGE_BASE), ("SCANNED_HEAD", HEAD)];
+    let (status, _) = review(gh, "prepare", false, payload.path(), report, &scanned);
     assert_eq!(status, "prepared");
     payload
 }
@@ -1298,6 +1324,58 @@ fn post_skips_a_payload_whose_pull_request_is_not_at_the_run_head() {
     assert_eq!(status, "skipped-stale");
     assert!(!posting.log().contains("comments"), "{}", posting.log());
     assert!(!posting.log().contains("reviews"), "{}", posting.log());
+}
+
+/// The environment of a posting job outside `workflow_run` naming pull request 7.
+const NAMED: &[(&str, &str)] = &[("EVENT_NAME", "push"), ("PR_NUMBER", "7")];
+
+/// A retargeted pull request compares against another merge base, so a review prepared
+/// against the old one would blame the pull request for what the new base already holds.
+#[test]
+fn post_skips_a_payload_scanned_against_a_base_the_pull_request_left() {
+    for report in [stale_scan(), clean_scan()] {
+        let payload = prepared(&report);
+        for env in [IN_WORKFLOW_RUN, NAMED] {
+            let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
+            gh.retarget(
+                "5555555555555555555555555555555555555555",
+                "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
+            );
+            let log = || gh.log();
+            assert_eq!(
+                post(&gh, payload.path(), env),
+                (true, "skipped-stale".to_owned()),
+                "{}",
+                log()
+            );
+            assert!(reviews_posted(&log()).is_empty(), "{}", log());
+            assert_eq!(dismissed(&log()), Vec::<&str>::new(), "{}", log());
+            assert!(!log().contains("graphql"), "{}", log());
+        }
+    }
+}
+
+/// New commits on the target branch leave the merge base, and so the compared range, as the
+/// scan saw it.
+#[test]
+fn post_keeps_a_payload_whose_target_branch_moved_on() {
+    let payload = prepared(&stale_scan());
+    let advanced = "abcabcabcabcabcabcabcabcabcabcabcabcabca";
+    for env in [IN_WORKFLOW_RUN, NAMED] {
+        let gh = FakeGh::new(&["README.md", "src/lib.rs"], None);
+        gh.retarget(advanced, MERGE_BASE);
+        assert_eq!(
+            post(&gh, payload.path(), env),
+            (true, "posted".to_owned()),
+            "{}",
+            gh.log()
+        );
+        assert!(
+            gh.log().contains(&format!("compare/{advanced}...{HEAD}")),
+            "the merge base comes from the current target tip\n{}",
+            gh.log()
+        );
+    }
 }
 
 #[test]
