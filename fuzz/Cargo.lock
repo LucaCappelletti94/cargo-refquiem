@@ -1321,7 +1321,7 @@ dependencies = [
 
 [[package]]
 name = "refquiem"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "cargo_metadata",
  "fst",
