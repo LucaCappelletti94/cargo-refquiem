@@ -369,6 +369,29 @@ fn postgres_18_claims_catalog_table_and_view_names() {
 }
 
 #[test]
+fn postgres_18_claims_compound_node_tags() {
+    let repo = removed_names(
+        "pub struct NullTest;\npub struct ScalarArrayOpExpr;\npub struct CoerceViaIO;\npub struct Query;\n",
+        "NullTest",
+        "`NullTest` and `ScalarArrayOpExpr`\nThe CoerceViaIO node wraps a `Query`.\n`fixture::NullTest`\n",
+    );
+    assert_claims(
+        &repo,
+        "postgres@18",
+        &[
+            ("README.md", 1, "NullTest"),
+            ("README.md", 1, "ScalarArrayOpExpr"),
+            ("README.md", 2, "CoerceViaIO"),
+        ],
+        &[
+            ("README.md", 2, "Query"),
+            ("README.md", 3, "fixture::NullTest"),
+            ("src/lib.rs", 2, "NullTest"),
+        ],
+    );
+}
+
+#[test]
 fn sqlite_3_54_claims_underscore_and_non_english_function_names() {
     let repo = removed_names(
         "pub fn json_extract() {}\npub fn strftime() {}\npub fn glob() {}\n",

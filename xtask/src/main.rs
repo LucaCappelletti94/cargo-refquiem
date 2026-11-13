@@ -148,12 +148,7 @@ fn standard_library(out: &Path) -> Result<(), Error> {
 /// ESDB's `Copyright`, which its license requires next to any copy.
 fn english(out: &Path) -> Result<(), Error> {
     let pinned = include_str!("../../data/english/ESDB").trim_ascii();
-    let checkout = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("xtask sits inside the workspace")
-        .join("target")
-        .join("xtask")
-        .join(format!("esdb-{pinned}"));
+    let checkout = cache_dir().join(format!("esdb-{pinned}"));
     if !checkout.join("scowl.db").is_file() {
         create_dir(&checkout)?;
         run(&checkout, "git", &["init", "-q"])?;
@@ -250,6 +245,16 @@ const PYTHON_RELEASES: &str = "https://www.python.org/ftp/python";
 /// The SHA-256 of the pinned Python source release tarball.
 const PYTHON_SHA256: &str = "8b5536d280142ecf6cdfe15d12a21ba1c65e300bbf7b28a8d0cdb849575797de";
 
+/// The directory under the workspace's `target` where the xtask keeps its downloads and
+/// checkouts.
+fn cache_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask sits inside the workspace")
+        .join("target")
+        .join("xtask")
+}
+
 /// A reader of the files of `repository` at tag `pinned`, through a partial clone whose
 /// blobs arrive on demand, so only the files read are downloaded.
 fn pinned_files(
@@ -257,12 +262,7 @@ fn pinned_files(
     name: &str,
     pinned: &str,
 ) -> Result<impl Fn(&str) -> Result<String, Error>, Error> {
-    let checkout = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("xtask sits inside the workspace")
-        .join("target")
-        .join("xtask")
-        .join(format!("{name}-{pinned}"));
+    let checkout = cache_dir().join(format!("{name}-{pinned}"));
     if !checkout.join(".git").is_dir() {
         create_dir(&checkout)?;
         run(&checkout, "git", &["init", "-q"])?;
@@ -373,10 +373,57 @@ fn catalog_relations(
     Ok(relations)
 }
 
+/// Writes `contents` to `path`, creating its parent directories.
+fn write_file(path: &Path, contents: &str) -> Result<(), Error> {
+    if let Some(parent) = path.parent() {
+        create_dir(parent)?;
+    }
+    std::fs::write(path, contents).map_err(|source| Error::Write {
+        path: path.to_owned(),
+        source,
+    })
+}
+
+/// The node tags PostgreSQL's `nodetags.h` declares, as `NullTest` for `T_NullTest`.
+///
+/// The build generates `nodetags.h`, so `gen_node_support.pl` runs on the headers the
+/// `node_support_input_i` list of `src/include/nodes/meson.build` names, copied to `dir`.
+fn node_tags(
+    show: impl Fn(&str) -> Result<String, Error>,
+    dir: &Path,
+) -> Result<Vec<String>, Error> {
+    let generator = "src/backend/nodes/gen_node_support.pl";
+    for script in [generator, "src/backend/catalog/Catalog.pm"] {
+        write_file(&dir.join(script), &show(script)?)?;
+    }
+    let build = show("src/include/nodes/meson.build")?;
+    let mut args = vec![
+        generator.to_owned(),
+        "--outdir".to_owned(),
+        "out".to_owned(),
+    ];
+    for headers in delimited(&build, "node_support_input_i = [", "]") {
+        for header in headers.split('\'').skip(1).step_by(2) {
+            let path = format!("src/include/{header}");
+            write_file(&dir.join(&path), &show(&path)?)?;
+            args.push(path);
+        }
+    }
+    create_dir(&dir.join("out"))?;
+    run(
+        dir,
+        "perl",
+        &args.iter().map(String::as_str).collect::<Vec<_>>(),
+    )?;
+    let path = dir.join("out").join("nodetags.h");
+    let tags = std::fs::read_to_string(&path).map_err(|source| Error::Read { path, source })?;
+    Ok(delimited(&tags, "\tT_", " ").map(str::to_owned).collect())
+}
+
 /// Writes `words.fst`, the claimable names among the functions PostgreSQL's catalog defines,
 /// the key-word functions its Functions and Operators chapter documents, its configuration
-/// parameters and its catalog tables and views, and PostgreSQL's `COPYRIGHT`, which its
-/// license requires next to any copy.
+/// parameters and its catalog tables and views, with its compound node tags, and
+/// PostgreSQL's `COPYRIGHT`, which its license requires next to any copy.
 ///
 /// The catalog holds the type input and output functions such as `interval_in` that the
 /// chapter leaves out. A documented name counts as a key-word function when the grammar has
@@ -389,7 +436,7 @@ fn postgres(out: &Path, english: &fst::Set<Vec<u8>>) -> Result<(), Error> {
     let keywords: HashSet<&str> = delimited(&grammar, "PG_KEYWORD(\"", "\"").collect();
     let chapter = show("doc/src/sgml/func.sgml")?;
     let parameters = show("src/backend/utils/misc/guc_tables.c")?;
-    let words: BTreeSet<String> = delimited(&catalog, "proname => '", "'")
+    let mut words: BTreeSet<String> = delimited(&catalog, "proname => '", "'")
         .chain(
             delimited(&chapter, "<function>", "</function>").filter(|name| keywords.contains(name)),
         )
@@ -398,6 +445,12 @@ fn postgres(out: &Path, english: &fst::Set<Vec<u8>>) -> Result<(), Error> {
         .chain(catalog_relations(&show)?)
         .filter(|name| claimable_identifier(name, english))
         .collect();
+    let nodes = cache_dir().join(format!("postgresql-nodes-{pinned}"));
+    words.extend(
+        node_tags(&show, &nodes)?
+            .into_iter()
+            .filter(|tag| is_compound_type(tag)),
+    );
     create_dir(out)?;
     let count = write_set(&out.join("words.fst"), words.iter().map(String::as_str))?;
     let target = out.join("COPYRIGHT");
@@ -1005,11 +1058,7 @@ fn without_font_escapes(text: &str) -> String {
 /// The directory named `name` where the tarball at `url` is unpacked, after its SHA-256
 /// matched `sha256`.
 fn pinned_tarball(url: &str, sha256: &'static str, name: &str) -> Result<PathBuf, Error> {
-    let cache = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("xtask sits inside the workspace")
-        .join("target")
-        .join("xtask");
+    let cache = cache_dir();
     create_dir(&cache)?;
     let archive = cache.join(url.rsplit('/').next().unwrap_or(name));
     let archive_arg = archive.to_string_lossy();
