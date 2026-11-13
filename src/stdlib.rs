@@ -160,7 +160,7 @@ impl Vocabulary {
     /// The PostgreSQL 18 catalog and key-word function names, lowercased configuration
     /// parameter names and catalog table and view names with an inner underscore, or single
     /// words English lacks, such as `set_config`, `interval_in`, `uuidv7`, `search_path`,
-    /// `datestyle` and `pg_roles`.
+    /// `datestyle` and `pg_roles`, and the compound node tags such as `NullTest`.
     pub(crate) fn postgres_18() -> Self {
         Self {
             words: fst::Set::new(&include_bytes!("../data/postgres/words.fst")[..])
