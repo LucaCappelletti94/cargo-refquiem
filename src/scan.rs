@@ -1013,7 +1013,8 @@ fn find_mentions(
             _ => false,
         };
         let module = head.file_modules.get(&file).map(Vec::as_slice);
-        for path in read.mentions {
+        let mut named = None;
+        for path in &read.mentions {
             let mention = |uppercase| {
                 let (line, column) = text::line_column(&starts, source, path.start);
                 Mention {
@@ -1026,15 +1027,24 @@ fn find_mentions(
                     uppercase,
                 }
             };
-            if let Some(removed) = matcher.stale(&path, &file, is_rust, module) {
-                let uppercase = matcher.uppercase(&path, removed);
+            if let Some(removed) = matcher.stale(path, &file, is_rust, module) {
+                let uppercase = matcher.uppercase(path, removed);
                 mentions
                     .entry(removed)
                     .or_default()
                     .push(mention(uppercase));
             } else if unedited
                 && path.context.source != Source::StringLiteral
-                && let Some(item) = matcher.changed(changed, &path, is_rust, module)
+                // rustdoc compiles these, so a change they no longer fit fails the doctest.
+                && path.context.kind != (Kind::CodeBlock { compiled: true })
+                && let Some(item) = matcher.changed(changed, path, is_rust, module)
+                && changed.grown(item).is_none_or(|members| {
+                    let named = named.get_or_insert_with(|| {
+                        section_names(matcher.interner, &read.mentions, &read.sections)
+                    });
+                    let at = section(&read.sections, path.start);
+                    named.get(&at).is_some_and(|names| !names.is_disjoint(members))
+                })
             {
                 changed_mentions
                     .entry(item)
@@ -1048,6 +1058,36 @@ fn find_mentions(
         changed_mentions,
         markers,
     })
+}
+
+/// The names each section of a file spells in `mentions`, keyed by [`section`], a path by its
+/// last segment.
+fn section_names(
+    interner: &Interner,
+    mentions: &[Spelled],
+    sections: &[usize],
+) -> HashMap<usize, HashSet<Sym>> {
+    let mut named: HashMap<usize, HashSet<Sym>> = HashMap::new();
+    for path in mentions {
+        let word = match &path.named {
+            Named::Path => path.segments.last(),
+            Named::Name { word, .. } => Some(word),
+            _ => None,
+        };
+        if let Some(sym) = word.and_then(|word| interner.find_sym(word)) {
+            named
+                .entry(section(sections, path.start))
+                .or_default()
+                .insert(sym);
+        }
+    }
+    named
+}
+
+/// The section of a file holding offset `at`, as the number of `sections` starting at or
+/// before it.
+fn section(sections: &[usize], at: usize) -> usize {
+    sections.partition_point(|&start| start <= at)
 }
 
 fn canonical(path: &Path) -> Result<PathBuf, Error> {

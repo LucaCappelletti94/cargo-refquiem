@@ -121,6 +121,9 @@ pub(crate) const KEYWORDS: [&str; 52] = [
 pub(crate) struct Read {
     pub(crate) mentions: Vec<Spelled>,
     pub(crate) markers: Vec<MarkerName>,
+    /// The ascending offsets where sections of the file start, at each comment, doc comment
+    /// and string literal of Rust and at each heading of Markdown, a doc comment's included.
+    pub(crate) sections: Vec<usize>,
 }
 
 /// Every mention in a Rust source file's comments, documentation and strings.
@@ -146,41 +149,53 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Result<Read, Mark
     }
 
     let mut out = Vec::new();
+    let mut sections = Vec::new();
     let mut attribute = Attribute::default();
     let mut i = 0;
     while i < tokens.len() {
         let (offset, len, kind) = tokens[i];
-        if kind == TokenKind::Pound
-            && !attribute.inside()
-            && let Some((style, _, docs)) = doc_attribute(source, &tokens, i)
-            && !docs.is_empty()
-        {
-            i = doc_run(source, &tokens, i, style, scan_commented_code, &mut out)?;
+        let doc = match kind {
+            TokenKind::Pound if !attribute.inside() => doc_attribute(source, &tokens, i)
+                .filter(|(_, _, docs)| !docs.is_empty())
+                .map(|(style, _, _)| style),
+            TokenKind::LineComment { doc_style } => doc_style,
+            _ => None,
+        };
+        if let Some(style) = doc {
+            sections.push(offset);
+            i = doc_run(
+                source,
+                &tokens,
+                i,
+                style,
+                scan_commented_code,
+                &mut out,
+                &mut sections,
+            )?;
         } else {
             attribute.step(kind);
             let text = &source[offset..offset + len];
             match kind {
-                TokenKind::LineComment {
-                    doc_style: Some(style),
-                } => {
-                    i = doc_run(source, &tokens, i, style, scan_commented_code, &mut out)?;
-                }
                 TokenKind::BlockComment {
                     doc_style: Some(_),
                     terminated: true,
                 } => {
+                    sections.push(offset);
                     let doc = Doc::from_block(source, offset, len);
                     markdown(
                         &doc.text,
                         |at| doc.file_offset(at),
                         Source::DocComment,
                         &mut out,
+                        &mut sections,
                     )?;
                 }
                 TokenKind::LineComment { doc_style: None } => {
+                    sections.push(offset);
                     i = comment_run(source, &tokens, i, scan_commented_code, &mut out);
                 }
                 TokenKind::BlockComment { .. } => {
+                    sections.push(offset);
                     let body = text.strip_prefix("/*").unwrap_or(text);
                     let body = body.strip_suffix("*/").unwrap_or(body);
                     if scan_commented_code || !is_code(body) {
@@ -197,27 +212,36 @@ pub(crate) fn rust(source: &str, scan_commented_code: bool) -> Result<Read, Mark
                         | LiteralKind::RawCStr { .. },
                     ..
                 } => {
-                    let context = Context {
-                        source: Source::StringLiteral,
-                        kind: Kind::Text,
-                    };
-                    if attribute.inside() {
-                        spelled(text, offset, context, &mut out);
-                    } else if let Some(span) = identifier_body(text) {
-                        out.push(name(text, offset, span, true, context));
-                    } else {
-                        scan_prose(text, offset, context, &mut out);
-                    }
+                    sections.push(offset);
+                    string_literal(text, offset, attribute.inside(), &mut out);
                 }
                 _ => {}
             }
         }
         i += 1;
     }
+    sections.sort_unstable();
     Ok(Read {
         mentions: out,
         markers,
+        sections,
     })
+}
+
+/// Mentions in the string literal `text` at `offset`, read as an attribute argument when
+/// `in_attribute`.
+fn string_literal(text: &str, offset: usize, in_attribute: bool, out: &mut Vec<Spelled>) {
+    let context = Context {
+        source: Source::StringLiteral,
+        kind: Kind::Text,
+    };
+    if in_attribute {
+        spelled(text, offset, context, out);
+    } else if let Some(span) = identifier_body(text) {
+        out.push(name(text, offset, span, true, context));
+    } else {
+        scan_prose(text, offset, context, out);
+    }
 }
 
 fn comment_run(
@@ -282,7 +306,7 @@ fn identifier_body(text: &str) -> Option<(usize, usize)> {
 /// Reads the doc comment of `style` starting at token `start`, a doc comment line or a doc
 /// attribute, across whitespace, plain comments and attributes of the same style, the strings
 /// of `doc = "…"` arguments counting as doc lines, and returns its last token. Plain comments
-/// inside it are scanned as comments.
+/// inside it are scanned as comments, and its headings start `sections`.
 fn doc_run(
     source: &str,
     tokens: &[(usize, usize, TokenKind)],
@@ -290,6 +314,7 @@ fn doc_run(
     style: DocStyle,
     scan_commented_code: bool,
     out: &mut Vec<Spelled>,
+    sections: &mut Vec<usize>,
 ) -> Result<usize, MarkdownError> {
     const PREFIX: usize = 3;
     let mut lines: Vec<(usize, &str)> = Vec::new();
@@ -335,7 +360,13 @@ fn doc_run(
         j += 1;
     }
     let doc = Doc::unindent(&lines);
-    markdown(&doc.text, |at| doc.file_offset(at), Source::DocComment, out)?;
+    markdown(
+        &doc.text,
+        |at| doc.file_offset(at),
+        Source::DocComment,
+        out,
+        sections,
+    )?;
     // Plain comments on consecutive lines form one run, as they do outside a doc comment.
     let consecutive = |&(o, l): &(usize, usize), &(next, _): &(usize, usize)| {
         let gap = &source[o + l..next];
@@ -439,10 +470,12 @@ impl Attribute {
 /// Every mention in a Markdown file.
 pub(crate) fn markdown_file(source: &str) -> Result<Read, MarkdownError> {
     let mut out = Vec::new();
-    let markers = markdown(source, |at| at, Source::Markdown, &mut out)?;
+    let mut sections = Vec::new();
+    let markers = markdown(source, |at| at, Source::Markdown, &mut out, &mut sections)?;
     Ok(Read {
         mentions: out,
         markers,
+        sections,
     })
 }
 
@@ -529,12 +562,14 @@ fn keep_label(link: BrokenLink<'_>) -> Option<(CowStr<'_>, CowStr<'_>)> {
 #[cfg(test)]
 pub(crate) const FAILING_MARKDOWN: &str = "refquiem-test-reader-failure";
 
-/// Mentions in Markdown `text`, whose offsets `map` turns into file offsets.
+/// Mentions in Markdown `text`, whose offsets `map` turns into file offsets, adding where its
+/// headings start to `sections`.
 fn markdown(
     text: &str,
     map: impl Fn(usize) -> usize,
     source: Source,
     out: &mut Vec<Spelled>,
+    sections: &mut Vec<usize>,
 ) -> Result<Vec<MarkerName>, MarkdownError> {
     let mut found = std::panic::catch_unwind(|| {
         #[cfg(test)]
@@ -550,6 +585,7 @@ fn markdown(
         path.end = map(path.end);
         out.push(path);
     }
+    sections.extend(found.sections.into_iter().map(&map));
     for marker in &mut found.markers {
         marker.start = map(marker.start);
     }
@@ -566,12 +602,14 @@ fn markdown_mentions(text: &str, source: Source) -> Read {
     let mut in_label_link = false;
     let mut found = Vec::new();
     let mut markers = Vec::new();
+    let mut sections = Vec::new();
     let mut declared = HashSet::new();
     let mut segments = Vec::new();
     for (event, range) in events.by_ref() {
         running_text(&mut segments, &event, range.clone(), block.is_some());
         match event {
             Event::Start(Tag::CodeBlock(kind)) => block = Some(Block::new(&kind, source)),
+            Event::Start(Tag::Heading { .. }) => sections.push(range.start),
             Event::End(TagEnd::CodeBlock) => {
                 if let Some(block) = block.take() {
                     declared.extend(block.finish(text, source, &mut found));
@@ -654,6 +692,7 @@ fn markdown_mentions(text: &str, source: Source) -> Read {
     Read {
         mentions: found,
         markers,
+        sections,
     }
 }
 

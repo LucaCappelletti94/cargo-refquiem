@@ -299,8 +299,8 @@ fn a_re_exported_path_reports_the_item_it_stands_for() {
     repo.write("src/limits.rs", "pub enum Limit { Soft, Hard }\n");
     repo.write("README.md", "See [`fixture::Limit`].\n");
     let base = repo.commit("limits");
-    repo.write("src/limits.rs", "pub enum Limit { Soft, Hard, Off }\n");
-    repo.commit("add a variant");
+    repo.write("src/limits.rs", "pub enum Limit { Soft, Hard(u8) }\n");
+    repo.commit("bound the hard limit");
 
     assert_eq!(
         changed(&scan(&repo, &base)),
@@ -389,4 +389,192 @@ fn a_changed_crate_private_carrier_stays_ambiguous_in_its_crate_and_hidden_outsi
     repo.commit("raise the private limit");
 
     assert_eq!(changed(&scan(&repo, &base)), []);
+}
+
+/// `(item path, file, line)` for every changed item mention, sorted.
+fn lines(report: &refquiem::Report) -> Vec<(String, String, usize)> {
+    changed(report)
+        .into_iter()
+        .map(|(path, _, file, line)| (path, file, line))
+        .collect()
+}
+
+/// A crate whose `Refusal` is `Empty` alone, described in a guide and in the docs of `parse`
+/// and `check`, of which only the guide's second section and `check` name the variant.
+fn refusals() -> (Repo, String) {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub mod parse;\n\n/// What parsing can refuse.\npub enum Refusal {\n    /// The input is empty.\n    Empty,\n}\n",
+    );
+    repo.write(
+        "src/parse.rs",
+        "use crate::Refusal;\n\
+         \n\
+         /// Parses `text`.\n\
+         ///\n\
+         /// # Errors\n\
+         ///\n\
+         /// Returns a [`Refusal`] when `text` is unusable.\n\
+         pub fn parse(text: &str) -> Result<(), Refusal> {\n    check(text)\n}\n\
+         \n\
+         /// Checks `text`.\n\
+         ///\n\
+         /// # Errors\n\
+         ///\n\
+         /// Returns a [`Refusal`], [`Refusal::Empty`] when `text` holds nothing.\n\
+         pub fn check(text: &str) -> Result<(), Refusal> {\n    if text.is_empty() { Err(Refusal::Empty) } else { Ok(()) }\n}\n",
+    );
+    repo.write(
+        "docs/guide.md",
+        "# Parsing\n\nEvery refusal of `parse` is a `Refusal`.\n\n## Kinds\n\nA `Refusal` is `Empty` when the input holds nothing.\n",
+    );
+    let base = repo.commit("refusals");
+    (repo, base)
+}
+
+#[test]
+fn an_added_variant_reports_only_sections_naming_a_variant() {
+    let (repo, base) = refusals();
+    repo.write(
+        "src/lib.rs",
+        "pub mod parse;\n\n/// What parsing can refuse.\npub enum Refusal {\n    /// The input is empty.\n    Empty,\n    /// The input holds a character outside the grammar.\n    Unexpected(char),\n}\n",
+    );
+    repo.commit("refuse unexpected characters");
+
+    assert_eq!(
+        lines(&scan(&repo, &base)),
+        [
+            ("fixture::Refusal".to_owned(), "docs/guide.md".to_owned(), 7),
+            ("fixture::Refusal".to_owned(), "src/parse.rs".to_owned(), 16),
+        ]
+    );
+}
+
+#[test]
+fn a_changed_variant_beside_an_added_one_reports_every_mention() {
+    let (repo, base) = refusals();
+    repo.write(
+        "src/lib.rs",
+        "pub mod parse;\n\n/// What parsing can refuse.\npub enum Refusal {\n    /// The input is empty.\n    Empty { at: usize },\n    Unexpected(char),\n}\n",
+    );
+    repo.commit("place empty inputs");
+
+    assert_eq!(
+        lines(&scan(&repo, &base)),
+        [
+            ("fixture::Refusal".to_owned(), "docs/guide.md".to_owned(), 3),
+            ("fixture::Refusal".to_owned(), "docs/guide.md".to_owned(), 7),
+            ("fixture::Refusal".to_owned(), "src/parse.rs".to_owned(), 7),
+            ("fixture::Refusal".to_owned(), "src/parse.rs".to_owned(), 16),
+            (
+                "fixture::Refusal::Empty".to_owned(),
+                "src/parse.rs".to_owned(),
+                16
+            ),
+        ]
+    );
+}
+
+/// A crate whose `Kind` enum has `variants`, and a README naming `Kind`.
+fn kinds(variants: &str) -> (Repo, String) {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", &format!("pub enum Kind {{ {variants} }}\n"));
+    repo.write("README.md", "Every value has a `Kind`.\n");
+    let base = repo.commit("kinds");
+    (repo, base)
+}
+
+/// What the scan from `base` reports after `Kind` becomes `variants`.
+fn rekinded(repo: &Repo, base: &str, variants: &str) -> Vec<(String, String, usize)> {
+    repo.write("src/lib.rs", &format!("pub enum Kind {{ {variants} }}\n"));
+    repo.commit(variants);
+    lines(&scan(repo, base))
+}
+
+#[test]
+fn a_variant_inserted_where_no_discriminant_shows_is_an_addition() {
+    let (repo, base) = kinds("Text(String), Number(i64)");
+    assert_eq!(
+        rekinded(&repo, &base, "Text(String), Flag(bool), Number(i64)"),
+        []
+    );
+}
+
+#[test]
+fn a_variant_inserted_before_a_castable_one_reports_and_an_appended_one_does_not() {
+    let reported = [("fixture::Kind".to_owned(), "README.md".to_owned(), 1)];
+    let (repo, base) = kinds("Text, Number");
+    assert_eq!(rekinded(&repo, &base, "Text, Number, Flag"), []);
+    assert_eq!(rekinded(&repo, &base, "Text, Flag, Number"), reported);
+
+    let (repo, base) = kinds("Text(String), Number = 4");
+    assert_eq!(
+        rekinded(&repo, &base, "Text(String), Flag, Number = 4"),
+        reported
+    );
+}
+
+#[test]
+fn reordered_variants_report_though_one_was_added() {
+    let (repo, base) = kinds("Text(String), Number(i64)");
+    assert_eq!(
+        rekinded(&repo, &base, "Number(i64), Text(String), Flag(bool)"),
+        [("fixture::Kind".to_owned(), "README.md".to_owned(), 1)]
+    );
+}
+
+#[test]
+fn an_added_struct_field_reports_only_sections_naming_a_field() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct Config {\n    pub name: String,\n}\n",
+    );
+    repo.write(
+        "README.md",
+        "# Setup\n\nBuild a `Config` first.\n\n## Fields\n\nA `Config` holds its `name`.\n",
+    );
+    let base = repo.commit("config");
+    repo.write(
+        "src/lib.rs",
+        "pub struct Config {\n    pub port: u16,\n    pub name: String,\n}\n",
+    );
+    repo.commit("add a port");
+
+    assert_eq!(
+        lines(&scan(&repo, &base)),
+        [("fixture::Config".to_owned(), "README.md".to_owned(), 7)]
+    );
+}
+
+#[test]
+fn a_compiled_doctest_naming_a_changed_item_is_left_to_rustdoc() {
+    let (repo, _) = protocol();
+    repo.write(
+        "src/check.rs",
+        "//! Checks.\n\
+         //!\n\
+         //! ```\n\
+         //! assert_eq!(fixture::version::PROTOCOL_VERSION, 1);\n\
+         //! ```\n\
+         //!\n\
+         //! ```ignore\n\
+         //! let version = fixture::version::PROTOCOL_VERSION;\n\
+         //! ```\n\
+         pub fn check() {}\n",
+    );
+    repo.write("src/lib.rs", "pub mod check;\npub mod version;\n");
+    let base = repo.commit("check");
+    repo.write("src/version.rs", "pub const PROTOCOL_VERSION: u32 = 2;\n");
+    repo.commit("protocol 2");
+
+    let path = "fixture::version::PROTOCOL_VERSION".to_owned();
+    assert_eq!(
+        lines(&scan(&repo, &base)),
+        [
+            (path.clone(), "docs/protocol.md".to_owned(), 3),
+            (path, "src/check.rs".to_owned(), 8),
+        ]
+    );
 }

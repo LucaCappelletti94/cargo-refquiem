@@ -47,7 +47,11 @@ Fix the references themselves. Matching uses parsed names rather than type check
 
 ## Changed items
 
-A `--base` scan also reports, under `changed` in JSON, each item whose definition the range changed while a comment, doc comment or Markdown file the range left as it was still names it. The shape counts by default (signatures, fields, variants, trait items, alias targets, `serde` and `repr` attributes), and so do `const` and `static` values. Whitespace, comments, visibility and other attributes never count. A bare name counts when it names exactly one item, or when exactly one of the items carrying it is public or belongs to the mentioning file's crate. Reread each mention against the new definition and rewrite what no longer holds.
+A `--base` scan also reports, under `changed` in JSON, each item whose definition the range changed while a comment, doc comment or Markdown file the range left as it was still names it. The shape counts by default (signatures, fields, variants, trait items, alias targets, `serde` and `repr` attributes), and so do `const` and `static` values. Whitespace, comments, visibility and other attributes never count. A bare name counts when it names exactly one item, or when exactly one of the items carrying it is public or belongs to the mentioning file's crate. Code blocks rustdoc compiles never report a changed item, since a doctest that no longer fits fails to build.
+
+An enum that only gained variants, or a struct that only gained named fields, reports a mention only when its section also names one of its variants or fields, as text enumerating them may now be incomplete. A section is the text between two headings of a doc comment or Markdown file, or one plain comment. Every existing member must keep its definition and its order. A member added before an existing one counts as an addition only when code cannot observe the move, so never for an enum with a `repr`, an explicit discriminant or no variant holding fields, nor for a struct with a `repr`.
+
+Reread each mention against the new definition and rewrite what no longer holds.
 
 ```toml
 [changed]

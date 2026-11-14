@@ -29,7 +29,7 @@ cargo refquiem vocabularies --effective        # resolved workspace vocabulary s
 
 The exit status is `0` when nothing is stale, `1` with findings and `2` on errors. A `.refquiem.toml` at the workspace root selects optional vocabularies through `builtins`, such as `english`, `sql@2023`, `android@36` or `posix@2017`, which `cargo refquiem vocabularies` lists, and project-owned `files`, and configures excludes and allowed names. Running text that states a name's removal, rename or replacement, such as `Delete X`, `X no longer exists` or `Rename X to Y`, is no finding. A `refquiem: allow(Name)` comment silences one mention, and `cargo refquiem --help` lists every option.
 
-With `--base`, refquiem also flags text in files the range left alone that names an item whose signature, fields, variants or `const` value the range changed. These warn without failing, and a `[changed]` table sets `level = "deny"` to fail or `"allow"` to skip, and `compare = "bodies"` to count function bodies too.
+With `--base`, refquiem also flags text in files the range left alone that names an item whose signature, fields, variants or `const` value the range changed, outside the doctests rustdoc compiles. These warn without failing, and a `[changed]` table sets `level = "deny"` to fail or `"allow"` to skip, and `compare = "bodies"` to count function bodies too.
 
 ## GitHub Action
 
