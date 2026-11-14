@@ -15,6 +15,16 @@ pub(crate) struct Definition {
     pub(crate) value: u64,
     /// The body of a function or method, zero without one.
     pub(crate) body: u64,
+    /// The shape of an enum without its variants or of a struct without its named fields,
+    /// zero for other items.
+    pub(crate) frame: u64,
+    /// The position of a variant or a named field among its siblings counted from one, zero
+    /// for other items and for a path declared at different positions.
+    pub(crate) place: u32,
+    /// Whether a member added before an existing one changes what code observes of it, as it
+    /// moves the discriminant of a variant of an enum with a `repr`, an explicit discriminant
+    /// or no variant holding fields, and the layout of a field of a struct with a `repr`.
+    pub(crate) fixed_order: bool,
 }
 
 impl Definition {
@@ -25,6 +35,13 @@ impl Definition {
             shape: self.shape.wrapping_add(other.shape),
             value: self.value.wrapping_add(other.value),
             body: self.body.wrapping_add(other.body),
+            frame: self.frame.wrapping_add(other.frame),
+            place: if self.place == other.place {
+                self.place
+            } else {
+                0
+            },
+            fixed_order: self.fixed_order || other.fixed_order,
         }
     }
 }
@@ -86,23 +103,36 @@ impl Definer<'_> {
         };
         Definition {
             shape: self.digest(attrs, (start, stop), &[]),
-            value: 0,
             body,
+            ..Definition::default()
         }
     }
 
     pub(crate) fn structure(&self, item: &syn::ItemStruct) -> Definition {
+        let start = begin(item.struct_token.span);
         // Only a struct with named fields ends at its brace, the others at their `;`.
-        let stop = match &item.fields {
-            Fields::Named(fields) => fields.brace_token.span.close().byte_range().end,
-            Fields::Unnamed(_) | Fields::Unit => item
-                .semi_token
-                .as_ref()
-                .map_or(self.source.len(), |semi| finish(semi.spans[0])),
+        let (stop, frame) = match &item.fields {
+            Fields::Named(fields) => {
+                let brace = fields.brace_token.span;
+                let stop = brace.close().byte_range().end;
+                let inside = (brace.open().byte_range().end, begin(brace.close()));
+                (stop, self.digest(&item.attrs, (start, stop), &[inside]))
+            }
+            Fields::Unnamed(_) | Fields::Unit => {
+                let stop = item
+                    .semi_token
+                    .as_ref()
+                    .map_or(self.source.len(), |semi| finish(semi.spans[0]));
+                (stop, 0)
+            }
         };
         let mut holes = Vec::new();
         field_holes(&item.fields, &mut holes);
-        self.shaped(&item.attrs, (begin(item.struct_token.span), stop), &holes)
+        Definition {
+            frame,
+            fixed_order: has_repr(&item.attrs),
+            ..self.shaped(&item.attrs, (start, stop), &holes)
+        }
     }
 
     pub(crate) fn union(&self, item: &syn::ItemUnion) -> Definition {
@@ -115,13 +145,22 @@ impl Definer<'_> {
     }
 
     pub(crate) fn enumeration(&self, item: &syn::ItemEnum) -> Definition {
-        let stop = item.brace_token.span.close().byte_range().end;
+        let start = begin(item.enum_token.span);
+        let brace = item.brace_token.span;
+        let stop = brace.close().byte_range().end;
         let mut holes = Vec::new();
         for variant in &item.variants {
             member_holes(&variant.attrs, None, &mut holes);
             field_holes(&variant.fields, &mut holes);
         }
-        self.shaped(&item.attrs, (begin(item.enum_token.span), stop), &holes)
+        let inside = (brace.open().byte_range().end, begin(brace.close()));
+        let castable = item.variants.iter().all(|v| v.fields.is_empty());
+        let explicit = item.variants.iter().any(|v| v.discriminant.is_some());
+        Definition {
+            frame: self.digest(&item.attrs, (start, stop), &[inside]),
+            fixed_order: has_repr(&item.attrs) || castable || explicit,
+            ..self.shaped(&item.attrs, (start, stop), &holes)
+        }
     }
 
     /// Each named field of a struct, union or variant with its definition, `close` being
@@ -133,14 +172,19 @@ impl Definer<'_> {
     ) -> Vec<(&'f syn::Ident, Definition)> {
         fields
             .pairs()
-            .filter_map(|pair| {
+            .zip(1..)
+            .filter_map(|(pair, place)| {
                 let field = pair.value();
                 let ident = field.ident.as_ref()?;
                 let stop = pair
                     .punct()
                     .map_or(begin(close), |comma| begin(comma.spans[0]));
                 let range = (begin(ident.span()), stop);
-                Some((ident, self.shaped(&field.attrs, range, &[])))
+                let definition = Definition {
+                    place,
+                    ..self.shaped(&field.attrs, range, &[])
+                };
+                Some((ident, definition))
             })
             .collect()
     }
@@ -153,7 +197,8 @@ impl Definer<'_> {
         let close = item.brace_token.span.close();
         item.variants
             .pairs()
-            .map(|pair| {
+            .zip(1..)
+            .map(|(pair, place)| {
                 let variant = pair.value();
                 let stop = pair
                     .punct()
@@ -161,7 +206,11 @@ impl Definer<'_> {
                 let mut holes = Vec::new();
                 field_holes(&variant.fields, &mut holes);
                 let range = (begin(variant.ident.span()), stop);
-                (&variant.ident, self.shaped(&variant.attrs, range, &holes))
+                let definition = Definition {
+                    place,
+                    ..self.shaped(&variant.attrs, range, &holes)
+                };
+                (&variant.ident, definition)
             })
             .collect()
     }
@@ -255,15 +304,14 @@ impl Definer<'_> {
         Definition {
             shape: self.digest(attrs, (start, eq.start), &[]),
             value: self.digest(&[], (eq.end, begin(semi.spans[0])), &[]),
-            body: 0,
+            ..Definition::default()
         }
     }
 
     fn shaped(&self, attrs: &[Attribute], range: Range, holes: &[Range]) -> Definition {
         Definition {
             shape: self.digest(attrs, range, holes),
-            value: 0,
-            body: 0,
+            ..Definition::default()
         }
     }
 
@@ -330,6 +378,11 @@ impl Definer<'_> {
 /// Whether `attr` changes how its item is represented, which a definition counts.
 fn counted(attr: &Attribute) -> bool {
     attr.path().is_ident("serde") || attr.path().is_ident("repr")
+}
+
+/// Whether `attrs` hold a `repr` attribute.
+fn has_repr(attrs: &[Attribute]) -> bool {
+    attrs.iter().any(|attr| attr.path().is_ident("repr"))
 }
 
 /// The source range of `attr`, from `#` to its closing bracket.

@@ -10,6 +10,9 @@ use crate::{ChangedPart, HashMap, HashSet, ItemKind};
 pub(crate) struct Changed {
     /// What changed in each changed item.
     pub(crate) parts: HashMap<PathId, ChangedPart>,
+    /// The changed enums and structs the range only added variants or named fields to, each
+    /// with the names of its members at head.
+    grown: HashMap<PathId, HashSet<Sym>>,
     /// The changed item each path suffix of two or more segments names, `None` when the
     /// suffix also ends a path standing for another item.
     by_suffix: HashMap<Box<[Sym]>, Option<PathId>>,
@@ -41,6 +44,7 @@ impl Changed {
             .iter()
             .filter_map(|(&id, &after)| Some((id, changed(*start.get(&id)?, after, compare)?)))
             .collect();
+        let grown = grown(interner, &head.definitions, start, &parts);
         let mut by_suffix: HashMap<Box<[Sym]>, Option<PathId>> = HashMap::new();
         let mut by_name: HashMap<Sym, Vec<Carrier>> = HashMap::new();
         for &id in &head.paths {
@@ -97,6 +101,7 @@ impl Changed {
         }
         Self {
             parts,
+            grown,
             by_suffix,
             by_name,
         }
@@ -125,6 +130,12 @@ impl Changed {
         self.parts.contains_key(&item).then_some(item)
     }
 
+    /// The names of the members of `item` when the range only added variants or named fields
+    /// to it, which text must name beside it to be able to describe what grew.
+    pub(crate) fn grown(&self, item: PathId) -> Option<&HashSet<Sym>> {
+        self.grown.get(&item)
+    }
+
     /// Whether any spelling names a changed item.
     pub(crate) fn is_empty(&self) -> bool {
         self.by_name.is_empty()
@@ -143,6 +154,65 @@ fn changed(before: Definition, after: Definition, compare: ChangedPart) -> Optio
     } else {
         None
     }
+}
+
+/// The items of `parts` whose shape `after` differs from `before` only by members added
+/// where no existing member moves for code to observe, each with the names of its members
+/// after. Every member before keeps its definition and its order among the others.
+fn grown(
+    interner: &Interner,
+    after: &HashMap<PathId, Definition>,
+    before: &HashMap<PathId, Definition>,
+    parts: &HashMap<PathId, ChangedPart>,
+) -> HashMap<PathId, HashSet<Sym>> {
+    let owners: HashSet<PathId> = parts
+        .iter()
+        .filter(|&(id, &part)| {
+            let frame = after[id].frame;
+            part == ChangedPart::Shape && frame != 0 && frame == before[id].frame
+        })
+        .map(|(&id, _)| id)
+        .collect();
+    if owners.is_empty() {
+        return HashMap::new();
+    }
+    let members = |definitions: &HashMap<PathId, Definition>| {
+        let mut by_owner: HashMap<PathId, Vec<PathId>> = HashMap::new();
+        for &id in definitions.keys() {
+            if matches!(interner.kind(id), ItemKind::Variant | ItemKind::Field)
+                && let Some(owner) = interner.parent(id).filter(|owner| owners.contains(owner))
+            {
+                by_owner.entry(owner).or_default().push(id);
+            }
+        }
+        by_owner
+    };
+    let (old, new) = (members(before), members(after));
+    new.into_iter()
+        .filter(|(owner, now)| {
+            let was = old.get(owner).map_or(&[][..], Vec::as_slice);
+            let fixed = before[owner].fixed_order || after[owner].fixed_order;
+            let mut places = Vec::with_capacity(was.len());
+            for member in was {
+                let (then, now) = (before[member], after.get(member));
+                let Some(now) = now.filter(|now| now.shape == then.shape) else {
+                    return false;
+                };
+                if then.place == 0 || now.place == 0 || fixed && then.place != now.place {
+                    return false;
+                }
+                places.push((then.place, now.place));
+            }
+            places.sort_unstable();
+            was.len() < now.len() && places.is_sorted_by_key(|&(_, now)| now)
+        })
+        .map(|(owner, now)| {
+            let names = now
+                .iter()
+                .filter_map(|&member| interner.segments(member).last());
+            (owner, names.copied().collect())
+        })
+        .collect()
 }
 
 /// The item path `id` of `head` stands for: itself when declared, else the declared path its
