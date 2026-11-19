@@ -10,8 +10,8 @@ use crate::{ChangedPart, HashMap, HashSet, ItemKind};
 pub(crate) struct Changed {
     /// What changed in each changed item.
     pub(crate) parts: HashMap<PathId, ChangedPart>,
-    /// The changed enums and structs the range only added variants or named fields to, each
-    /// with the names of its members at head.
+    /// The changed enums, structs and traits the range only added members to, each with the
+    /// names of its members at head.
     grown: HashMap<PathId, HashSet<Sym>>,
     /// The changed item each path suffix of two or more segments names, `None` when the
     /// suffix also ends a path standing for another item.
@@ -130,8 +130,8 @@ impl Changed {
         self.parts.contains_key(&item).then_some(item)
     }
 
-    /// The names of the members of `item` when the range only added variants or named fields
-    /// to it, which text must name beside it to be able to describe what grew.
+    /// The names of the members of `item` when the range only added variants, named fields or
+    /// trait items to it, which text must name beside it to be able to describe what grew.
     pub(crate) fn grown(&self, item: PathId) -> Option<&HashSet<Sym>> {
         self.grown.get(&item)
     }
@@ -158,7 +158,8 @@ fn changed(before: Definition, after: Definition, compare: ChangedPart) -> Optio
 
 /// The items of `parts` whose shape `after` differs from `before` only by members added
 /// where no existing member moves for code to observe, each with the names of its members
-/// after. Every member before keeps its definition and its order among the others.
+/// after. Every member before keeps its definition, and the variants and fields of an enum
+/// or struct their order among the others, which code cannot observe of a trait's items.
 fn grown(
     interner: &Interner,
     after: &HashMap<PathId, Definition>,
@@ -179,8 +180,8 @@ fn grown(
     let members = |definitions: &HashMap<PathId, Definition>| {
         let mut by_owner: HashMap<PathId, Vec<PathId>> = HashMap::new();
         for &id in definitions.keys() {
-            if matches!(interner.kind(id), ItemKind::Variant | ItemKind::Field)
-                && let Some(owner) = interner.parent(id).filter(|owner| owners.contains(owner))
+            if let Some(owner) = interner.parent(id).filter(|owner| owners.contains(owner))
+                && is_member(interner.kind(owner), interner.kind(id))
             {
                 by_owner.entry(owner).or_default().push(id);
             }
@@ -191,6 +192,7 @@ fn grown(
     new.into_iter()
         .filter(|(owner, now)| {
             let was = old.get(owner).map_or(&[][..], Vec::as_slice);
+            let ordered = interner.kind(*owner) != ItemKind::Trait;
             let fixed = before[owner].fixed_order || after[owner].fixed_order;
             let mut places = Vec::with_capacity(was.len());
             for member in was {
@@ -198,6 +200,9 @@ fn grown(
                 let Some(now) = now.filter(|now| now.shape == then.shape) else {
                     return false;
                 };
+                if !ordered {
+                    continue;
+                }
                 if then.place == 0 || now.place == 0 || fixed && then.place != now.place {
                     return false;
                 }
@@ -213,6 +218,18 @@ fn grown(
             (owner, names.copied().collect())
         })
         .collect()
+}
+
+/// Whether an item of `kind` is a member of an owner of kind `owner`, whose addition alone
+/// leaves text naming the owner without its members true.
+fn is_member(owner: ItemKind, kind: ItemKind) -> bool {
+    match owner {
+        ItemKind::Trait => matches!(
+            kind,
+            ItemKind::Method | ItemKind::AssociatedConst | ItemKind::AssociatedType
+        ),
+        _ => matches!(kind, ItemKind::Variant | ItemKind::Field),
+    }
 }
 
 /// The item path `id` of `head` stands for: itself when declared, else the declared path its

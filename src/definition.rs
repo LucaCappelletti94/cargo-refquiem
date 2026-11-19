@@ -15,8 +15,8 @@ pub(crate) struct Definition {
     pub(crate) value: u64,
     /// The body of a function or method, zero without one.
     pub(crate) body: u64,
-    /// The shape of an enum without its variants or of a struct without its named fields,
-    /// zero for other items.
+    /// The shape of an enum without its variants, of a struct without its named fields or of
+    /// a trait without its items, zero for other items.
     pub(crate) frame: u64,
     /// The position of a variant or a named field among its siblings counted from one, zero
     /// for other items and for a path declared at different positions.
@@ -216,7 +216,7 @@ impl Definer<'_> {
     }
 
     /// A trait: its bounds and its items' names and signatures, without their default
-    /// bodies and values.
+    /// bodies and values, its frame keeping macro invocations among its items.
     pub(crate) fn trait_definition(&self, item: &syn::ItemTrait) -> Definition {
         let start = first(&[
             item.unsafety.as_ref().map(|t| t.span),
@@ -225,6 +225,7 @@ impl Definer<'_> {
         ]);
         let stop = item.brace_token.span.close().byte_range().end;
         let mut holes = Vec::new();
+        let mut members = Vec::new();
         for trait_item in &item.items {
             match trait_item {
                 TraitItem::Const(c) => {
@@ -232,22 +233,50 @@ impl Definer<'_> {
                     if let Some((eq, _)) = &c.default {
                         holes.push((begin(eq.spans[0]), begin(c.semi_token.spans[0])));
                     }
+                    let keyword = first(&[
+                        c.modifiers.defaultness.as_ref().map(|t| t.span),
+                        Some(c.const_token.span),
+                    ]);
+                    members.push(member_range(
+                        &c.attrs,
+                        keyword,
+                        finish(c.semi_token.spans[0]),
+                    ));
                 }
                 TraitItem::Fn(f) => {
                     member_holes(&f.attrs, None, &mut holes);
-                    if let Some(block) = &f.default {
-                        holes.push((
-                            block.brace_token.span.open().byte_range().start,
-                            block.brace_token.span.close().byte_range().end,
-                        ));
-                    }
+                    let end = match (&f.default, &f.semi_token) {
+                        (Some(block), _) => {
+                            let close = block.brace_token.span.close().byte_range().end;
+                            holes.push((block.brace_token.span.open().byte_range().start, close));
+                            close
+                        }
+                        (None, Some(semi)) => finish(semi.spans[0]),
+                        (None, None) => stop,
+                    };
+                    let keyword = signature_start(f.modifiers.defaultness.as_ref(), &f.sig);
+                    members.push(member_range(&f.attrs, keyword, end));
                 }
-                TraitItem::Type(t) => member_holes(&t.attrs, None, &mut holes),
+                TraitItem::Type(t) => {
+                    member_holes(&t.attrs, None, &mut holes);
+                    let keyword = first(&[
+                        t.modifiers.defaultness.as_ref().map(|t| t.span),
+                        Some(t.type_token.span),
+                    ]);
+                    members.push(member_range(
+                        &t.attrs,
+                        keyword,
+                        finish(t.semi_token.spans[0]),
+                    ));
+                }
                 TraitItem::Macro(m) => member_holes(&m.attrs, None, &mut holes),
                 _ => {}
             }
         }
-        self.shaped(&item.attrs, (start, stop), &holes)
+        Definition {
+            frame: self.digest(&item.attrs, (start, stop), &members),
+            ..self.shaped(&item.attrs, (start, stop), &holes)
+        }
     }
 
     pub(crate) fn trait_constant(&self, item: &syn::TraitItemConst) -> Definition {
@@ -391,6 +420,15 @@ fn attribute_range(attr: &Attribute) -> Range {
         begin(attr.pound_token.spans[0]),
         attr.bracket_token.span.close().byte_range().end,
     )
+}
+
+/// The source range of a member from its first attribute, or from `keyword` without one, to
+/// `stop`.
+fn member_range(attrs: &[Attribute], keyword: usize, stop: usize) -> Range {
+    let start = attrs
+        .first()
+        .map_or(keyword, |attr| attribute_range(attr).0);
+    (start, stop)
 }
 
 /// Adds to `holes` the uncounted `attrs` of a member and its visibility.
@@ -620,6 +658,21 @@ mod tests {
             )
             .shape,
         );
+    }
+
+    #[test]
+    fn a_trait_frame_holds_its_bounds_and_macros_without_its_items() {
+        let frame = |source: &str| definition(source, &["T"]).frame;
+        let bare = frame("pub trait T: Send { m!(); }");
+        assert_ne!(bare, 0);
+        assert_eq!(
+            bare,
+            frame(
+                "pub trait T: Send {\n    #[serde(skip)]\n    /// Docs.\n    type A: Clone;\n    m!();\n    const N: u32 = 1;\n    unsafe fn f(&self) -> u32 { 1 }\n    fn g();\n}\n"
+            )
+        );
+        assert_ne!(bare, frame("pub trait T: Sync { m!(); }"));
+        assert_ne!(bare, frame("pub trait T: Send { n!(); }"));
     }
 
     #[test]
