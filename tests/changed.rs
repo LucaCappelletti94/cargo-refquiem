@@ -578,3 +578,95 @@ fn a_compiled_doctest_naming_a_changed_item_is_left_to_rustdoc() {
         ]
     );
 }
+
+/// The `Backend` trait with `items` and its documentation.
+fn backend(items: &str) -> String {
+    format!(
+        "pub mod store;\n\n/// What a store runs queries through.\npub trait Backend {{\n{items}}}\n"
+    )
+}
+
+/// A crate whose `Backend` trait has `run` alone, named alone by a guide's first section and
+/// the docs of `Store`, and beside `run` by the guide's second section.
+fn backends() -> (Repo, String) {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        &backend("    /// Runs `query`.\n    fn run(&self, query: &str) -> u32;\n"),
+    );
+    repo.write(
+        "src/store.rs",
+        "/// A store, reached through a [`crate::Backend`].\npub struct Store;\n",
+    );
+    repo.write(
+        "docs/guide.md",
+        "# Stores\n\nEvery store implements `Backend`.\n\n## Queries\n\nA `Backend` answers `run` with a row count.\n",
+    );
+    let base = repo.commit("backends");
+    (repo, base)
+}
+
+#[test]
+fn an_item_added_to_a_trait_reports_only_sections_naming_an_item() {
+    let (repo, base) = backends();
+    repo.write(
+        "src/lib.rs",
+        &backend(
+            "    /// Whether the backend refuses writes.\n    fn read_only(&self) -> bool {\n        false\n    }\n\n    /// Runs `query`.\n    fn run(&self, query: &str) -> u32;\n\n    /// The rows a query may return.\n    const LIMIT: usize = 100;\n",
+        ),
+    );
+    repo.commit("read-only backends");
+
+    assert_eq!(
+        lines(&scan(&repo, &base)),
+        [("fixture::Backend".to_owned(), "docs/guide.md".to_owned(), 7)]
+    );
+}
+
+#[test]
+fn a_changed_trait_item_beside_an_added_one_reports_every_mention() {
+    let (repo, base) = backends();
+    repo.write(
+        "src/lib.rs",
+        &backend(
+            "    fn read_only(&self) -> bool {\n        false\n    }\n\n    /// Runs `query`.\n    fn run(&self, query: &str) -> u64;\n",
+        ),
+    );
+    repo.commit("count rows in u64");
+
+    assert_eq!(
+        lines(&scan(&repo, &base)),
+        [
+            ("fixture::Backend".to_owned(), "docs/guide.md".to_owned(), 3),
+            ("fixture::Backend".to_owned(), "docs/guide.md".to_owned(), 7),
+            ("fixture::Backend".to_owned(), "src/store.rs".to_owned(), 1),
+            (
+                "fixture::Backend::run".to_owned(),
+                "docs/guide.md".to_owned(),
+                7
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_new_supertrait_beside_an_added_item_reports_every_mention() {
+    let (repo, base) = backends();
+    repo.write(
+        "src/lib.rs",
+        &backend(
+            "    fn read_only(&self) -> bool {\n        false\n    }\n\n    /// Runs `query`.\n    fn run(&self, query: &str) -> u32;\n",
+        )
+        .replace("trait Backend", "trait Backend: Send"),
+    );
+    repo.commit("send backends");
+
+    assert_eq!(
+        lines(&scan(&repo, &base)),
+        [
+            ("fixture::Backend".to_owned(), "docs/guide.md".to_owned(), 3),
+            ("fixture::Backend".to_owned(), "docs/guide.md".to_owned(), 7),
+            ("fixture::Backend".to_owned(), "src/store.rs".to_owned(), 1),
+        ]
+    );
+}
