@@ -245,14 +245,16 @@ impl Definer<'_> {
                 }
                 TraitItem::Fn(f) => {
                     member_holes(&f.attrs, None, &mut holes);
-                    let end = match (&f.default, &f.semi_token) {
-                        (Some(block), _) => {
+                    let end = match &f.default {
+                        Some(block) => {
                             let close = block.brace_token.span.close().byte_range().end;
                             holes.push((block.brace_token.span.open().byte_range().start, close));
                             close
                         }
-                        (None, Some(semi)) => finish(semi.spans[0]),
-                        (None, None) => stop,
+                        None => f
+                            .semi_token
+                            .as_ref()
+                            .map_or(stop, |semi| finish(semi.spans[0])),
                     };
                     let keyword = signature_start(f.modifiers.defaultness.as_ref(), &f.sig);
                     members.push(member_range(&f.attrs, keyword, end));
