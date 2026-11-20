@@ -179,9 +179,9 @@ fn grown(
     }
     let members = |definitions: &HashMap<PathId, Definition>| {
         let mut by_owner: HashMap<PathId, Vec<PathId>> = HashMap::new();
-        for &id in definitions.keys() {
+        for (&id, definition) in definitions {
             if let Some(owner) = interner.parent(id).filter(|owner| owners.contains(owner))
-                && is_member(interner.kind(owner), interner.kind(id))
+                && is_member(interner.kind(owner), interner.kind(id), definition)
             {
                 by_owner.entry(owner).or_default().push(id);
             }
@@ -192,18 +192,28 @@ fn grown(
     new.into_iter()
         .filter(|(owner, now)| {
             let was = old.get(owner).map_or(&[][..], Vec::as_slice);
-            let ordered = interner.kind(*owner) != ItemKind::Trait;
+            if interner.kind(*owner) == ItemKind::Trait {
+                return was.len() < now.len()
+                    && was.iter().all(|member| {
+                        after
+                            .get(member)
+                            .is_some_and(|now| now.shape == before[member].shape)
+                    });
+            }
             let fixed = before[owner].fixed_order || after[owner].fixed_order;
             let mut places = Vec::with_capacity(was.len());
             for member in was {
-                let (then, now) = (before[member], after.get(member));
-                let Some(now) = now.filter(|now| now.shape == then.shape) else {
+                let (Some(then), Some(now)) = (
+                    before[member].member,
+                    after.get(member).and_then(|now| now.member),
+                ) else {
                     return false;
                 };
-                if !ordered {
-                    continue;
-                }
-                if then.place == 0 || now.place == 0 || fixed && then.place != now.place {
+                if then.shape != now.shape
+                    || then.place == 0
+                    || now.place == 0
+                    || fixed && then.place != now.place
+                {
                     return false;
                 }
                 places.push((then.place, now.place));
@@ -220,15 +230,15 @@ fn grown(
         .collect()
 }
 
-/// Whether an item of `kind` is a member of an owner of kind `owner`, whose addition alone
-/// leaves text naming the owner without its members true.
-fn is_member(owner: ItemKind, kind: ItemKind) -> bool {
+/// Whether the item of `kind` saying `definition` is a member of an owner of kind `owner`,
+/// whose addition alone leaves text naming the owner without its members true.
+fn is_member(owner: ItemKind, kind: ItemKind, definition: &Definition) -> bool {
     match owner {
         ItemKind::Trait => matches!(
             kind,
             ItemKind::Method | ItemKind::AssociatedConst | ItemKind::AssociatedType
         ),
-        _ => matches!(kind, ItemKind::Variant | ItemKind::Field),
+        _ => definition.member.is_some(),
     }
 }
 
