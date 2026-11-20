@@ -549,6 +549,81 @@ fn an_added_struct_field_reports_only_sections_naming_a_field() {
 }
 
 #[test]
+fn an_added_field_beside_an_accessor_sharing_a_field_name_reports_only_sections_naming_a_field() {
+    let accessor =
+        "impl Config {\n    pub fn name(&self) -> &str {\n        &self.name\n    }\n}\n";
+    let config = |fields: &str| format!("pub struct Config {{\n{fields}}}\n");
+    // The accessor follows the struct in its file, or is read from `lib.rs` before it.
+    for (lib, module) in [
+        (
+            String::new(),
+            format!("{}{accessor}", config("    name: String,\n")),
+        ),
+        (
+            format!("pub use config::Config;\n{accessor}"),
+            config("    name: String,\n"),
+        ),
+    ] {
+        let repo = Repo::new();
+        repo.write("src/lib.rs", &format!("mod config;\n{lib}"));
+        repo.write("src/config.rs", &module);
+        repo.write(
+            "README.md",
+            "# Setup\n\nBuild a `Config` first.\n\n## Fields\n\nA `Config` holds its `name`.\n",
+        );
+        let base = repo.commit("config");
+        repo.write(
+            "src/config.rs",
+            &module.replace("    name: String,\n", "    port: u16,\n    name: String,\n"),
+        );
+        repo.commit("add a port");
+
+        assert_eq!(
+            lines(&scan(&repo, &base)),
+            [(
+                "fixture::config::Config".to_owned(),
+                "README.md".to_owned(),
+                7
+            )],
+            "accessor in lib.rs: {}",
+            !lib.is_empty(),
+        );
+    }
+}
+
+#[test]
+fn an_added_field_beside_a_changed_accessor_sharing_a_field_name_is_still_an_addition() {
+    let config = |fields: &str, accessor: &str| {
+        format!(
+            "pub struct Config {{\n{fields}}}\n\nimpl Config {{\n    pub fn name(&self) -> {accessor}\n}}\n"
+        )
+    };
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        &config("    name: String,\n", "&str {\n        &self.name\n    }"),
+    );
+    repo.write(
+        "README.md",
+        "# Setup\n\nBuild a `Config` first.\n\n## Fields\n\nA `Config` holds its `name`.\n",
+    );
+    let base = repo.commit("config");
+    repo.write(
+        "src/lib.rs",
+        &config(
+            "    port: u16,\n    name: String,\n",
+            "&[u8] {\n        self.name.as_bytes()\n    }",
+        ),
+    );
+    repo.commit("add a port and read the name as bytes");
+
+    assert_eq!(
+        lines(&scan(&repo, &base)),
+        [("fixture::Config".to_owned(), "README.md".to_owned(), 7)]
+    );
+}
+
+#[test]
 fn a_compiled_doctest_naming_a_changed_item_is_left_to_rustdoc() {
     let (repo, _) = protocol();
     repo.write(
