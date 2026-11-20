@@ -18,30 +18,53 @@ pub(crate) struct Definition {
     /// The shape of an enum without its variants, of a struct without its named fields or of
     /// a trait without its items, zero for other items.
     pub(crate) frame: u64,
-    /// The position of a variant or a named field among its siblings counted from one, zero
-    /// for other items and for a path declared at different positions.
-    pub(crate) place: u32,
+    /// The definition of the variant or named field declared at its path, which a method or
+    /// associated item sharing the path in another namespace leaves alone.
+    pub(crate) member: Option<Member>,
     /// Whether a member added before an existing one changes what code observes of it, as it
     /// moves the discriminant of a variant of an enum with a `repr`, an explicit discriminant
     /// or no variant holding fields, and the layout of a field of a struct with a `repr`.
     pub(crate) fixed_order: bool,
 }
 
+/// What a variant or a named field says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Member {
+    pub(crate) shape: u64,
+    /// Its position among its siblings counted from one, zero for a path declared at
+    /// different positions.
+    pub(crate) place: u32,
+}
+
 impl Definition {
     /// The definition of a declaration that says `self` and `other` at once, as two
-    /// declarations of one path under different `cfg`s do, the same in whichever order.
+    /// declarations of one path under different `cfg`s, or a field and a method of one name,
+    /// do, the same in whichever order.
     pub(crate) fn merge(self, other: Self) -> Self {
         Self {
             shape: self.shape.wrapping_add(other.shape),
             value: self.value.wrapping_add(other.value),
             body: self.body.wrapping_add(other.body),
             frame: self.frame.wrapping_add(other.frame),
-            place: if self.place == other.place {
-                self.place
-            } else {
-                0
+            member: match (self.member, other.member) {
+                (Some(one), Some(two)) => Some(Member {
+                    shape: one.shape.wrapping_add(two.shape),
+                    place: if one.place == two.place { one.place } else { 0 },
+                }),
+                (one, two) => one.or(two),
             },
             fixed_order: self.fixed_order || other.fixed_order,
+        }
+    }
+
+    /// The definition of a variant or named field saying `self` at `place`.
+    fn member(self, place: u32) -> Self {
+        Self {
+            member: Some(Member {
+                shape: self.shape,
+                place,
+            }),
+            ..self
         }
     }
 }
@@ -180,10 +203,7 @@ impl Definer<'_> {
                     .punct()
                     .map_or(begin(close), |comma| begin(comma.spans[0]));
                 let range = (begin(ident.span()), stop);
-                let definition = Definition {
-                    place,
-                    ..self.shaped(&field.attrs, range, &[])
-                };
+                let definition = self.shaped(&field.attrs, range, &[]).member(place);
                 Some((ident, definition))
             })
             .collect()
@@ -206,10 +226,7 @@ impl Definer<'_> {
                 let mut holes = Vec::new();
                 field_holes(&variant.fields, &mut holes);
                 let range = (begin(variant.ident.span()), stop);
-                let definition = Definition {
-                    place,
-                    ..self.shaped(&variant.attrs, range, &holes)
-                };
+                let definition = self.shaped(&variant.attrs, range, &holes).member(place);
                 (&variant.ident, definition)
             })
             .collect()
