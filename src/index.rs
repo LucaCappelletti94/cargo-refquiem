@@ -32,6 +32,9 @@ pub(crate) struct Index {
     /// The names no path reaches: parameters, generic parameters and items declared inside a
     /// function body.
     pub(crate) locals: HashSet<Sym>,
+    /// The names a `quote!` in a function body declares, which name items a procedural macro
+    /// generates.
+    pub(crate) quoted: HashSet<Sym>,
     /// The signature of every function, method and trait method, as the parser records it.
     pub(crate) signatures: HashMap<PathId, Rc<str>>,
     /// What each declared item says, merged over the declarations of one path.
@@ -83,6 +86,7 @@ struct Contribution {
     traits: Vec<Implemented>,
     declared_traits: Vec<(PathId, bool)>,
     locals: Vec<Sym>,
+    quoted: Vec<Sym>,
     signatures: Vec<(PathId, Rc<str>)>,
     definitions: Vec<(PathId, ItemDefinition)>,
     failure: Option<String>,
@@ -509,6 +513,10 @@ impl Indexer {
             index.locals = reached
                 .contributions()
                 .flat_map(|c| c.locals.iter().copied())
+                .collect();
+            index.quoted = reached
+                .contributions()
+                .flat_map(|c| c.quoted.iter().copied())
                 .collect();
         }
         Ok(index)
@@ -1100,6 +1108,7 @@ impl Indexer {
             })
             .collect();
         out.locals = self.syms(&items.locals);
+        out.quoted = self.syms(&items.quoted);
         out.digest = self.alias_digest(&out);
         out
     }

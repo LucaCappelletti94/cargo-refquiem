@@ -39,6 +39,9 @@ pub(crate) struct FileItems {
     /// and trait method, the type and const parameter names of every generic item, and every
     /// item a function body declares.
     pub(crate) locals: Vec<String>,
+    /// The names a `quote!` family invocation in a function body declares, deduplicated, which
+    /// name items a procedural macro generates.
+    pub(crate) quoted: Vec<String>,
 }
 
 impl FileItems {
@@ -943,7 +946,8 @@ impl Collector<'_> {
     }
 
     /// Records the name of every item `block` declares at any depth, which a mention can
-    /// name although no path reaches it.
+    /// name although no path reaches it, and every name a `quote!` family invocation in it
+    /// declares.
     fn body(&mut self, block: &syn::Block) {
         struct Declared<'c, 's>(&'c mut Collector<'s>);
 
@@ -953,6 +957,21 @@ impl Collector<'_> {
                     self.0.local(strip_raw(&ident.to_string()).to_owned());
                 }
                 syn::visit::visit_item(self, item);
+            }
+
+            fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+                let name = mac.path.segments.last().map(|last| last.ident.to_string());
+                if !matches!(
+                    name.as_deref(),
+                    Some("quote" | "quote_spanned" | "parse_quote" | "parse_quote_spanned")
+                ) {
+                    return;
+                }
+                for name in quoted_declarations(mac.tokens.clone()) {
+                    if !self.0.out.quoted.contains(&name) {
+                        self.0.out.quoted.push(name);
+                    }
+                }
             }
         }
 
@@ -1169,6 +1188,38 @@ fn idents(tokens: &TokenStream) -> Vec<String> {
                 TokenTree::Group(group) => stack.push(group.stream()),
                 TokenTree::Punct(_) | TokenTree::Literal(_) => {}
             }
+        }
+    }
+    out
+}
+
+/// The names a `quote!` body `tokens` declares, each the identifier right after `fn`, `struct`,
+/// `enum`, `union`, `type`, `trait`, `mod`, `const` or `static`. A path the body only uses, such
+/// as `diesel::sql_types::Integer`, and an interpolated `#name` declare nothing.
+fn quoted_declarations(tokens: TokenStream) -> Vec<String> {
+    const DECLARING: [&str; 9] = [
+        "fn", "struct", "enum", "union", "type", "trait", "mod", "const", "static",
+    ];
+    let mut out = Vec::new();
+    let mut stack = vec![tokens];
+    while let Some(stream) = stack.pop() {
+        let mut declaring = false;
+        for tree in stream {
+            declaring = match tree {
+                TokenTree::Ident(ident) => {
+                    let name = ident.to_string();
+                    let keyword = DECLARING.contains(&name.as_str());
+                    if declaring && !keyword && name != "_" {
+                        out.push(strip_raw(&name).to_owned());
+                    }
+                    keyword
+                }
+                TokenTree::Group(group) => {
+                    stack.push(group.stream());
+                    false
+                }
+                TokenTree::Punct(_) | TokenTree::Literal(_) => false,
+            };
         }
     }
     out

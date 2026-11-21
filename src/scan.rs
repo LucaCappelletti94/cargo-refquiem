@@ -1599,6 +1599,8 @@ struct Matcher<'a> {
     macro_idents: HashSet<Sym>,
     /// The names of head no path reaches.
     locals: &'a HashSet<Sym>,
+    /// The names a `quote!` of head declares.
+    quoted: &'a HashSet<Sym>,
     /// Removed items other than serialized spellings, by last segment, ranked.
     removed_names: HashMap<Sym, Vec<PathId>>,
     /// Removed serialized spellings, by spelling, ranked.
@@ -1639,6 +1641,7 @@ impl<'a> Matcher<'a> {
         let dependencies = shared.dependencies;
         let mut alive = HashSet::new();
         let mut names = head.locals.clone();
+        names.extend(&head.quoted);
         for &id in head.paths.iter().chain(&dependencies.paths) {
             let segments = interner.segments(id);
             alive.extend(suffixes(segments).map(Box::from));
@@ -1690,6 +1693,7 @@ impl<'a> Matcher<'a> {
                 .copied()
                 .collect(),
             locals: &head.locals,
+            quoted: &head.quoted,
             removed_names,
             removed_spellings,
             libs: head.libs.iter().map(|&lib| interner.name(lib)).collect(),
@@ -1900,6 +1904,15 @@ impl<'a> Matcher<'a> {
         // Uncompiled examples freely use crates the workspace never depends on, so there only
         // paths spelled from a workspace crate root count.
         let example = path.context.kind == Kind::CodeBlock { compiled: false };
+        // A procedural macro of head may still generate what a path of its declared names spells.
+        let quoted = |segment: &String| {
+            self.interner
+                .find_sym(segment)
+                .is_some_and(|sym| self.quoted.contains(&sym))
+        };
+        if path.segments.iter().all(quoted) {
+            return None;
+        }
         let mut readings = self.readings(path, in_rust, module);
         if example {
             readings.retain(|reading| self.is_crate(reading[0]));

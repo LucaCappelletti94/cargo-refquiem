@@ -197,6 +197,39 @@ fn bare_names_are_stale_unless_a_vocabulary_or_live_item_claims_them() {
 }
 
 #[test]
+fn names_a_quote_invocation_declares_are_alive_but_names_it_only_uses_are_not() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn register_impl() {}\npub mod table {\n    pub struct AllColumns;\n}\n\
+         pub fn gone_var() {}\npub fn gone_used() {}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "pub fn expand() -> TokenStream {\n    let gone_var = 1;\n    \
+         let item = quote! { pub fn register_impl() { fixture::gone_used(#gone_var) } };\n    \
+         quote::quote_spanned!(span => #item pub struct table; pub type AllColumns = u8;)\n}\n",
+    );
+    repo.write(
+        "README.md",
+        "`register_impl`, `table::AllColumns`, `gone_var` and `gone_used`.\n\
+         `fixture::table::AllColumns`\n",
+    );
+    repo.commit("generate them");
+
+    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.0).collect();
+    assert_eq!(
+        rows,
+        [
+            "fixture::gone_var",
+            "fixture::gone_used",
+            "fixture::table::AllColumns"
+        ]
+    );
+}
+
+#[test]
 fn english_words_remain_stale_serialized_spellings() {
     let repo = Repo::new();
     repo.write(
