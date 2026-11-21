@@ -1322,7 +1322,8 @@ fn destination(raw: &str, start: usize, dest: &str, context: Context, found: &mu
 }
 
 /// Records what the link spanning `raw` at `start` names. Returns whether the link is an
-/// intra-doc label whose text must not be scanned again.
+/// intra-doc label whose text must not be scanned again. A label with a reference definition
+/// names only what the definition does, which the definitions pass records.
 fn link_start(
     raw: &str,
     start: usize,
@@ -1332,10 +1333,7 @@ fn link_start(
     found: &mut Vec<Spelled>,
 ) -> bool {
     match link_type {
-        LinkType::Shortcut
-        | LinkType::ShortcutUnknown
-        | LinkType::Collapsed
-        | LinkType::CollapsedUnknown => {
+        LinkType::ShortcutUnknown | LinkType::CollapsedUnknown => {
             let label_end = raw.find(']').unwrap_or(raw.len());
             let label = &raw[1.min(label_end)..label_end];
             let written = label.trim_matches('`');

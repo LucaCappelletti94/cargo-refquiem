@@ -222,6 +222,22 @@ fn unknown_rustdoc_page_kinds_are_not_item_links() {
 }
 
 #[test]
+fn a_reference_label_whose_definition_is_a_url_names_nothing() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn docs() {}\npub fn guide() {}\n");
+    repo.commit("start");
+    repo.write("src/lib.rs", "");
+    repo.write(
+        "README.md",
+        "Read the [docs] and the [guide][].\n\n\
+         [docs]: https://example.com\n[guide]: https://example.com\n",
+    );
+    repo.commit("drop docs and guide");
+
+    assert_eq!(found(&repo), []);
+}
+
+#[test]
 fn a_code_span_after_a_backticked_link_label_is_scanned() {
     let repo = Repo::new();
     repo.write("src/lib.rs", "pub struct Kept;\npub struct Gone;\n");
