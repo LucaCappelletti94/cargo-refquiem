@@ -166,11 +166,20 @@ struct Rules {
     exported: bool,
 }
 
-/// A `macro_rules!` body with the crate `$crate` names, `None` for the crate being indexed.
+/// A `macro_rules!` body with the package `$crate` names, `None` for the crate being indexed.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Definition {
     body: Rc<str>,
-    home: Option<Sym>,
+    home: Option<Home>,
+}
+
+/// The package a dependency's `macro_rules!` body comes from.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct Home {
+    /// The crate name `$crate` is spelled as.
+    krate: Sym,
+    /// What tells the package apart from another of the same crate name.
+    package: Sym,
 }
 
 /// A file or expansion `Indexer::reach` read.
@@ -181,6 +190,8 @@ struct Entry {
     contribution: Rc<Contribution>,
     /// How many expansions deep it lies.
     depth: usize,
+    /// The package of the dependency macro it is the expansion of.
+    home: Option<Home>,
 }
 
 /// The crate roots `Indexer::roots` found.
@@ -722,6 +733,7 @@ impl Indexer {
                     visit,
                     contribution,
                     depth: 0,
+                    home: None,
                 });
             }
             if !self.expand_calls(&mut reached, index, &mut stack) {
@@ -775,6 +787,10 @@ impl Indexer {
             let call = &entry.contribution.calls[k];
             let unexpandable =
                 !entry.visit.public_only && self.head_unexpanded.contains(&call.name);
+            // A dependency macro's call through `$crate` names the package that defined it.
+            let own = entry
+                .home
+                .filter(|home| call.crate_root == Some(home.krate));
             let definitions = match reached.rules.get(&(krate, call.name)) {
                 _ if unexpandable => None,
                 Some(local) => Some(Rc::new(self.visible(local, call.module))),
@@ -782,7 +798,15 @@ impl Indexer {
             };
             match definitions {
                 Some(definitions) => {
-                    let found = definitions.iter().map(Some);
+                    let own = own.filter(|&home| {
+                        definitions
+                            .iter()
+                            .any(|definition| definition.home == Some(home))
+                    });
+                    let found = definitions
+                        .iter()
+                        .filter(|definition| own.is_none_or(|home| definition.home == Some(home)))
+                        .map(Some);
                     grew |= self.expand_call(reached, i, k, found, index, stack);
                 }
                 None => reached.deferred.push((i, k)),
@@ -855,6 +879,7 @@ impl Indexer {
                 visit: Rc::clone(&entry.visit),
                 contribution: expansion,
                 depth: entry.depth + 1,
+                home: definition.and_then(|definition| definition.home),
             });
             grew = true;
         }
@@ -876,7 +901,7 @@ impl Indexer {
         let home = definition.map(|definition| {
             definition
                 .home
-                .map_or("crate", |home| self.interner.name(home))
+                .map_or("crate", |home| self.interner.name(home.krate))
         });
         let body = definition.map(|definition| &*definition.body);
         let header = expandable.impl_header.as_deref();
@@ -911,15 +936,21 @@ impl Indexer {
     }
 
     /// The public items of the library whose root file is `root` in `snapshot`, rooted at
-    /// `crate_name`, of the package in directory `package`.
+    /// `crate_name`, of the package in directory `package`. `identity` tells the package apart
+    /// from another of the same crate name, as cargo's package id does.
     pub(crate) fn library(
         &mut self,
         snapshot: &dyn Snapshot,
         package: &str,
         root: &str,
         crate_name: &str,
+        identity: &str,
     ) -> Result<Library, Error> {
         let crate_sym = self.interner.sym(crate_name);
+        let home = Home {
+            krate: crate_sym,
+            package: self.interner.sym(identity),
+        };
         let module = self.interner.path(&[crate_sym], ItemKind::Module);
         let mut index = Index::default();
         index.paths.insert(module);
@@ -943,7 +974,7 @@ impl Indexer {
                 .map(|rules| {
                     let definition = Definition {
                         body: rules.body.clone(),
-                        home: Some(crate_sym),
+                        home: Some(home),
                     };
                     (rules.name, definition)
                 })
@@ -2224,6 +2255,7 @@ mod tests {
             }),
             contribution: Rc::new(contribution),
             depth: 0,
+            home: None,
         }
     }
 

@@ -211,7 +211,7 @@ fn path_library(
         Some(_) => dependency.key.replace('-', "_"),
         None => lib.crate_name,
     };
-    let library = indexer.library(tree, &package, &lib.root, &name)?;
+    let library = indexer.library(tree, &package, &lib.root, &name, &package)?;
     let root = indexer.interner.sym(&name);
     Ok(indexer.public_paths(&[library], &[root]))
 }
@@ -378,15 +378,15 @@ fn libraries(
             };
             let library = match sources.and_then(|sources| sources.get(dir)) {
                 Some(Source::Repo(snapshot, dir)) => {
-                    indexer.library(*snapshot, dir, &join(dir, &root), &name)?
+                    indexer.library(*snapshot, dir, &join(dir, &root), &name, &id.repr)?
                 }
                 Some(Source::Disk(dir)) => {
                     let snapshot = WorkTreeSnapshot::new(dir.clone(), Vec::new());
-                    indexer.library(&snapshot, "", &root, &name)?
+                    indexer.library(&snapshot, "", &root, &name, &id.repr)?
                 }
                 None => {
                     let snapshot = WorkTreeSnapshot::new(dir.to_path_buf(), Vec::new());
-                    indexer.library(&snapshot, "", &root, &name)?
+                    indexer.library(&snapshot, "", &root, &name, &id.repr)?
                 }
             };
             if let Some(node) = nodes.get(&id) {
