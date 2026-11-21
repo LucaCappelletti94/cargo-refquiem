@@ -549,6 +549,34 @@ fn an_added_struct_field_reports_only_sections_naming_a_field() {
 }
 
 #[test]
+fn a_field_added_to_a_struct_declared_under_two_cfgs_counts_its_places_across_both() {
+    let configs = |unix: &str, other: &str| {
+        format!(
+            "#[cfg(unix)]\npub struct Config {{\n{unix}}}\n\n#[cfg(not(unix))]\npub struct Config {{\n{other}}}\n"
+        )
+    };
+    let added = |fields: &str| format!("{fields}    pub port: u16,\n");
+    let (same, swapped) = (
+        "    pub name: String,\n    pub path: String,\n",
+        "    pub path: String,\n    pub name: String,\n",
+    );
+    let line = |line| ("fixture::Config".to_owned(), "README.md".to_owned(), line);
+    for (other, reported) in [(same, vec![line(7)]), (swapped, vec![line(3), line(7)])] {
+        let repo = Repo::new();
+        repo.write("src/lib.rs", &configs(same, other));
+        repo.write(
+            "README.md",
+            "# Setup\n\nBuild a `Config` first.\n\n## Fields\n\nA `Config` holds its `name`.\n",
+        );
+        let base = repo.commit("config");
+        repo.write("src/lib.rs", &configs(&added(same), &added(other)));
+        repo.commit("add a port");
+
+        assert_eq!(lines(&scan(&repo, &base)), reported, "fields {other:?}");
+    }
+}
+
+#[test]
 fn an_added_field_beside_an_accessor_sharing_a_field_name_reports_only_sections_naming_a_field() {
     let accessor =
         "impl Config {\n    pub fn name(&self) -> &str {\n        &self.name\n    }\n}\n";
