@@ -342,6 +342,28 @@ fn postgres_18_claims_lowercase_configuration_parameter_names() {
 }
 
 #[test]
+fn sqlite_3_54_claims_pragma_names_of_release_builds() {
+    let repo = removed_names(
+        "pub fn auto_vacuum() {}\npub fn incremental_vacuum() {}\npub fn journal_mode() {}\npub fn vdbe_trace() {}\n",
+        "auto_vacuum",
+        "Set auto_vacuum first.\n`incremental_vacuum` and `journal_mode`\n`vdbe_trace`\n",
+    );
+    assert_claims(
+        &repo,
+        "sqlite@3.54",
+        &[
+            ("README.md", 1, "auto_vacuum"),
+            ("README.md", 2, "incremental_vacuum"),
+            ("README.md", 2, "journal_mode"),
+        ],
+        &[
+            ("README.md", 3, "vdbe_trace"),
+            ("src/lib.rs", 2, "auto_vacuum"),
+        ],
+    );
+}
+
+#[test]
 fn postgres_18_claims_catalog_table_and_view_names() {
     let repo = removed_names(
         "pub struct Principal { pub pg_roles: Vec<String> }\npub fn pg_class() {}\npub fn pg_auth_members() {}\npub fn pg_stat_activity() {}\n",
