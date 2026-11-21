@@ -548,6 +548,104 @@ fn a_removal_below_the_base_of_a_merged_branch_is_not_blamed_on_the_branch() {
     assert_eq!(report.groups[0].removed_in, None);
 }
 
+/// A branch forked while `main` both declared `doomed` and mentioned it, then merged a `main`
+/// that dropped `doomed`, returning `base` and `head` for `edit` applied on the branch.
+fn merged_drop_on_main(repo: &Repo, edit: impl FnOnce(&Repo)) -> (String, String) {
+    repo.write("src/lib.rs", "pub fn doomed() {}\npub fn kept() {}\n");
+    repo.write(
+        "README.md",
+        "Intro.\n\nOne.\n\nTwo.\n\nCall `fixture::doomed`.\n",
+    );
+    repo.commit("start");
+    repo.git(&["checkout", "-q", "-b", "topic"]);
+    edit(repo);
+    repo.commit("topic work");
+    repo.git(&["checkout", "-q", "main"]);
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    let base = repo.commit("drop doomed on main");
+    repo.git(&["checkout", "-q", "topic"]);
+    repo.git(&["merge", "-q", "--no-ff", "-m", "Merge main", "main"]);
+    (base, repo.rev("HEAD"))
+}
+
+/// Scans `base..head`.
+fn scan_range(repo: &Repo, base: String, head: String) -> refquiem::Report {
+    let mut options = repo.options();
+    options.range = Range::Base {
+        base,
+        head: Some(head),
+    };
+    refquiem::run(&options).unwrap()
+}
+
+#[test]
+fn a_stale_mention_the_base_carries_is_not_blamed_on_a_branch_that_merged_it() {
+    let repo = Repo::new();
+    let (base, head) = merged_drop_on_main(&repo, |repo| {
+        repo.write(
+            "README.md",
+            "Intro.\n\nOne.\n\nTwo.\n\nInserted.\n\nCall `fixture::doomed`.\n",
+        );
+    });
+
+    assert_eq!(removed(&scan_range(&repo, base, head)), [] as [&str; 0]);
+}
+
+#[test]
+fn a_branch_that_edits_a_stale_line_the_base_carries_is_still_told() {
+    let repo = Repo::new();
+    let (base, head) = merged_drop_on_main(&repo, |repo| {
+        repo.write(
+            "README.md",
+            "Intro.\n\nOne.\n\nTwo.\n\nCall `fixture::doomed` first.\n",
+        );
+    });
+
+    assert_eq!(
+        mentions(&scan_range(&repo, base, head)),
+        [(
+            "fixture::doomed".to_owned(),
+            "fixture::doomed".to_owned(),
+            "README.md".to_owned(),
+            7,
+            7
+        )]
+    );
+}
+
+#[test]
+fn a_branch_that_removes_an_item_the_base_has_is_told_of_the_bases_mentions() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn doomed() {}\npub fn kept() {}\n");
+    repo.write("README.md", "Call `fixture::doomed`.\n");
+    repo.commit("start");
+    repo.git(&["checkout", "-q", "-b", "topic"]);
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    repo.commit("drop doomed");
+    repo.git(&["checkout", "-q", "main"]);
+    repo.write("CHANGELOG.md", "Nothing yet.\n");
+    let base = repo.commit("changelog on main");
+    repo.git(&["checkout", "-q", "topic"]);
+    repo.git(&["merge", "-q", "--no-ff", "-m", "Merge main", "main"]);
+    let head = repo.rev("HEAD");
+
+    assert_eq!(removed(&scan_range(&repo, base, head)), ["fixture::doomed"]);
+}
+
+#[test]
+fn an_item_the_range_adds_and_renames_is_told_of_its_new_mentions() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn kept() {}\n");
+    let base = repo.commit("start");
+    repo.write("src/lib.rs", "pub fn kept() {}\npub fn foo() {}\n");
+    repo.write("README.md", "Call `fixture::foo`.\n");
+    repo.commit("add foo");
+    repo.write("src/lib.rs", "pub fn kept() {}\npub fn bar() {}\n");
+    let head = repo.commit("rename foo");
+
+    assert_eq!(removed(&scan_range(&repo, base, head)), ["fixture::foo"]);
+}
+
 /// A shallow clone lists the parents of its oldest commits without holding them, here both
 /// parents of the merge it stops at.
 #[test]

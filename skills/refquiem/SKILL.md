@@ -18,6 +18,8 @@ The default is the full history, compared against the working tree.
 
 `--head` requires `--base`. `--since` conflicts with `--base`. A revision that does not resolve to a commit is an error.
 
+A `--base` scan leaves out a mention of an item `BASE` already lacks when `BASE` already has the mention's line, matched by its text, in the same file. A branch that merged a newer `BASE` therefore answers only for the lines it wrote or edited.
+
 ## Run
 
 ```
