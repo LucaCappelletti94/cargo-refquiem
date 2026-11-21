@@ -39,8 +39,8 @@ pub(crate) struct FileItems {
     /// and trait method, the type and const parameter names of every generic item, and every
     /// item a function body declares.
     pub(crate) locals: Vec<String>,
-    /// The names a `quote!` family invocation in a function body declares, deduplicated, which
-    /// name items a procedural macro generates.
+    /// The names a `quote!` family invocation in a function body declares, which name items a
+    /// procedural macro generates.
     pub(crate) quoted: Vec<String>,
 }
 
@@ -967,11 +967,10 @@ impl Collector<'_> {
                 ) {
                     return;
                 }
-                for name in quoted_declarations(mac.tokens.clone()) {
-                    if !self.0.out.quoted.contains(&name) {
-                        self.0.out.quoted.push(name);
-                    }
-                }
+                self.0
+                    .out
+                    .quoted
+                    .extend(quoted_declarations(mac.tokens.clone()));
             }
         }
 
