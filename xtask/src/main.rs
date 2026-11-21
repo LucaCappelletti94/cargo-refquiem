@@ -87,8 +87,8 @@ fn main() -> ExitCode {
     }
 }
 
-/// Writes the standard library layers and the English, SQL, WASI, WebAssembly, Android,
-/// `UIKit`, POSIX, browser and Python word lists under `data/`.
+/// Writes the standard library layers and the English, SQL, PostgreSQL, SQLite, MySQL, WASI,
+/// WebAssembly, Android, `UIKit`, POSIX, browser and Python word lists under `data/`.
 fn vocab() -> Result<(), Error> {
     let data = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -100,6 +100,7 @@ fn vocab() -> Result<(), Error> {
     let english = english_words(&data.join("english").join("words.fst"))?;
     postgres(&data.join("postgres"), &english)?;
     sqlite(&data.join("sqlite"), &english)?;
+    mysql(&data.join("mysql"))?;
     wasi(&data.join("wasi"))?;
     wasm(&data.join("wasm"))?;
     android(&data.join("android"))?;
@@ -244,6 +245,16 @@ const PYTHON_RELEASES: &str = "https://www.python.org/ftp/python";
 
 /// The SHA-256 of the pinned Python source release tarball.
 const PYTHON_SHA256: &str = "8b5536d280142ecf6cdfe15d12a21ba1c65e300bbf7b28a8d0cdb849575797de";
+
+/// Where crates.io serves the published crate archives.
+const CRATES_DOWNLOAD: &str = "https://static.crates.io/crates";
+
+/// The SHA-256 of the pinned `mysqlclient-sys` crate archive, as the crates.io index records it.
+const MYSQLCLIENT_SYS_SHA256: &str =
+    "48127dad9288a08350c34c6d9e17616420569cd24db43148bf223baac82fbb93";
+
+/// The bindgen output of the MySQL 8.4 client headers inside the `mysqlclient-sys` archive.
+const MYSQLCLIENT_SYS_BINDINGS: &str = "bindings/bindings_8_4_3_x86_64_linux.rs";
 
 /// The directory under the workspace's `target` where the xtask keeps its downloads and
 /// checkouts.
@@ -459,6 +470,77 @@ fn postgres(out: &Path, english: &fst::Set<Vec<u8>>) -> Result<(), Error> {
         source,
     })?;
     println!("postgres@18: {count} words");
+    Ok(())
+}
+
+/// Writes `words.fst`, the MySQL 8.4 C API names with an inner underscore that
+/// `mysqlclient-sys` binds, and the crate's `LICENSE-MIT` and `LICENSE-APACHE`.
+///
+/// The names are the types, functions, constants and statics the bindings declare, with the
+/// enumeration members, which bindgen keeps under their C names, such as `MYSQL_TYPE_TIMESTAMP`.
+/// A single word such as `MYSQL` or `NET` names too many Rust items to claim, and names bindgen
+/// makes up, such as `__va_list_tag` and `MYSQL_PLUGIN_VIO_INFO__bindgen_ty_1`, are no C names.
+fn mysql(out: &Path) -> Result<(), Error> {
+    let pinned = include_str!("../../data/mysql/MYSQLCLIENT_SYS").trim_ascii();
+    let name = format!("mysqlclient-sys-{pinned}");
+    let source = pinned_tarball(
+        &format!("{CRATES_DOWNLOAD}/mysqlclient-sys/{name}.crate"),
+        MYSQLCLIENT_SYS_SHA256,
+        &name,
+    )?;
+    let bindings = source.join(MYSQLCLIENT_SYS_BINDINGS);
+    let text = std::fs::read_to_string(&bindings).map_err(|source| Error::Read {
+        path: bindings,
+        source,
+    })?;
+    let mut words = BTreeSet::new();
+    let mut enumeration = false;
+    for line in text.lines() {
+        let declared = line.trim_start().strip_prefix("pub ").and_then(|rest| {
+            [
+                "struct ",
+                "enum ",
+                "union ",
+                "type ",
+                "const ",
+                "static mut ",
+                "static ",
+                "fn ",
+            ]
+            .iter()
+            .find_map(|keyword| rest.strip_prefix(keyword))
+        });
+        let rest = match declared {
+            Some(rest) => {
+                enumeration = line.starts_with("pub enum ");
+                rest
+            }
+            None if line.starts_with('}') => {
+                enumeration = false;
+                continue;
+            }
+            None if enumeration => line.trim_start(),
+            None => continue,
+        };
+        let name = rest
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .next()
+            .unwrap_or_default();
+        let c_name = name.starts_with(|c: char| c.is_ascii_alphabetic()) && !name.contains("__");
+        if c_name && name.contains('_') && !name.ends_with('_') {
+            words.insert(name.to_owned());
+        }
+    }
+    create_dir(out)?;
+    let count = write_set(&out.join("words.fst"), words.iter().map(String::as_str))?;
+    for license in ["LICENSE-MIT", "LICENSE-APACHE"] {
+        let target = out.join(license);
+        std::fs::copy(source.join(license), &target).map_err(|source| Error::Write {
+            path: target,
+            source,
+        })?;
+    }
+    println!("mysql@8.4: {count} words");
     Ok(())
 }
 

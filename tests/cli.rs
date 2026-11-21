@@ -18,7 +18,7 @@ fn cargo_refquiem(dir: &std::path::Path, args: &[&str]) -> Output {
 }
 
 /// `(id, source, source_version)` of every technical built-in, in catalog order.
-const TECHNICAL_CATALOG: [(&str, &str, &str); 12] = [
+const TECHNICAL_CATALOG: [(&str, &str, &str); 13] = [
     (
         "sql@2023",
         "https://github.com/postgres/postgres",
@@ -74,6 +74,11 @@ const TECHNICAL_CATALOG: [(&str, &str, &str); 12] = [
         "sqlite@3.54",
         "https://github.com/sqlite/sqlite",
         "version-3.54.1",
+    ),
+    (
+        "mysql@8.4",
+        "https://crates.io/crates/mysqlclient-sys",
+        "0.5.3",
     ),
 ];
 

@@ -141,6 +141,8 @@ pub(crate) enum Builtin {
     Postgres18,
     #[serde(rename = "sqlite@3.54")]
     Sqlite3_54,
+    #[serde(rename = "mysql@8.4")]
+    Mysql8_4,
 }
 
 /// The config at `path`, the default one when `path` is absent and not `required`.
