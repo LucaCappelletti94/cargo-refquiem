@@ -230,6 +230,22 @@ fn names_a_quote_invocation_declares_are_alive_but_names_it_only_uses_are_not() 
 }
 
 #[test]
+fn names_another_macro_in_a_function_body_declares_stay_reported() {
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub fn register_other() {}\n");
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "pub fn expand() -> &'static str {\n    stringify!(pub fn register_other() {})\n}\n",
+    );
+    repo.write("README.md", "`register_other`\n");
+    repo.commit("remove it");
+
+    let rows: Vec<String> = found(&repo).into_iter().map(|m| m.0).collect();
+    assert_eq!(rows, ["fixture::register_other"]);
+}
+
+#[test]
 fn english_words_remain_stale_serialized_spellings() {
     let repo = Repo::new();
     repo.write(
