@@ -509,6 +509,60 @@ fn a_field_of_a_struct_an_unknown_head_macro_may_generate_is_not_reported() {
 }
 
 #[test]
+fn a_member_a_workspace_proc_macro_applied_to_its_type_declares_is_not_reported() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub struct Conn;\nimpl Conn {\n    pub fn establish() {}\n    pub fn gone() {}\n}\n\
+         pub enum Wrapped {}\nimpl Wrapped {\n    pub fn inner() {}\n}\n\
+         pub struct Plain;\nimpl Plain {\n    pub fn establish() {}\n}\n",
+    );
+    repo.commit("start");
+    repo.write(
+        "src/lib.rs",
+        "#[proc_macro_derive(Connection, attributes(conn))]\n\
+         pub fn derive_connection(input: TokenStream) -> TokenStream {\n    \
+         quote! { impl Connection for #name { fn establish() {} } }.into()\n}\n\
+         #[proc_macro_attribute]\npub fn wrap(input: TokenStream) -> TokenStream {\n    \
+         quote! { impl #name { fn inner() {} } }.into()\n}\n\
+         #[derive(Debug, crate::Connection)]\npub struct Conn;\n#[wrap]\npub enum Wrapped {}\n\
+         pub struct Plain;\n\
+         /// Was `crate::Conn::establish`, `crate::Conn::gone`, `crate::Wrapped::inner` and\n\
+         /// `crate::Plain::establish`.\npub fn kept() {}\n",
+    );
+    repo.commit("derive Connection");
+
+    let rows: Vec<String> = found_by_path(&repo).into_iter().map(|m| m.0).collect();
+    assert_eq!(rows, ["fixture::Conn::gone", "fixture::Plain::establish"]);
+}
+
+#[test]
+fn a_relative_path_to_a_generated_member_is_alive_after_its_crate_was_renamed() {
+    let repo = Repo::new();
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"old_name\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write(
+        "src/lib.rs",
+        "pub struct Conn;\nimpl Conn {\n    pub fn establish() {}\n}\n",
+    );
+    repo.commit("start");
+    repo.write("Cargo.toml", PACKAGE);
+    repo.commit("rename the crate");
+    repo.write(
+        "src/lib.rs",
+        "#[proc_macro_derive(Connection)]\n\
+         pub fn derive_connection(input: TokenStream) -> TokenStream {\n    \
+         quote! { impl Connection for #name { fn establish() {} } }.into()\n}\n\
+         #[derive(Connection)]\npub struct Conn;\n/// Calls `Conn::establish`.\npub fn kept() {}\n",
+    );
+    repo.commit("derive Connection");
+
+    assert_eq!(found_by_path(&repo), []);
+}
+
+#[test]
 fn a_module_a_dependency_macro_declares_is_indexed() {
     let repo = Repo::new();
     repo.vendor(

@@ -1150,9 +1150,15 @@ fn rooted(
         .collect()
 }
 
-/// Whether an item-position macro of head may still generate `id`.
+/// Whether a macro of head may still generate `id`: an item-position macro of its module, or a
+/// workspace procedural macro its owning type applies.
 fn kept_by_macro(interner: &Interner, head: &Index, id: PathId) -> bool {
     let segments = interner.segments(id);
+    if let [owner @ .., name] = segments
+        && generated_member(interner, head, owner, *name)
+    {
+        return true;
+    }
     for module_len in (1..segments.len()).rev() {
         let prefix = &segments[..module_len];
         let is_module = module_len == 1
@@ -1170,6 +1176,21 @@ fn kept_by_macro(interner: &Interner, head: &Index, id: PathId) -> bool {
         }
     }
     false
+}
+
+/// Whether a `quote!` of the crate defining a workspace procedural macro the head type at
+/// `owner` applies declares `name`, which that macro may then generate as one of its members.
+fn generated_member(interner: &Interner, head: &Index, owner: &[Sym], name: Sym) -> bool {
+    interner
+        .find_path(owner)
+        .and_then(|owner| head.applied.get(&owner))
+        .is_some_and(|crates| {
+            crates.iter().any(|krate| {
+                head.quoted
+                    .get(krate)
+                    .is_some_and(|names| names.contains(&name))
+            })
+        })
 }
 
 /// Where a path was removed, ordered from the latest change to the earliest.
@@ -1600,7 +1621,12 @@ struct Matcher<'a> {
     /// The names of head no path reaches.
     locals: &'a HashSet<Sym>,
     /// The names a `quote!` of head declares.
-    quoted: &'a HashSet<Sym>,
+    quoted: HashSet<Sym>,
+    /// The crates defining the workspace procedural macros each head type applies, by every
+    /// suffix of the type's path, as a mention may spell the type from any module.
+    applied: HashMap<Box<[Sym]>, Vec<Sym>>,
+    /// The names the `quote!` invocations of each head crate declare.
+    quoted_by_crate: &'a HashMap<Sym, HashSet<Sym>>,
     /// Removed items other than serialized spellings, by last segment, ranked.
     removed_names: HashMap<Sym, Vec<PathId>>,
     /// Removed serialized spellings, by spelling, ranked.
@@ -1641,7 +1667,18 @@ impl<'a> Matcher<'a> {
         let dependencies = shared.dependencies;
         let mut alive = HashSet::new();
         let mut names = head.locals.clone();
-        names.extend(&head.quoted);
+        let quoted: HashSet<Sym> = head.quoted.values().flatten().copied().collect();
+        names.extend(&quoted);
+        let mut applied: HashMap<Box<[Sym]>, Vec<Sym>> = HashMap::new();
+        for (&id, crates) in &head.applied {
+            let segments = interner.segments(id);
+            let owners = std::iter::successors(Some(segments), |rest| {
+                rest.get(1..).filter(|rest| !rest.is_empty())
+            });
+            for owner in owners {
+                applied.entry(Box::from(owner)).or_default().extend(crates);
+            }
+        }
         for &id in head.paths.iter().chain(&dependencies.paths) {
             let segments = interner.segments(id);
             alive.extend(suffixes(segments).map(Box::from));
@@ -1693,7 +1730,9 @@ impl<'a> Matcher<'a> {
                 .copied()
                 .collect(),
             locals: &head.locals,
-            quoted: &head.quoted,
+            quoted,
+            applied,
+            quoted_by_crate: &head.quoted,
             removed_names,
             removed_spellings,
             libs: head.libs.iter().map(|&lib| interner.name(lib)).collect(),
@@ -2045,6 +2084,17 @@ impl<'a> Matcher<'a> {
                 continue;
             };
             if self.alive.contains(syms.as_slice()) {
+                return Hit::Alive;
+            }
+            if let [owner @ .., name] = syms.as_slice()
+                && self.applied.get(owner).is_some_and(|crates| {
+                    crates.iter().any(|krate| {
+                        self.quoted_by_crate
+                            .get(krate)
+                            .is_some_and(|names| names.contains(name))
+                    })
+                })
+            {
                 return Hit::Alive;
             }
             if let Some(removed) = self.removed.get(syms.as_slice()) {
