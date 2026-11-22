@@ -720,6 +720,40 @@ fn a_removed_path_dependency_with_an_unreadable_manifest_is_skipped() {
 }
 
 #[test]
+fn a_lint_or_tool_attribute_path_names_no_removed_dependency_of_its_tool_name() {
+    let repo = Repo::new();
+    repo.write("vendor/clippy/Cargo.toml", "this is not toml [\n");
+    repo.write(
+        "Cargo.toml",
+        &format!("{PACKAGE}\n[dependencies]\nclippy = {{ path = \"vendor/clippy\" }}\n"),
+    );
+    repo.write("src/lib.rs", "");
+    repo.commit("clippy");
+    repo.write("Cargo.toml", PACKAGE);
+    repo.write(
+        "src/lib.rs",
+        "// Satisfies clippy::len_without_is_empty.\npub fn kept() {}\n",
+    );
+    repo.write("README.md", "Use `clippy::Lint` or `clippy::lints::all`.\n");
+    repo.commit("drop clippy");
+
+    let report = refquiem::run(&refquiem::Options::new(repo.path().to_path_buf())).unwrap();
+    let mentions: Vec<(&str, &str)> = report
+        .groups
+        .iter()
+        .flat_map(|g| {
+            g.mentions
+                .iter()
+                .map(|m| (g.path.as_str(), m.text.as_str()))
+        })
+        .collect();
+    assert_eq!(
+        mentions,
+        [("clippy", "clippy::Lint"), ("clippy", "clippy::lints::all")]
+    );
+}
+
+#[test]
 fn serialized_spellings_a_dependency_re_exports_are_live() {
     let repo = Repo::new();
     repo.write(

@@ -2091,7 +2091,7 @@ impl<'a> Matcher<'a> {
         let known = matches!(first, "crate" | "self" | "super" | "Self")
             || self.libs.contains(&first)
             || self.std.iter().any(|layer| layer.root == first);
-        if known {
+        if known || is_tool_path(&path.segments) {
             return None;
         }
         self.entries.stale(&[ItemKind::Dependency], first, scope)
@@ -2417,6 +2417,22 @@ fn comparable(kind: ItemKind, name: &str) -> String {
         ItemKind::Package | ItemKind::Dependency => name.replace('_', "-"),
         _ => name.to_owned(),
     }
+}
+
+/// Whether `segments` spell a lint or tool attribute, such as `clippy::len_without_is_empty`
+/// or `rustfmt::skip`: a namespace rustc reserves for a tool, then one lowercase name.
+fn is_tool_path(segments: &[String]) -> bool {
+    const TOOLS: [&str; 6] = [
+        "clippy",
+        "diagnostic",
+        "miri",
+        "rust_analyzer",
+        "rustdoc",
+        "rustfmt",
+    ];
+    matches!(segments, [tool, name]
+        if TOOLS.contains(&tool.as_str())
+            && name.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'))
 }
 
 /// The suffixes of `segments` with at least two segments, longest first.
