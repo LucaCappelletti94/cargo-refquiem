@@ -39,6 +39,8 @@ Each group shows the removed name, its kind, the removal commit id or `working t
 
 Running text whose clause states the removal, rename or replacement is no finding, as in `Delete X and Y`, `X is deleted`, `the removal of X`, `with X gone`, `X does not exist`, `Rename X to Y`, `X was renamed Y`, `Y replaces X`, `X is superseded by Y` or `in place of X`. `X becomes Y` counts only when `Y` is a code span or a code-shaped name. A sentence that describes the name as current is reported, and so are links and code blocks naming it, whatever the sentence says.
 
+A deleted diesel SQL function binding, a `fn` without `#[sql_name]` in an `extern "SQL"` block under `#[declare_sql_function]`, is reported with the kind `SQL function binding`. A bare name in a string literal never counts as a mention of it, since SQL text there calls the SQL function, which outlives its binding. Comments, doc comments, Markdown and a qualified path in a string still name the binding.
+
 A suggestion names where the item most likely went. Verify it before applying.
 
 - `moved to`, `renamed to`, `replaced by` — open the suggested path, check it holds the same kind and meaning, then point the references at it.

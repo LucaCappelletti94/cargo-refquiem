@@ -2020,10 +2020,18 @@ impl<'a> Matcher<'a> {
         } else {
             self.removed_names.get(&sym)
         };
-        if let Some(name) = name.filter(|_| !self.vocabularies.claims(word, context.kind)) {
-            return Some(self.pick(name, own));
+        // SQL in a string calls the SQL function a diesel binding names, which outlives it.
+        let sql = context.source == Source::StringLiteral;
+        let named = name
+            .filter(|_| !self.vocabularies.claims(word, context.kind))
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|&id| !sql || self.interner.kind(id) != ItemKind::SqlFunction);
+        if let Some(id) = self.pick(named, own) {
+            return Some(id);
         }
-        let reachable: Vec<PathId> = self
+        let reachable = self
             .removed_spellings
             .get(&sym)?
             .iter()
@@ -2033,9 +2041,8 @@ impl<'a> Matcher<'a> {
                     let krate = self.interner.name(self.interner.segments(id)[0]);
                     self.entries.reaches(dir, krate)
                 })
-            })
-            .collect();
-        (!reachable.is_empty()).then(|| self.pick(&reachable, own))
+            });
+        self.pick(reachable, own)
     }
 
     /// The removed item every reading of `path` names, preferring an item of crate `own`, else
@@ -2205,22 +2212,24 @@ impl<'a> Matcher<'a> {
             {
                 return Hit::Alive;
             }
-            if let Some(removed) = self.removed.get(syms.as_slice()) {
-                return Hit::Removed(self.pick(removed, own));
+            if let Some(removed) = self.removed.get(syms.as_slice())
+                && let Some(id) = self.pick(removed.iter().copied(), own)
+            {
+                return Hit::Removed(id);
             }
         }
         Hit::Unknown
     }
 
     /// The first of the ranked `candidates` in crate `own`, else the first of them.
-    fn pick(&self, candidates: &[PathId], own: Option<Sym>) -> PathId {
-        own.and_then(|own| {
-            candidates
-                .iter()
-                .find(|&&id| self.interner.segments(id)[0] == own)
-        })
-        .unwrap_or(&candidates[0])
-        .to_owned()
+    fn pick(
+        &self,
+        mut candidates: impl Iterator<Item = PathId> + Clone,
+        own: Option<Sym>,
+    ) -> Option<PathId> {
+        let mut first = candidates.clone();
+        own.and_then(|own| candidates.find(|&id| self.interner.segments(id)[0] == own))
+            .or_else(|| first.next())
     }
 
     /// Whether a prefix of `path` re-exports a source under which the rest of `path` is alive,

@@ -104,6 +104,9 @@ pub enum ItemKind {
     Static,
     /// A free function.
     Function,
+    /// A function an `extern` block under diesel's `#[declare_sql_function]` binds to the SQL
+    /// function of its name.
+    SqlFunction,
     /// A `macro_rules!` macro.
     Macro,
     /// An enum variant.
@@ -147,6 +150,7 @@ impl ItemKind {
             Self::Const => "const",
             Self::Static => "static",
             Self::Function => "function",
+            Self::SqlFunction => "SQL function binding",
             Self::Macro => "macro",
             Self::Variant => "variant",
             Self::Field => "field",
@@ -386,7 +390,9 @@ impl ChangedPart {
     #[must_use]
     pub fn describe(self, kind: ItemKind) -> &'static str {
         match (self, kind) {
-            (Self::Shape, ItemKind::Function | ItemKind::Method) => "signature",
+            (Self::Shape, ItemKind::Function | ItemKind::SqlFunction | ItemKind::Method) => {
+                "signature"
+            }
             (Self::Shape, _) => "definition",
             (Self::Value, _) => "value",
             (Self::Body, _) => "body",

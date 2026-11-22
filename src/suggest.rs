@@ -48,8 +48,10 @@ pub(crate) fn suggest(
     };
     let signature = before.signatures.get(&removed);
     let same_signature = |id: PathId| {
-        matches!(kind, ItemKind::Function | ItemKind::Method)
-            && split(id).1 == parent
+        matches!(
+            kind,
+            ItemKind::Function | ItemKind::SqlFunction | ItemKind::Method
+        ) && split(id).1 == parent
             && signature.is_some_and(|signature| head.signatures.get(&id) == Some(signature))
     };
     let tables = before.tables.get(&removed).copied().unwrap_or(0);
