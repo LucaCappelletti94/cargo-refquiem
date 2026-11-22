@@ -621,6 +621,54 @@ fn an_item_a_removed_dependency_macro_generated_is_reported() {
     }
 }
 
+/// Two versions of `helper` each define `make!` to call their own `inner!` through `$crate`,
+/// and `user` calls `make!` of the version it depends on. Head's layer holds both versions
+/// under the one crate name, and nothing `inner!` of the other version emits is `user`'s.
+#[test]
+fn a_crate_macro_calls_only_the_macros_of_its_own_package() {
+    let repo = Repo::new();
+    repo.vendor(
+        "helper",
+        "1.0.0",
+        "#[macro_export]\nmacro_rules! make {\n    ($n:ident) => {\n        $crate::inner!(one $n);\n    };\n}\n\n#[macro_export]\nmacro_rules! inner {\n    (one $n:ident) => {\n        pub struct $n;\n    };\n    (two $n:ident) => {\n        pub struct Phantom;\n    };\n}\n",
+    );
+    repo.vendor(
+        "helper",
+        "2.0.0",
+        "#[macro_export]\nmacro_rules! make {\n    ($n:ident) => {\n        $crate::inner!(two $n);\n    };\n}\n\n#[macro_export]\nmacro_rules! inner {\n    (two $n:ident) => {\n        pub struct $n;\n    };\n    (one $n:ident) => {\n        pub struct Phantom;\n    };\n}\n",
+    );
+    repo.vendor("user", "0.9.0", "pub struct Phantom;\n");
+    repo.vendor("user", "1.0.0", "helper::make!(Thing);\n");
+    repo.write(
+        "vendor/user-1.0.0/Cargo.toml",
+        "[package]\nname = \"user\"\nversion = \"1.0.0\"\nedition = \"2021\"\n\n[dependencies]\nhelper = \"1\"\n",
+    );
+    repo.write(
+        "Cargo.toml",
+        &format!("{PACKAGE}\n[workspace]\nmembers = [\"a\", \"b\", \"c\"]\n"),
+    );
+    let member = |name: &str, dependencies: &str| {
+        format!(
+            "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n{dependencies}"
+        )
+    };
+    repo.write("a/Cargo.toml", &member("a", "user = \"1\"\n"));
+    repo.write("b/Cargo.toml", &member("b", "helper = \"2\"\n"));
+    repo.write("c/Cargo.toml", &member("c", "user = \"0.9\"\n"));
+    for file in ["src/lib.rs", "a/src/lib.rs", "b/src/lib.rs", "c/src/lib.rs"] {
+        repo.write(file, "");
+    }
+    repo.lock();
+    repo.commit("c uses the old user");
+    repo.write("c/Cargo.toml", &member("c", ""));
+    repo.lock();
+    repo.write("README.md", "`user::Thing` and `user::Phantom`\n");
+    repo.commit("c drops user");
+
+    let paths: Vec<String> = found_by_path(&repo).into_iter().map(|row| row.0).collect();
+    assert_eq!(paths, ["user::Phantom"]);
+}
+
 #[test]
 fn a_dependency_without_a_library_target_leaves_its_siblings_indexed() {
     let repo = Repo::new();
