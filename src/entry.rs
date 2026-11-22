@@ -31,6 +31,7 @@ pub(crate) fn marker(kind: ItemKind) -> Option<&'static str> {
         | ItemKind::Const
         | ItemKind::Static
         | ItemKind::Function
+        | ItemKind::SqlFunction
         | ItemKind::Macro
         | ItemKind::Variant
         | ItemKind::Field

@@ -294,7 +294,7 @@ impl Collector<'_> {
                     self.proc_macro(&item.attrs, &name);
                     self.body(&item.block);
                 }
-                Item::ForeignMod(foreign) => self.foreign_items(&foreign.items),
+                Item::ForeignMod(foreign) => self.foreign_items(foreign),
                 Item::Impl(item) => {
                     self.impl_block(item);
                     self.generics(&item.generics);
@@ -621,15 +621,32 @@ impl Collector<'_> {
         }
     }
 
-    fn foreign_items(&mut self, items: &[syn::ForeignItem]) {
-        for item in items {
+    fn foreign_items(&mut self, foreign: &syn::ItemForeignMod) {
+        let binds_sql = foreign.attrs.iter().any(|attr| {
+            attr.path()
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == "declare_sql_function")
+        });
+        for item in &foreign.items {
             match item {
                 syn::ForeignItem::Fn(item) => {
+                    // `#[sql_name]` binds an SQL function of another name.
+                    let function = if binds_sql
+                        && !item
+                            .attrs
+                            .iter()
+                            .any(|attr| attr.path().is_ident("sql_name"))
+                    {
+                        ItemKind::SqlFunction
+                    } else {
+                        ItemKind::Function
+                    };
                     let name = item.sig.ident.to_string();
-                    self.decl(&item.sig.ident, ItemKind::Function, &item.vis);
+                    self.decl(&item.sig.ident, function, &item.vis);
                     let end = item.semi_token.span.byte_range().start;
                     let signature = self.signature(&item.sig, end);
-                    self.sign(&[&name], ItemKind::Function, signature);
+                    self.sign(&[&name], function, signature);
                     let definition = self.definer().function(
                         &item.attrs,
                         None,
@@ -637,7 +654,7 @@ impl Collector<'_> {
                         None,
                         Some(&item.semi_token),
                     );
-                    self.define(&[&name], ItemKind::Function, definition);
+                    self.define(&[&name], function, definition);
                     self.params(&item.sig);
                 }
                 syn::ForeignItem::Static(item) => {

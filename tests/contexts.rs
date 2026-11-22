@@ -8,13 +8,16 @@ mod context;
 mod found;
 #[path = "common/found_by_path.rs"]
 mod found_by_path;
+#[path = "common/found_kinds.rs"]
+mod found_kinds;
 #[path = "common/vendor.rs"]
 mod vendor;
 
 use common::{PACKAGE, Repo};
 use context::context;
 use found_by_path::found_by_path;
-use refquiem::{Context, Kind, Source};
+use found_kinds::mention;
+use refquiem::{Context, ItemKind, Kind, Source};
 
 const BEFORE: &str =
     "pub fn gone() {}\npub struct Thing;\nimpl Thing {\n    pub fn old(&self) {}\n}\n";
@@ -754,5 +757,60 @@ fn a_doc_attribute_keeps_its_example_bindings_local() {
             "fixture::RetiredOutside842".to_owned(),
             "RetiredOutside842".to_owned()
         )]
+    );
+}
+
+#[test]
+fn sql_naming_a_deleted_diesel_sql_function_binding_is_not_a_mention() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "#[diesel::declare_sql_function]\nextern \"SQL\" {\n    pub fn pg_lower(text: Text) -> Text;\n    #[sql_name = \"upper\"]\n    pub fn renamed_upper(text: Text) -> Text;\n}\n\n#[declare_sql_function(generate_return_type_helpers = true)]\nextern \"SQL\" {\n    pub fn pg_upper(text: Text) -> Text;\n}\n\npub fn gone_fn() {}\n",
+    );
+    repo.commit("bindings");
+    repo.write(
+        "src/lib.rs",
+        "/// Registers `pg_lower` by name, as pg_upper is.\npub const LOWER: &str = \"SELECT pg_lower(name) FROM t;\";\npub const UPPER: &str = \"pg_upper(e.v) and gone_fn or renamed_upper\";\npub const PATH: &str = \"fixture::pg_lower\";\n",
+    );
+    repo.commit("register them by name");
+
+    let (lower, upper) = ("fixture::pg_lower", "fixture::pg_upper");
+    assert_eq!(
+        found_kinds::found(&repo),
+        [
+            mention(
+                lower,
+                ItemKind::SqlFunction,
+                "src/lib.rs",
+                1,
+                16,
+                "pg_lower"
+            ),
+            mention(
+                upper,
+                ItemKind::SqlFunction,
+                "src/lib.rs",
+                1,
+                38,
+                "pg_upper"
+            ),
+            mention(
+                "fixture::gone_fn",
+                ItemKind::Function,
+                "src/lib.rs",
+                3,
+                44,
+                "gone_fn"
+            ),
+            mention(
+                "fixture::renamed_upper",
+                ItemKind::Function,
+                "src/lib.rs",
+                3,
+                55,
+                "renamed_upper"
+            ),
+            mention(lower, ItemKind::SqlFunction, "src/lib.rs", 4, 25, lower),
+        ]
     );
 }
