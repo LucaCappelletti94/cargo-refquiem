@@ -177,6 +177,16 @@ impl Vocabulary {
         }
     }
 
+    /// The MySQL 8.4 C API names with an inner underscore, its types, functions, constants and
+    /// enumeration members, such as `MYSQL_TIME`, `MYSQL_TYPE_TIMESTAMP` and
+    /// `mysql_stmt_execute`.
+    pub(crate) fn mysql_8_4() -> Self {
+        Self {
+            words: fst::Set::new(&include_bytes!("../data/mysql/words.fst")[..])
+                .expect("data/mysql holds an fst set written by xtask"),
+        }
+    }
+
     /// Whether `word`, spelled as the vocabulary stores it, is one of its words.
     pub(crate) fn contains(&self, word: &str) -> bool {
         self.words.contains(word)

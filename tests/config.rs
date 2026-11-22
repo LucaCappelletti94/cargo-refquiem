@@ -436,6 +436,28 @@ fn sqlite_3_54_claims_underscore_and_non_english_function_names() {
 }
 
 #[test]
+fn mysql_8_4_claims_underscore_client_api_names() {
+    let repo = removed_names(
+        "#![allow(non_camel_case_types)]\npub struct MYSQL_TIME;\npub fn mysql_stmt_execute() {}\npub struct MYSQL;\n",
+        "MYSQL_TIME",
+        "Fill a MYSQL_TIME for mysql_stmt_execute.\n`MYSQL` and `fixture::MYSQL_TIME`\n",
+    );
+    assert_claims(
+        &repo,
+        "mysql@8.4",
+        &[
+            ("README.md", 1, "MYSQL_TIME"),
+            ("README.md", 1, "mysql_stmt_execute"),
+        ],
+        &[
+            ("README.md", 2, "MYSQL"),
+            ("README.md", 2, "fixture::MYSQL_TIME"),
+            ("src/lib.rs", 2, "MYSQL_TIME"),
+        ],
+    );
+}
+
+#[test]
 fn javascript_2026_10_claims_compound_globals_and_camel_case_members() {
     let repo = removed_names(
         "#![allow(non_snake_case)]\npub struct ArrayBuffer;\npub fn hasOwnProperty() {}\npub const JSON: u8 = 0;\n",

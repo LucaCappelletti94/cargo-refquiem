@@ -129,6 +129,14 @@ const BUILTINS: &[BuiltinVocabulary] = &[
         source_version: include_str!("../data/sqlite/SQLITE").trim_ascii(),
         builtin: config::Builtin::Sqlite3_54,
     },
+    BuiltinVocabulary {
+        id: "mysql@8.4",
+        kind: "technical",
+        case: "sensitive",
+        source: "https://crates.io/crates/mysqlclient-sys",
+        source_version: include_str!("../data/mysql/MYSQLCLIENT_SYS").trim_ascii(),
+        builtin: config::Builtin::Mysql8_4,
+    },
 ];
 
 /// Returns metadata for the bundled vocabularies.
