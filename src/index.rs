@@ -32,6 +32,12 @@ pub(crate) struct Index {
     /// The names no path reaches: parameters, generic parameters and items declared inside a
     /// function body.
     pub(crate) locals: HashSet<Sym>,
+    /// The names the `quote!` invocations in function bodies of each crate declare, which name
+    /// items a procedural macro of that crate generates.
+    pub(crate) quoted: HashMap<Sym, HashSet<Sym>>,
+    /// The crates defining the workspace procedural macros each struct, enum or union applies
+    /// through a derive or an attribute.
+    pub(crate) applied: HashMap<PathId, Vec<Sym>>,
     /// The signature of every function, method and trait method, as the parser records it.
     pub(crate) signatures: HashMap<PathId, Rc<str>>,
     /// What each declared item says, merged over the declarations of one path.
@@ -83,6 +89,9 @@ struct Contribution {
     traits: Vec<Implemented>,
     declared_traits: Vec<(PathId, bool)>,
     locals: Vec<Sym>,
+    quoted: Vec<Sym>,
+    applied: Vec<(PathId, Vec<Sym>)>,
+    proc_macros: Vec<Sym>,
     signatures: Vec<(PathId, Rc<str>)>,
     definitions: Vec<(PathId, ItemDefinition)>,
     failure: Option<String>,
@@ -312,6 +321,38 @@ fn macro_idents(interner: &mut Interner, reached: &Reached) -> HashMap<PathId, H
     alive
 }
 
+/// The names the `quote!` invocations of each crate of `reached` declare, and the crates
+/// defining the procedural macros each type applies.
+fn proc_macro_names(
+    interner: &Interner,
+    reached: &Reached,
+) -> (HashMap<Sym, HashSet<Sym>>, HashMap<PathId, Vec<Sym>>) {
+    let mut quoted: HashMap<Sym, HashSet<Sym>> = HashMap::new();
+    let mut defined: HashMap<Sym, Sym> = HashMap::new();
+    for entry in &reached.entries {
+        let krate = interner.segments(entry.visit.module)[0];
+        let contribution = &entry.contribution;
+        quoted
+            .entry(krate)
+            .or_default()
+            .extend(&contribution.quoted);
+        defined.extend(contribution.proc_macros.iter().map(|&name| (name, krate)));
+    }
+    let applied = reached
+        .contributions()
+        .flat_map(|c| &c.applied)
+        .filter_map(|(id, macros)| {
+            let crates: Vec<Sym> = macros
+                .iter()
+                .filter_map(|m| defined.get(m))
+                .copied()
+                .collect();
+            (!crates.is_empty()).then_some((*id, crates))
+        })
+        .collect();
+    (quoted, applied)
+}
+
 /// Builds indexes, sharing parsed files and per-module contributions between snapshots.
 pub(crate) struct Indexer {
     pub(crate) interner: Interner,
@@ -521,6 +562,7 @@ impl Indexer {
                 .contributions()
                 .flat_map(|c| c.locals.iter().copied())
                 .collect();
+            (index.quoted, index.applied) = proc_macro_names(&self.interner, &reached);
         }
         Ok(index)
     }
@@ -1131,6 +1173,17 @@ impl Indexer {
             })
             .collect();
         out.locals = self.syms(&items.locals);
+        out.quoted = self.syms(&items.quoted);
+        out.applied = items
+            .applied
+            .iter()
+            .map(|applied| {
+                let path = self.within(&module, &applied.path);
+                let id = self.interner.path(&path, applied.kind);
+                (id, self.syms(&applied.macros))
+            })
+            .collect();
+        out.proc_macros = self.syms(&items.proc_macros);
         out.digest = self.alias_digest(&out);
         out
     }

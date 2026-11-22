@@ -39,6 +39,14 @@ pub(crate) struct FileItems {
     /// and trait method, the type and const parameter names of every generic item, and every
     /// item a function body declares.
     pub(crate) locals: Vec<String>,
+    /// The names a `quote!` family invocation in a function body declares, which name items a
+    /// procedural macro generates.
+    pub(crate) quoted: Vec<String>,
+    /// The macros each struct, enum or union names in its derives and other attributes, which
+    /// a procedural macro of the workspace may expand into its members.
+    pub(crate) applied: Vec<Applied>,
+    /// The derive and attribute procedural macros the file defines, by name.
+    pub(crate) proc_macros: Vec<String>,
 }
 
 impl FileItems {
@@ -60,6 +68,7 @@ impl FileItems {
             .iter_mut()
             .for_each(|r| nest(&mut r.module));
         self.lends.iter_mut().for_each(|l| nest(&mut l.module));
+        self.applied.iter_mut().for_each(|a| nest(&mut a.path));
     }
 }
 
@@ -184,6 +193,14 @@ pub(crate) struct Lend {
     pub(crate) source: Vec<String>,
 }
 
+/// A struct, enum or union and the last segment of each macro its derives and attributes name.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Applied {
+    pub(crate) path: Vec<String>,
+    pub(crate) kind: ItemKind,
+    pub(crate) macros: Vec<String>,
+}
+
 /// The declarations of `source`, or the parser's message when it is not valid Rust.
 pub(crate) fn parse(source: &str) -> Result<FileItems, String> {
     let parsed = syn::parse_file(source)
@@ -256,6 +273,7 @@ impl Collector<'_> {
                 }
                 Item::Enum(item) => {
                     self.enumeration(item);
+                    self.applied(&item.attrs, &item.ident, ItemKind::Enum);
                     self.generics(&item.generics);
                 }
                 Item::Fn(item) => {
@@ -273,6 +291,7 @@ impl Collector<'_> {
                     );
                     self.define(&[&name], ItemKind::Function, definition);
                     self.params(&item.sig);
+                    self.proc_macro(&item.attrs, &name);
                     self.body(&item.block);
                 }
                 Item::ForeignMod(foreign) => self.foreign_items(&foreign.items),
@@ -306,6 +325,7 @@ impl Collector<'_> {
                     if let Fields::Named(fields) = &item.fields {
                         self.define_fields(&[&name], fields);
                     }
+                    self.applied(&item.attrs, &item.ident, ItemKind::Struct);
                     self.generics(&item.generics);
                 }
                 Item::Trait(item) => {
@@ -330,6 +350,7 @@ impl Collector<'_> {
                     let definition = self.definer().union(item);
                     self.define(&[&name], ItemKind::Union, definition);
                     self.define_fields(&[&name], &item.fields);
+                    self.applied(&item.attrs, &item.ident, ItemKind::Union);
                     self.generics(&item.generics);
                 }
                 Item::Use(item) => {
@@ -338,6 +359,49 @@ impl Collector<'_> {
                     self.uses(&item.tree, &mut Vec::new(), exported, public);
                 }
                 _ => {}
+            }
+        }
+    }
+
+    /// Records the last segment of each macro the derives and other outer attributes of the
+    /// type `ident` name, doc comments aside.
+    fn applied(&mut self, attrs: &[Attribute], ident: &syn::Ident, kind: ItemKind) {
+        let mut macros = Vec::new();
+        for attr in attrs {
+            let path = attr.path();
+            if path.is_ident("derive") {
+                let _ = attr.parse_nested_meta(|meta| {
+                    macros.extend(meta.path.segments.last().map(|last| last.ident.to_string()));
+                    Ok(())
+                });
+            } else if !path.is_ident("doc") {
+                macros.extend(path.segments.last().map(|last| last.ident.to_string()));
+            }
+        }
+        if !macros.is_empty() {
+            self.out.applied.push(Applied {
+                path: self.path(&[&ident.to_string()]),
+                kind,
+                macros,
+            });
+        }
+    }
+
+    /// Records the procedural macro the function `name` defines through `attrs`: the derive
+    /// `#[proc_macro_derive(Name)]` names, or the attribute macro `name` itself.
+    fn proc_macro(&mut self, attrs: &[Attribute], name: &str) {
+        for attr in attrs {
+            if attr.path().is_ident("proc_macro_attribute") {
+                self.out.proc_macros.push(strip_raw(name).to_owned());
+            } else if attr.path().is_ident("proc_macro_derive") {
+                let arguments = attr.parse_args_with(
+                    syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+                );
+                let derived = arguments.ok().and_then(|arguments| {
+                    let first = arguments.into_iter().next()?;
+                    first.path().get_ident().map(ToString::to_string)
+                });
+                self.out.proc_macros.extend(derived);
             }
         }
     }
@@ -943,7 +1007,8 @@ impl Collector<'_> {
     }
 
     /// Records the name of every item `block` declares at any depth, which a mention can
-    /// name although no path reaches it.
+    /// name although no path reaches it, and every name a `quote!` family invocation in it
+    /// declares.
     fn body(&mut self, block: &syn::Block) {
         struct Declared<'c, 's>(&'c mut Collector<'s>);
 
@@ -953,6 +1018,20 @@ impl Collector<'_> {
                     self.0.local(strip_raw(&ident.to_string()).to_owned());
                 }
                 syn::visit::visit_item(self, item);
+            }
+
+            fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+                let name = mac.path.segments.last().map(|last| last.ident.to_string());
+                if !matches!(
+                    name.as_deref(),
+                    Some("quote" | "quote_spanned" | "parse_quote" | "parse_quote_spanned")
+                ) {
+                    return;
+                }
+                self.0
+                    .out
+                    .quoted
+                    .extend(quoted_declarations(mac.tokens.clone()));
             }
         }
 
@@ -1169,6 +1248,38 @@ fn idents(tokens: &TokenStream) -> Vec<String> {
                 TokenTree::Group(group) => stack.push(group.stream()),
                 TokenTree::Punct(_) | TokenTree::Literal(_) => {}
             }
+        }
+    }
+    out
+}
+
+/// The names a `quote!` body `tokens` declares, each the identifier right after `fn`, `struct`,
+/// `enum`, `union`, `type`, `trait`, `mod`, `const` or `static`. A path the body only uses, such
+/// as `diesel::sql_types::Integer`, and an interpolated `#name` declare nothing.
+fn quoted_declarations(tokens: TokenStream) -> Vec<String> {
+    const DECLARING: [&str; 9] = [
+        "fn", "struct", "enum", "union", "type", "trait", "mod", "const", "static",
+    ];
+    let mut out = Vec::new();
+    let mut stack = vec![tokens];
+    while let Some(stream) = stack.pop() {
+        let mut declaring = false;
+        for tree in stream {
+            declaring = match tree {
+                TokenTree::Ident(ident) => {
+                    let name = ident.to_string();
+                    let keyword = DECLARING.contains(&name.as_str());
+                    if declaring && !keyword && name != "_" {
+                        out.push(strip_raw(&name).to_owned());
+                    }
+                    keyword
+                }
+                TokenTree::Group(group) => {
+                    stack.push(group.stream());
+                    false
+                }
+                TokenTree::Punct(_) | TokenTree::Literal(_) => false,
+            };
         }
     }
     out
