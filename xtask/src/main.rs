@@ -490,7 +490,8 @@ const SQLITE_REGISTRATIONS: [&str; 15] = [
 ];
 
 /// Writes `words.fst`, the claimable names among the functions a SQLite release build
-/// registers, and SQLite's `LICENSE.md`, which dedicates it to the public domain.
+/// registers and the pragmas it accepts, and SQLite's `LICENSE.md`, which dedicates it to the
+/// public domain.
 fn sqlite(out: &Path, english: &fst::Set<Vec<u8>>) -> Result<(), Error> {
     let pinned = include_str!("../../data/sqlite/SQLITE").trim_ascii();
     let show = pinned_files(SQLITE_REPOSITORY, "sqlite", pinned)?;
@@ -502,6 +503,11 @@ fn sqlite(out: &Path, english: &fst::Set<Vec<u8>>) -> Result<(), Error> {
                 .filter(|name| claimable_identifier(name, english)),
         );
     }
+    words.extend(
+        sqlite_pragmas(&show("tool/mkpragmatab.tcl")?)
+            .filter(|name| claimable_identifier(name, english))
+            .map(str::to_owned),
+    );
     create_dir(out)?;
     let count = write_set(&out.join("words.fst"), words.iter().map(String::as_str))?;
     let target = out.join("LICENSE.md");
@@ -565,6 +571,28 @@ fn sqlite_registrations(source: &str) -> Vec<String> {
         }
     }
     names
+}
+
+/// The pragma names `tool/mkpragmatab.tcl` lists, leaving out the pragmas whose `IF:` lines
+/// compile them only into `SQLITE_DEBUG` or `SQLITE_TEST` builds.
+///
+/// Each entry opens with a `NAME:` line and ends at the next one, as in
+/// `NAME: auto_vacuum` followed by its `TYPE:`, `FLAG:` and `IF:` lines, and a line holding
+/// only `}` closes the table.
+fn sqlite_pragmas(script: &str) -> impl Iterator<Item = &str> {
+    let table = script.split("\n}").next().unwrap_or_default();
+    table.split("NAME:").skip(1).filter_map(|entry| {
+        let name = entry.split_whitespace().next()?;
+        let debug_only = entry.lines().any(|line| {
+            line.trim_start()
+                .strip_prefix("IF:")
+                .is_some_and(|condition| {
+                    (condition.contains("SQLITE_DEBUG") || condition.contains("SQLITE_TEST"))
+                        && !condition.contains("!defined")
+                })
+        });
+        (!debug_only).then_some(name)
+    })
 }
 
 /// Writes `words.fst`, the function names of WASI Preview 1, and WASI's `LICENSE.md`, the
