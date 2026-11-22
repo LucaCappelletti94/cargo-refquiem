@@ -203,8 +203,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         scratch: &scratch,
     };
 
-    // Only a range starting from a chosen base has changes the files it left alone may miss.
-    let compared = (matches!(range, Range::Base { .. }) && config.changed.level != Level::Allow)
+    let base = matches!(range, Range::Base { .. })
         .then_some(start)
         .flatten();
     let Walked {
@@ -216,7 +215,7 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
         suggestable,
         changed_mentions,
         markers,
-    } = walked(&mut indexer, &shared, &commits, compared)?;
+    } = walked(&mut indexer, &shared, &commits, base)?;
     let scan = Historical {
         repo: &repo,
         workspace: &layout.workspace,
@@ -255,12 +254,15 @@ pub(crate) fn run(options: &Options) -> Result<Report, Error> {
 }
 
 /// The mentions at head of what `commits` removed, grouped by removed path, with head's
-/// suppression markers and, from the commit `compared` on, the mentions of changed items.
+/// suppression markers and, from the commit `base` on, the mentions of changed items.
+///
+/// A range from `base` leaves out a mention of a path the base already lacks when the base
+/// already has the mention's line in the same file, since the range only inherited it.
 fn walked(
     indexer: &mut Indexer,
     shared: &Shared<'_>,
     commits: &[git::Commit],
-    compared: Option<ObjectId>,
+    base: Option<ObjectId>,
 ) -> Result<Walked, Error> {
     let Shared {
         repo,
@@ -273,18 +275,10 @@ fn walked(
         dependencies,
         ..
     } = *shared;
+    // Only a range starting from a chosen base has changes the files it left alone may miss.
+    let compared = base.filter(|_| config.changed.level != Level::Allow);
     let walk = index_range(indexer, repo, commits, layout, head_index, compared)?;
-    let changed = if compared.is_some() {
-        Changed::new(
-            &indexer.interner,
-            head_index,
-            &dependencies.paths,
-            &walk.start_definitions,
-            config.changed.compare(),
-        )
-    } else {
-        Changed::default()
-    };
+    let changed = changes(&indexer.interner, shared, &walk, compared.is_some());
     let states = &walk.states;
 
     let mut removed: Vec<PathId> = states
@@ -325,9 +319,14 @@ fn walked(
         shared.scratch.workspace_dir,
         &layout.workspace,
     )?;
-    let start_snapshot = compared
-        .and_then(|start| commits.iter().find(|commit| commit.id == start))
-        .map(|start| TreeSnapshot::new(repo, start.tree, &indexer.trees));
+    let base_tree = base
+        .and_then(|base| commits.iter().position(|commit| commit.id == base))
+        .map(|at| {
+            (
+                at,
+                TreeSnapshot::new(repo, commits[at].tree, &indexer.trees),
+            )
+        });
     let Found {
         mentions,
         changed_mentions,
@@ -336,10 +335,13 @@ fn walked(
         head_snapshot,
         head_index,
         &matcher,
-        (
-            &changed,
-            start_snapshot.as_ref().map(|s| s as &dyn Snapshot),
-        ),
+        &changed,
+        base_tree.as_ref().map(|(at, snapshot)| Base {
+            snapshot,
+            at: *at,
+            states,
+            dependency_items: &dependency_items,
+        }),
         &layout.target_prefix,
         &filter,
     )?;
@@ -361,6 +363,25 @@ fn walked(
         changed_mentions,
         markers,
     })
+}
+
+/// The items head changed since the range's starting commit, none unless `compared`.
+fn changes(
+    interner: &Interner,
+    shared: &Shared<'_>,
+    walk: &IndexedRange,
+    compared: bool,
+) -> Changed {
+    if !compared {
+        return Changed::default();
+    }
+    Changed::new(
+        interner,
+        shared.head_index,
+        &shared.dependencies.paths,
+        &walk.start_definitions,
+        shared.config.changed.compare(),
+    )
 }
 
 /// The markers that suppress nothing in the scan of the full history up to the scanned head,
@@ -956,13 +977,91 @@ struct Found {
     markers: Vec<Marker>,
 }
 
+/// The base a range starts from, as the mention search reads it.
+#[derive(Clone, Copy)]
+struct Base<'b> {
+    snapshot: &'b dyn Snapshot,
+    /// The walk index of the base.
+    at: usize,
+    states: &'b States,
+    /// The dependency entry each removed dependency item went with.
+    dependency_items: &'b HashMap<PathId, PathId>,
+}
+
+impl Base<'_> {
+    /// Whether the base lacks removed path `id`, read from a tree read entirely.
+    fn lacks(&self, id: PathId) -> bool {
+        let probe = self.dependency_items.get(&id).copied().unwrap_or(id);
+        self.states.complete(self.at) && !self.states.missing(self.at, probe)
+    }
+}
+
+/// The lines of a head file its range's base already has.
+enum Carried<'h> {
+    /// The base has the same file.
+    All,
+    /// The head lines the base has at least as many copies of.
+    Lines(HashSet<&'h str>),
+}
+
+impl<'h> Carried<'h> {
+    /// What the base has of `file`, whose head blob is `id` and text `head`, read into `slot`
+    /// once per file.
+    fn of<'s>(
+        slot: &'s mut Option<Self>,
+        base: &dyn Snapshot,
+        file: &str,
+        id: ObjectId,
+        head: &'h str,
+    ) -> Result<&'s Self, Error> {
+        let carried = match slot.take() {
+            Some(carried) => carried,
+            None => Self::read(base, file, id, head)?,
+        };
+        Ok(slot.insert(carried))
+    }
+
+    /// What the base has of `file`, whose head blob is `id` and text `head`.
+    fn read(base: &dyn Snapshot, file: &str, id: ObjectId, head: &'h str) -> Result<Self, Error> {
+        let Some(blob) = base.blob(file)? else {
+            return Ok(Self::Lines(HashSet::new()));
+        };
+        if blob == id {
+            return Ok(Self::All);
+        }
+        let bytes = base.read(file, blob)?;
+        let text = String::from_utf8_lossy(&bytes);
+        let mut copies: HashMap<&str, isize> = HashMap::new();
+        for line in text.lines() {
+            *copies.entry(line).or_default() += 1;
+        }
+        for line in head.lines() {
+            *copies.entry(line).or_default() -= 1;
+        }
+        let lines = head.lines().filter(|line| copies[line] >= 0).collect();
+        Ok(Self::Lines(lines))
+    }
+
+    /// Whether the base has the line of `head` holding byte offset `at`, given the head's
+    /// `line_starts`.
+    fn has(&self, head: &str, line_starts: &[usize], at: usize) -> bool {
+        let Self::Lines(lines) = self else {
+            return true;
+        };
+        let from = line_starts[line_starts.partition_point(|&start| start <= at) - 1];
+        lines.contains(head[from..].lines().next().unwrap_or_default())
+    }
+}
+
 /// The mentions and suppression markers in the comments and Markdown `filter` keeps, with the
-/// mentions of `changed` items in files the same in `start` as at head.
+/// mentions of `changed` items in files the same in the base as at head. A mention of a path
+/// the base lacks, on a line the base has in the same file, is left out.
 fn find_mentions(
     snapshot: &dyn Snapshot,
     head: &Index,
     matcher: &Matcher<'_>,
-    (changed, start): (&Changed, Option<&dyn Snapshot>),
+    changed: &Changed,
+    base: Option<Base<'_>>,
     target_prefix: &str,
     filter: &Filter,
 ) -> Result<Found, Error> {
@@ -1008,10 +1107,11 @@ fn find_mentions(
             continue;
         }
         // A file the range edits had its author's eyes on it.
-        let unedited = match start {
-            Some(start) if !changed.is_empty() => start.blob(&file)? == Some(id),
+        let unedited = match base {
+            Some(base) if !changed.is_empty() => base.snapshot.blob(&file)? == Some(id),
             _ => false,
         };
+        let mut carried = None;
         let module = head.file_modules.get(&file).map(Vec::as_slice);
         let mut named = None;
         for path in &read.mentions {
@@ -1028,6 +1128,13 @@ fn find_mentions(
                 }
             };
             if let Some(removed) = matcher.stale(path, &file, is_rust, module) {
+                if let Some(base) = base
+                    && base.lacks(removed)
+                    && Carried::of(&mut carried, base.snapshot, &file, id, source)?
+                        .has(source, &starts, path.start)
+                {
+                    continue;
+                }
                 let uppercase = matcher.uppercase(path, removed);
                 mentions
                     .entry(removed)
