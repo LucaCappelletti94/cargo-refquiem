@@ -554,7 +554,7 @@ fn merged_drop_on_main(repo: &Repo, edit: impl FnOnce(&Repo)) -> (String, String
     repo.write("src/lib.rs", "pub fn doomed() {}\npub fn kept() {}\n");
     repo.write(
         "README.md",
-        "Intro.\n\nOne.\n\nTwo.\n\nCall `fixture::doomed`.\n",
+        "Intro.\n\nSee `fixture::doomed`.\n\nTwo.\n\nCall `fixture::doomed`.\n",
     );
     repo.commit("start");
     repo.git(&["checkout", "-q", "-b", "topic"]);
@@ -584,8 +584,18 @@ fn a_stale_mention_the_base_carries_is_not_blamed_on_a_branch_that_merged_it() {
     let (base, head) = merged_drop_on_main(&repo, |repo| {
         repo.write(
             "README.md",
-            "Intro.\n\nOne.\n\nTwo.\n\nInserted.\n\nCall `fixture::doomed`.\n",
+            "Intro.\n\nSee `fixture::doomed`.\n\nTwo.\n\nInserted.\n\nCall `fixture::doomed`.\n",
         );
+    });
+
+    assert_eq!(removed(&scan_range(&repo, base, head)), [] as [&str; 0]);
+}
+
+#[test]
+fn a_stale_file_a_branch_never_touched_is_not_blamed_on_it_after_merging_its_base() {
+    let repo = Repo::new();
+    let (base, head) = merged_drop_on_main(&repo, |repo| {
+        repo.write("CHANGELOG.md", "Nothing yet.\n");
     });
 
     assert_eq!(removed(&scan_range(&repo, base, head)), [] as [&str; 0]);
@@ -597,7 +607,7 @@ fn a_branch_that_edits_a_stale_line_the_base_carries_is_still_told() {
     let (base, head) = merged_drop_on_main(&repo, |repo| {
         repo.write(
             "README.md",
-            "Intro.\n\nOne.\n\nTwo.\n\nCall `fixture::doomed` first.\n",
+            "Intro.\n\nSee `fixture::doomed`.\n\nTwo.\n\nCall `fixture::doomed` first.\n",
         );
     });
 
