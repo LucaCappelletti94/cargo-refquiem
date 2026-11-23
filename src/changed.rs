@@ -1,6 +1,6 @@
 //! Items a range changed without removing them, and the spellings that name exactly one of them.
 
-use crate::definition::Definition;
+use crate::definition::{Definition, Member, Reach};
 use crate::index::Index;
 use crate::intern::{Interner, PathId, Sym};
 use crate::{ChangedPart, HashMap, HashSet, ItemKind};
@@ -10,9 +10,9 @@ use crate::{ChangedPart, HashMap, HashSet, ItemKind};
 pub(crate) struct Changed {
     /// What changed in each changed item.
     pub(crate) parts: HashMap<PathId, ChangedPart>,
-    /// The changed enums, structs and traits the range only added members to, each with the
-    /// names of its members at head.
-    grown: HashMap<PathId, HashSet<Sym>>,
+    /// The changed enums, structs and traits whose shape the range changed only in their
+    /// members, which text sees as far as it sees the members.
+    framed: HashMap<PathId, Framed>,
     /// The changed item each path suffix of two or more segments names, `None` when the
     /// suffix also ends a path standing for another item.
     by_suffix: HashMap<Box<[Sym]>, Option<PathId>>,
@@ -27,6 +27,74 @@ struct Carrier {
     public: bool,
     /// The crate declaring it.
     krate: Sym,
+}
+
+/// A changed enum, struct or trait whose shape without its members the range left alone.
+struct Framed {
+    /// The module declaring it, whose descendants a member's [`Reach`] counts from.
+    declaring: Box<[Sym]>,
+    /// Whether its members have an order code observes, which only an enum or struct has.
+    ordered: bool,
+    /// Whether a member added before an existing one moves it for code to observe, as
+    /// [`Definition::fixed_order`] says.
+    fixed: bool,
+    /// Its members at either end of the range, those declared at its start first by place.
+    members: Vec<Slot>,
+}
+
+/// A member of a [`Framed`] item as the range's start and head declare it, `None` where one
+/// lacks it.
+struct Slot {
+    name: Sym,
+    then: Option<Member>,
+    now: Option<Member>,
+}
+
+/// What text in a module sees of a changed item's change.
+pub(crate) enum Seen<'c> {
+    /// Nothing, as every member the range added, changed, moved or removed is out of reach.
+    Nothing,
+    /// Members added beside the ones it reaches, which text describes only beside a member
+    /// it reaches at head, those [`Members`] yields.
+    Grown(Members<'c>),
+    /// A change to the item it reaches.
+    Changed,
+}
+
+/// The names of the members of a [`Framed`] item at head that a module reaches.
+pub(crate) struct Members<'c> {
+    framed: &'c Framed,
+    slots: std::slice::Iter<'c, Slot>,
+    module: Option<&'c [Sym]>,
+}
+
+impl Iterator for Members<'_> {
+    type Item = Sym;
+
+    fn next(&mut self) -> Option<Sym> {
+        let (framed, module) = (self.framed, self.module);
+        self.slots
+            .find(|slot| slot.now.is_some() && framed.reaches(slot, module))
+            .map(|slot| slot.name)
+    }
+}
+
+impl Framed {
+    /// Whether text in `module` reaches `slot` at either end of the range, every member
+    /// counting for text outside every module.
+    fn reaches(&self, slot: &Slot, module: Option<&[Sym]>) -> bool {
+        let Some(module) = module else {
+            return true;
+        };
+        [slot.then, slot.now].into_iter().flatten().any(|member| {
+            let shared = match member.reach {
+                Reach::Owner => return true,
+                Reach::Up(levels) => self.declaring.len().saturating_sub(levels.into()).max(1),
+                Reach::Down(depth) => self.declaring.len().min(usize::from(depth) + 1),
+            };
+            module.starts_with(&self.declaring[..shared])
+        })
+    }
 }
 
 impl Changed {
@@ -44,7 +112,7 @@ impl Changed {
             .iter()
             .filter_map(|(&id, &after)| Some((id, changed(*start.get(&id)?, after, compare)?)))
             .collect();
-        let grown = grown(interner, &head.definitions, start, &parts);
+        let framed = framed(interner, &head.definitions, start, &parts);
         let mut by_suffix: HashMap<Box<[Sym]>, Option<PathId>> = HashMap::new();
         let mut by_name: HashMap<Sym, Vec<Carrier>> = HashMap::new();
         for &id in &head.paths {
@@ -101,7 +169,7 @@ impl Changed {
         }
         Self {
             parts,
-            grown,
+            framed,
             by_suffix,
             by_name,
         }
@@ -130,10 +198,39 @@ impl Changed {
         self.parts.contains_key(&item).then_some(item)
     }
 
-    /// The names of the members of `item` when the range only added variants, named fields or
-    /// trait items to it, which text must name beside it to be able to describe what grew.
-    pub(crate) fn grown(&self, item: PathId) -> Option<&HashSet<Sym>> {
-        self.grown.get(&item)
+    /// What text in `module`, `None` outside every module, sees of the change to `item`.
+    pub(crate) fn seen<'c>(&'c self, item: PathId, module: Option<&'c [Sym]>) -> Seen<'c> {
+        let Some(framed) = self.framed.get(&item) else {
+            return Seen::Changed;
+        };
+        let mut added = false;
+        let mut last = 0;
+        for slot in &framed.members {
+            if !framed.reaches(slot, module) {
+                continue;
+            }
+            match (slot.then, slot.now) {
+                (None, Some(_)) => added = true,
+                (Some(then), Some(now))
+                    if then.shape == now.shape
+                        && (!framed.ordered
+                            || then.place != 0
+                                && now.place > last
+                                && (!framed.fixed || then.place == now.place)) =>
+                {
+                    last = now.place;
+                }
+                _ => return Seen::Changed,
+            }
+        }
+        if !added {
+            return Seen::Nothing;
+        }
+        Seen::Grown(Members {
+            framed,
+            slots: framed.members.iter(),
+            module,
+        })
     }
 
     /// Whether any spelling names a changed item.
@@ -156,89 +253,88 @@ fn changed(before: Definition, after: Definition, compare: ChangedPart) -> Optio
     }
 }
 
-/// The items of `parts` whose shape `after` differs from `before` only by members added
-/// where no existing member moves for code to observe, each with the names of its members
-/// after. Every member before keeps its definition, and the variants and fields of an enum
-/// or struct their order among the others, which code cannot observe of a trait's items.
-fn grown(
+/// The items of `parts` whose shape `after` differs from `before` only in their members, each
+/// with its members at either end.
+fn framed(
     interner: &Interner,
     after: &HashMap<PathId, Definition>,
     before: &HashMap<PathId, Definition>,
     parts: &HashMap<PathId, ChangedPart>,
-) -> HashMap<PathId, HashSet<Sym>> {
-    let owners: HashSet<PathId> = parts
+) -> HashMap<PathId, Framed> {
+    let mut framed: HashMap<PathId, Framed> = parts
         .iter()
         .filter(|&(id, &part)| {
             let frame = after[id].frame;
             part == ChangedPart::Shape && frame != 0 && frame == before[id].frame
         })
-        .map(|(&id, _)| id)
+        .map(|(&id, _)| {
+            let segments = interner.segments(id);
+            let framed = Framed {
+                declaring: Box::from(&segments[..segments.len() - 1]),
+                ordered: interner.kind(id) != ItemKind::Trait,
+                fixed: before[&id].fixed_order || after[&id].fixed_order,
+                members: Vec::new(),
+            };
+            (id, framed)
+        })
         .collect();
-    if owners.is_empty() {
-        return HashMap::new();
+    if framed.is_empty() {
+        return framed;
     }
-    let members = |definitions: &HashMap<PathId, Definition>| {
-        let mut by_owner: HashMap<PathId, Vec<PathId>> = HashMap::new();
+    let mut slots: HashMap<PathId, Slot> = HashMap::new();
+    for (definitions, at_head) in [(before, false), (after, true)] {
         for (&id, definition) in definitions {
-            if let Some(owner) = interner.parent(id).filter(|owner| owners.contains(owner))
-                && is_member(interner.kind(owner), interner.kind(id), definition)
-            {
-                by_owner.entry(owner).or_default().push(id);
+            let Some(owner) = interner
+                .parent(id)
+                .filter(|owner| framed.contains_key(owner))
+            else {
+                continue;
+            };
+            let Some(member) = member(interner.kind(owner), interner.kind(id), definition) else {
+                continue;
+            };
+            let Some(&name) = interner.segments(id).last() else {
+                continue;
+            };
+            let slot = slots.entry(id).or_insert(Slot {
+                name,
+                then: None,
+                now: None,
+            });
+            if at_head {
+                slot.now = Some(member);
+            } else {
+                slot.then = Some(member);
             }
         }
-        by_owner
-    };
-    let (old, new) = (members(before), members(after));
-    new.into_iter()
-        .filter(|(owner, now)| {
-            let was = old.get(owner).map_or(&[][..], Vec::as_slice);
-            if interner.kind(*owner) == ItemKind::Trait {
-                return was.len() < now.len()
-                    && was.iter().all(|member| {
-                        after
-                            .get(member)
-                            .is_some_and(|now| now.shape == before[member].shape)
-                    });
-            }
-            let fixed = before[owner].fixed_order || after[owner].fixed_order;
-            let mut places = Vec::with_capacity(was.len());
-            for member in was {
-                let (Some(then), Some(now)) = (
-                    before[member].member,
-                    after.get(member).and_then(|now| now.member),
-                ) else {
-                    return false;
-                };
-                if then.shape != now.shape
-                    || then.place == 0
-                    || now.place == 0
-                    || fixed && then.place != now.place
-                {
-                    return false;
-                }
-                places.push((then.place, now.place));
-            }
-            places.sort_unstable();
-            was.len() < now.len() && places.is_sorted_by_key(|&(_, now)| now)
-        })
-        .map(|(owner, now)| {
-            let names = now
-                .iter()
-                .filter_map(|&member| interner.segments(member).last());
-            (owner, names.copied().collect())
-        })
-        .collect()
+    }
+    for (id, slot) in slots {
+        if let Some(owner) = interner.parent(id).and_then(|owner| framed.get_mut(&owner)) {
+            owner.members.push(slot);
+        }
+    }
+    for owner in framed.values_mut() {
+        owner
+            .members
+            .sort_unstable_by_key(|slot| slot.then.map_or(u32::MAX, |then| then.place));
+    }
+    framed
 }
 
-/// Whether the item of `kind` saying `definition` is a member of an owner of kind `owner`,
-/// whose addition alone leaves text naming the owner without its members true.
-fn is_member(owner: ItemKind, kind: ItemKind, definition: &Definition) -> bool {
+/// The item of kind `kind` saying `definition` as a member of an owner of kind `owner`, `None`
+/// unless it is one whose addition alone leaves text naming the owner without its members true.
+fn member(owner: ItemKind, kind: ItemKind, definition: &Definition) -> Option<Member> {
     match owner {
         ItemKind::Trait => matches!(
             kind,
             ItemKind::Method | ItemKind::AssociatedConst | ItemKind::AssociatedType
-        ),
-        _ => definition.member.is_some(),
+        )
+        .then_some(Member {
+            shape: definition.shape,
+            place: 0,
+            reach: Reach::Owner,
+        }),
+        _ => definition.member,
     }
 }
 

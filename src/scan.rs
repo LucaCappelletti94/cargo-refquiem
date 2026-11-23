@@ -9,7 +9,7 @@ use std::rc::Rc;
 use gix::ObjectId;
 
 use crate::cache::FileCache;
-use crate::changed::Changed;
+use crate::changed::{Changed, Seen};
 use crate::config::{self, Category, Config, Filter, load_custom};
 use crate::definition::Definition;
 use crate::deps::{self, Removal, Scratch};
@@ -1113,7 +1113,7 @@ fn find_mentions(
         };
         let mut carried = None;
         let module = head.file_modules.get(&file).map(Vec::as_slice);
-        let mut named = None;
+        let mut sections = Sections::new(matcher.interner, &read.mentions, &read.sections);
         for path in &read.mentions {
             let mention = |uppercase| {
                 let (line, column) = text::line_column(&starts, source, path.start);
@@ -1145,13 +1145,13 @@ fn find_mentions(
                 // rustdoc compiles these, so a change they no longer fit fails the doctest.
                 && path.context.kind != (Kind::CodeBlock { compiled: true })
                 && let Some(item) = matcher.changed(changed, path, is_rust, module)
-                && changed.grown(item).is_none_or(|members| {
-                    let named = named.get_or_insert_with(|| {
-                        section_names(matcher.interner, &read.mentions, &read.sections)
-                    });
-                    let at = section(&read.sections, path.start);
-                    named.get(&at).is_some_and(|names| !names.is_disjoint(members))
-                })
+                && match changed.seen(item, module) {
+                    Seen::Nothing => false,
+                    Seen::Grown(mut members) => sections
+                        .names_at(path.start)
+                        .is_some_and(|names| members.any(|member| names.contains(&member))),
+                    Seen::Changed => true,
+                }
             {
                 changed_mentions
                     .entry(item)
@@ -1165,6 +1165,34 @@ fn find_mentions(
         changed_mentions,
         markers,
     })
+}
+
+/// The names each section of a file spells, computed on first use.
+struct Sections<'r> {
+    interner: &'r Interner,
+    mentions: &'r [Spelled],
+    starts: &'r [usize],
+    names: Option<HashMap<usize, HashSet<Sym>>>,
+}
+
+impl<'r> Sections<'r> {
+    /// The sections of a file starting at `starts` and spelling `mentions`.
+    fn new(interner: &'r Interner, mentions: &'r [Spelled], starts: &'r [usize]) -> Self {
+        Self {
+            interner,
+            mentions,
+            starts,
+            names: None,
+        }
+    }
+
+    /// The names the section holding offset `at` spells.
+    fn names_at(&mut self, at: usize) -> Option<&HashSet<Sym>> {
+        let (interner, mentions, starts) = (self.interner, self.mentions, self.starts);
+        self.names
+            .get_or_insert_with(|| section_names(interner, mentions, starts))
+            .get(&section(starts, at))
+    }
 }
 
 /// The names each section of a file spells in `mentions`, keyed by [`section`], a path by its

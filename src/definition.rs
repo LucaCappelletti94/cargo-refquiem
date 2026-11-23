@@ -34,6 +34,47 @@ pub(crate) struct Member {
     /// Its position among its siblings counted from one, zero for a path declared at
     /// different positions.
     pub(crate) place: u32,
+    /// The modules that can name it.
+    pub(crate) reach: Reach,
+}
+
+/// The modules that can name a member, which text in any other module cannot describe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum Reach {
+    /// Every module reaching its owner, as for a `pub` field, a variant or a variant's field.
+    Owner,
+    /// The module this many levels above the one declaring its owner, and its descendants.
+    /// A private field reaches zero levels up, a `pub(super)` field one.
+    Up(u8),
+    /// The module of the owner's crate whose path below the crate root is this many leading
+    /// segments of the module declaring its owner, and its descendants. A `pub(crate)` field
+    /// reaches zero segments down.
+    Down(u8),
+}
+
+impl Reach {
+    /// The reach of a named field of a struct or union declared with `vis`.
+    pub(crate) fn of(vis: &Visibility) -> Self {
+        let restricted = match vis {
+            Visibility::Public(_) => return Self::Owner,
+            Visibility::Inherited => return Self::Up(0),
+            Visibility::Restricted(restricted) => &restricted.path,
+        };
+        let levels = |count: usize| u8::try_from(count).unwrap_or(u8::MAX);
+        let segments = &restricted.segments;
+        let is = |segment: &syn::PathSegment, keyword: &str| segment.ident == keyword;
+        if restricted.leading_colon.is_none()
+            && segments
+                .iter()
+                .all(|segment| is(segment, "self") || is(segment, "super"))
+        {
+            let supers = segments.iter().filter(|segment| is(segment, "super"));
+            return Self::Up(levels(supers.count()));
+        }
+        // The 2015 edition reads a path not starting at `crate` from the crate root too.
+        let rooted = segments.first().is_some_and(|segment| is(segment, "crate"));
+        Self::Down(levels(segments.len() - usize::from(rooted)))
+    }
 }
 
 impl Definition {
@@ -50,6 +91,11 @@ impl Definition {
                 (Some(one), Some(two)) => Some(Member {
                     shape: one.shape.wrapping_add(two.shape),
                     place: if one.place == two.place { one.place } else { 0 },
+                    reach: if one.reach == two.reach {
+                        one.reach
+                    } else {
+                        Reach::Owner
+                    },
                 }),
                 (one, two) => one.or(two),
             },
@@ -57,12 +103,13 @@ impl Definition {
         }
     }
 
-    /// The definition of a variant or named field saying `self` at `place`.
-    fn member(self, place: u32) -> Self {
+    /// The definition of a variant or named field saying `self` at `place`, reaching `reach`.
+    fn member(self, place: u32, reach: Reach) -> Self {
         Self {
             member: Some(Member {
                 shape: self.shape,
                 place,
+                reach,
             }),
             ..self
         }
@@ -187,11 +234,13 @@ impl Definer<'_> {
     }
 
     /// Each named field of a struct, union or variant with its definition, `close` being
-    /// the closing brace of the fields.
+    /// the closing brace of the fields and `reach` telling each field's reach from its
+    /// visibility.
     pub(crate) fn fields<'f>(
         &self,
         fields: &'f Punctuated<syn::Field, Token![,]>,
         close: Span,
+        reach: impl Fn(&Visibility) -> Reach,
     ) -> Vec<(&'f syn::Ident, Definition)> {
         fields
             .pairs()
@@ -203,7 +252,9 @@ impl Definer<'_> {
                     .punct()
                     .map_or(begin(close), |comma| begin(comma.spans[0]));
                 let range = (begin(ident.span()), stop);
-                let definition = self.shaped(&field.attrs, range, &[]).member(place);
+                let definition = self
+                    .shaped(&field.attrs, range, &[])
+                    .member(place, reach(&field.vis));
                 Some((ident, definition))
             })
             .collect()
@@ -226,7 +277,9 @@ impl Definer<'_> {
                 let mut holes = Vec::new();
                 field_holes(&variant.fields, &mut holes);
                 let range = (begin(variant.ident.span()), stop);
-                let definition = self.shaped(&variant.attrs, range, &holes).member(place);
+                let definition = self
+                    .shaped(&variant.attrs, range, &holes)
+                    .member(place, Reach::Owner);
                 (&variant.ident, definition)
             })
             .collect()
@@ -530,7 +583,7 @@ impl Fnv {
 mod tests {
     use crate::parse::parse;
 
-    use super::Definition;
+    use super::{Definition, Reach};
 
     /// The definition the parser records for the declaration at `path` in `source`.
     fn definition(source: &str, path: &[&str]) -> Definition {
@@ -574,6 +627,28 @@ mod tests {
             &["S"],
         );
         assert_eq!(before, after);
+    }
+
+    #[test]
+    fn a_field_reaches_the_modules_its_visibility_names() {
+        let reach = |source: &str, path: &[&str]| definition(source, path).member.unwrap().reach;
+        for (vis, expected) in [
+            ("pub", Reach::Owner),
+            ("", Reach::Up(0)),
+            ("pub(self)", Reach::Up(0)),
+            ("pub(super)", Reach::Up(1)),
+            ("pub(in super::super)", Reach::Up(2)),
+            ("pub(crate)", Reach::Down(0)),
+            ("pub(in crate::a::b)", Reach::Down(2)),
+            ("pub(in a)", Reach::Down(1)),
+        ] {
+            let source = format!("pub struct S {{ {vis} a: u32 }}");
+            assert_eq!(reach(&source, &["S", "a"]), expected, "{vis:?}");
+        }
+        assert_eq!(
+            reach("pub enum E { V { a: u32 } }", &["E", "V", "a"]),
+            Reach::Owner
+        );
     }
 
     #[test]

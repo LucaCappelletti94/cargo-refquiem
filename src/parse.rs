@@ -6,7 +6,7 @@ use syn::parse::{ParseStream, Parser};
 use syn::visit::Visit;
 use syn::{Attribute, Fields, ImplItem, Item, TraitItem, Type, UseTree, Visibility};
 
-use crate::definition::{Definer, Definition};
+use crate::definition::{Definer, Definition, Reach};
 use crate::{HashSet, ItemKind, serde_names::Container};
 
 /// The segment before a serialized spelling in a path, which no identifier can spell.
@@ -323,7 +323,7 @@ impl Collector<'_> {
                     let definition = self.definer().structure(item);
                     self.define(&[&name], ItemKind::Struct, definition);
                     if let Fields::Named(fields) = &item.fields {
-                        self.define_fields(&[&name], fields);
+                        self.define_fields(&[&name], fields, Reach::of);
                     }
                     self.applied(&item.attrs, &item.ident, ItemKind::Struct);
                     self.generics(&item.generics);
@@ -349,7 +349,7 @@ impl Collector<'_> {
                     self.owner(&name, ItemKind::Union, &item.vis, fields, line(&item.ident));
                     let definition = self.definer().union(item);
                     self.define(&[&name], ItemKind::Union, definition);
-                    self.define_fields(&[&name], &item.fields);
+                    self.define_fields(&[&name], &item.fields, Reach::of);
                     self.applied(&item.attrs, &item.ident, ItemKind::Union);
                     self.generics(&item.generics);
                 }
@@ -456,10 +456,16 @@ impl Collector<'_> {
         }
     }
 
-    /// Records the definition of each of `fields` below the owner `names`.
-    fn define_fields(&mut self, names: &[&str], fields: &syn::FieldsNamed) {
+    /// Records the definition of each of `fields` below the owner `names`, `reach` telling
+    /// each field's reach from its visibility.
+    fn define_fields(
+        &mut self,
+        names: &[&str],
+        fields: &syn::FieldsNamed,
+        reach: impl Fn(&Visibility) -> Reach,
+    ) {
         let close = fields.brace_token.span.close();
-        for (ident, definition) in self.definer().fields(&fields.named, close) {
+        for (ident, definition) in self.definer().fields(&fields.named, close, reach) {
             let field = ident.to_string();
             let mut path = names.to_vec();
             path.push(&field);
@@ -617,7 +623,8 @@ impl Collector<'_> {
                     line(ident),
                 );
             }
-            self.define_fields(&[&name, &variant_name], fields);
+            // A variant's fields reach wherever its enum does.
+            self.define_fields(&[&name, &variant_name], fields, |_| Reach::Owner);
         }
     }
 
