@@ -651,6 +651,63 @@ fn an_added_field_beside_a_changed_accessor_sharing_a_field_name_is_still_an_add
     );
 }
 
+/// What the scan reports after the `Config` of module `config` goes from `fields` to `now`,
+/// where the sibling module `setup` and the child module `config::defaults` both name
+/// `Config` beside `port` in a doc comment.
+fn beside_a_port(fields: &str, now: &str) -> Vec<(String, String, usize)> {
+    let config = |fields: &str| format!("pub mod defaults;\n\npub struct Config {{\n{fields}}}\n");
+    let doc = "/// Builds a [`Config`](crate::config::Config) listening on its `port`.\npub fn build() {}\n";
+    let repo = Repo::new();
+    repo.write("src/lib.rs", "pub mod config;\npub mod setup;\n");
+    repo.write("src/config.rs", &config(fields));
+    repo.write("src/config/defaults.rs", doc);
+    repo.write("src/setup.rs", doc);
+    let base = repo.commit("config");
+    repo.write("src/config.rs", &config(now));
+    repo.commit(now);
+    lines(&scan(&repo, &base))
+}
+
+#[test]
+fn a_field_hidden_from_a_mentions_module_leaves_the_definition_unchanged_there() {
+    let name = "    pub name: String,\n";
+    let (child, sibling) = ("src/config/defaults.rs", "src/setup.rs");
+    for (fields, now, files) in [
+        (
+            name.to_owned(),
+            format!("{name}    port: u16,\n"),
+            &[child][..],
+        ),
+        (
+            format!("{name}    port: u16,\n"),
+            format!("{name}    port: u32,\n"),
+            &[child],
+        ),
+        (
+            name.to_owned(),
+            format!("{name}    pub(crate) port: u16,\n"),
+            &[child, sibling],
+        ),
+        (
+            name.to_owned(),
+            format!("{name}    pub(super) port: u16,\n"),
+            &[child, sibling],
+        ),
+    ] {
+        // The link's text and its destination each name `Config`.
+        let reported: Vec<_> = files
+            .iter()
+            .flat_map(|&file| {
+                std::iter::repeat_n(
+                    ("fixture::config::Config".to_owned(), file.to_owned(), 1),
+                    2,
+                )
+            })
+            .collect();
+        assert_eq!(beside_a_port(&fields, &now), reported, "{now:?}");
+    }
+}
+
 #[test]
 fn a_compiled_doctest_naming_a_changed_item_is_left_to_rustdoc() {
     let (repo, _) = protocol();
