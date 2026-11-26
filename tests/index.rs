@@ -121,6 +121,26 @@ fn items_of_a_removed_extern_block_are_reported() {
 }
 
 #[test]
+fn a_removed_diesel_sql_function_binding_is_headlined_as_one() {
+    let repo = Repo::new();
+    repo.write(
+        "src/lib.rs",
+        "#[declare_sql_function]\nextern \"SQL\" {\n    pub fn pg_lower(text: Text) -> Text;\n}\n",
+    );
+    repo.commit("binding");
+    repo.write("src/lib.rs", "");
+    repo.write("README.md", "Call `pg_lower` first.\n");
+    repo.commit("drop the binding");
+
+    let json = run(&repo).json();
+
+    assert!(
+        json.contains("\"headline\":\"`fixture::pg_lower` (SQL function binding), deleted in "),
+        "{json}"
+    );
+}
+
+#[test]
 fn trait_members_are_reported_and_a_trait_macro_keeps_its_names_alive() {
     let repo = Repo::new();
     repo.write(
